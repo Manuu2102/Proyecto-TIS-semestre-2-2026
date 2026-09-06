@@ -1,0 +1,29 @@
+# Dependencias
+node_modules/
+.npm/
+.pnpm-store/
+
+# Variables de entorno
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+logs/
+
+# Build
+dist/
+build/
+.next/
+
+# Docker
+*.pid
+
+# IDE
+.vscode/
+.idea/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
