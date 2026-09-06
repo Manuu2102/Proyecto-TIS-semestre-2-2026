@@ -390,3 +390,9 @@ Esperar la revisión y validación correspondiente antes de realizar el merge.
 ### 📄 Licencia
 
 Pendiente de definición.
+
+---
+
+## 🧪 Prueba Git Flow
+
+Repositorio configurado correctamente para el flujo de trabajo basado en ramas.
