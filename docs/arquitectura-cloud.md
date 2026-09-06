@@ -16,6 +16,7 @@ reproducible y escalable.
 
 ## Arquitectura
 
+```text
 GitHub
    |
    v
@@ -36,6 +37,8 @@ PostgreSQL
    |
    v
 Backups
+
+```
 
 ## Ambientes
 
