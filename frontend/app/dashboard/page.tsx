@@ -90,7 +90,7 @@ export default function DashboardPage() {
             </h1>
           </div>
           <p className="text-sm text-[#5F5E5A] leading-relaxed">
-            Sesión validada correctamente. Estás viendo únicamente las
+            Sesion validada correctamente. Estás viendo únicamente las
             funcionalidades habilitadas para tu rol. Al cerrar sesión, este
             acceso queda invalidado de inmediato.
           </p>
