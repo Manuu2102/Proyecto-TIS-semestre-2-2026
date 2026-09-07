@@ -89,6 +89,8 @@ Ambiente destinado a la versión estable y funcional del sistema.
 
 - El flujo previsto será:
 
+```text  
+
 Desarrollo
     ↓
 Feature Branch
@@ -106,6 +108,8 @@ Validación
 Main
     ↓
 Producción
+
+```
 
 ---
 
@@ -148,11 +152,13 @@ DATABASE_URL=your_database_url
 - Las variables reales no deberán ser almacenadas en el repositorio.
 
 4. Ejecutar Backend
+
 pnpm --filter backend dev
 
 - El backend estará disponible en:
 
 http://localhost:5000
+
 5. Ejecutar Frontend
 
 - En otra terminal:
@@ -162,6 +168,7 @@ pnpm --filter frontend dev
 - El frontend estará disponible en:
 
 http://localhost:3000
+
 6. Ejecutar el proyecto completo
 pnpm dev
 
@@ -213,6 +220,7 @@ Ramas principales
 - develop: rama de integración de funcionalidades.
 - feature/*: ramas utilizadas para desarrollar funcionalidades específicas.
 Flujo de trabajo:
+```text
 
 feature/*
      ↓
@@ -225,6 +233,8 @@ Validación / pruebas
 main
      ↓
 Producción
+
+```
 
 - Ejemplos de ramas:
 
