@@ -7,16 +7,11 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-   const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
     if (!usuario || !password) {
       setError("Completa usuario y contraseña.");
-      return;
-    }
-
-    if (usuario !== "admin@edificio.com" || password !== "12345678") {
-      setError("Usuario o contraseña incorrectos.");
       return;
     }
 
