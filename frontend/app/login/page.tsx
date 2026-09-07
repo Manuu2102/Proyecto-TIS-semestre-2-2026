@@ -1,8 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
+  const router = useRouter();
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -15,7 +17,16 @@ export default function LoginPage() {
       return;
     }
 
+    if (usuario !== "admin@edificio.com" || password !== "12345678") {
+      setError("Usuario o contraseña incorrectos.");
+      return;
+    }
+
     setError("");
+    sessionStorage.setItem("sesionActiva", "true");
+    sessionStorage.setItem("nombreUsuario", "Rodrigo Quispe");
+    sessionStorage.setItem("rolUsuario", "Administrador");
+    router.push("/dashboard");
   };
 
   return (
