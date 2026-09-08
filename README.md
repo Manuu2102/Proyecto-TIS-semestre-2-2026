@@ -1,398 +1,114 @@
-# Sistema de Gestión de Edificio
+<p align="center">
+  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
+</p>
 
-## 📌 Descripción General
+[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
+[circleci-url]: https://circleci.com/gh/nestjs/nest
 
-Sistema destinado a la gestión de las operaciones administrativas y servicios de un edificio.
+  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
+    <p align="center">
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
+<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
+<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
+<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
+<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
+<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
+  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
+    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
+  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
+</p>
+  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
+  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
 
-El sistema permitirá gestionar información relacionada con usuarios, residentes y diferentes procesos administrativos, proporcionando una plataforma centralizada, segura y de fácil utilización.
+## Description
 
-El proyecto se plantea bajo una arquitectura modular y desacoplada, con una separación clara entre frontend, backend e infraestructura.
+[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
 
----
+## Project setup
 
-## 🎯 Objetivo del Proyecto
-
-Construir una plataforma para facilitar la gestión interna de un edificio, centralizando la administración de usuarios, información y servicios relacionados con los residentes y la administración.
-
-Entre las funcionalidades previstas se encuentran:
-
-- Gestión de usuarios.
-- Autenticación y autorización.
-- Gestión de información de residentes y copropietarios.
-- Gestión de procesos administrativos.
-- Consulta y administración de información del edificio.
-
----
-
-## 🏗️ Arquitectura
-
-El proyecto seguirá un enfoque **monorepo**, con una separación clara de responsabilidades:
-
-- **Frontend:** Next.js, React y TypeScript.
-- **Backend:** API REST utilizando Node.js y TypeScript.
-- **Base de datos:** PostgreSQL.
-- **Infraestructura:** Docker, GitHub Actions y DigitalOcean.
-
-La infraestructura DevOps será implementada progresivamente durante el desarrollo del proyecto, incorporando integración continua, despliegue automatizado, ambientes de Staging y Producción, respaldos y medidas básicas de seguridad.
-
----
-
-## 📂 Estructura del Proyecto
-
-```text
-.
-├── backend/                # API y lógica de negocio
-├── frontend/               # Aplicación frontend
-├── docker/                 # Archivos relacionados con contenedores
-├── docs/                   # Documentación técnica
-└── .github/
-    └── workflows/          # Pipelines CI/CD
-
-La estructura podrá ampliarse conforme se incorporen nuevos componentes al sistema.
-
+```bash
+$ npm install
 ```
----
 
-## 🛠️ Tecnologías
- **Desarrollo**
-   Node.js
-   TypeScript
-   Next.js
-   React
-   PostgreSQL
- **DevOps e Infraestructura** 
-   Git
-   GitHub
-   Docker
-   GitHub Actions
-   DigitalOcean
- **Pruebas** 
- Postman
+## Compile and run the project
 
----
+```bash
+# development
+$ npm run start
 
-## 🌎 Ambientes
+# watch mode
+$ npm run start:dev
 
-El proyecto contempla tres ambientes principales:
+# production mode
+$ npm run start:prod
+```
 
-- Desarrollo
+## Run tests
 
-Ambiente utilizado por los desarrolladores para implementar y probar funcionalidades localmente.
+```bash
+# unit tests
+$ npm run test
 
-- Staging
+# e2e tests
+$ npm run test:e2e
 
-Ambiente de pruebas destinado a validar las funcionalidades integradas antes de su publicación en Producción.
+# test coverage
+$ npm run test:cov
+```
 
-- Producción
+## Deployment
 
-Ambiente destinado a la versión estable y funcional del sistema.
+When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
 
-- El flujo previsto será:
+If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
 
-Desarrollo
-    ↓
-Feature Branch
-    ↓
-Pull Request
-    ↓
-Develop
-    ↓
-CI/CD
-    ↓
-Staging
-    ↓
-Validación
-    ↓
-Main
-    ↓
-Producción
+```bash
+$ npm install -g @nestjs/mau
+$ mau deploy
+```
 
----
+With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
 
-## ⚙️ Requisitos
+## Observability
 
-- Para trabajar con el proyecto se requerirá:
+In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
 
-Node.js
-pnpm
-Git
-Docker
+[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
 
-Las versiones específicas de Node.js y pnpm serán definidas por el equipo al establecer la configuración definitiva del proyecto.
+- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
+- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
+- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
+- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
+- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
+- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
+- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
+- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
 
-- Instalar pnpm
-npm install -g pnpm
+## Resources
 
----
+Check out a few resources that may come in handy when working with NestJS:
 
-### 🚀 Ejecución Local
+- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
+- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
+- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
+- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
+- Auto-instrument your application with [NestJS Observer](https://observer.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
+- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
+- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
+- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
+- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
 
-1. Clonar el repositorio
-git clone <repo-url>
+## Support
 
-cd <repo>
-2. Instalar dependencias
-pnpm install
-3. Configurar variables de entorno
+Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
 
-- Crear el archivo:
+## Stay in touch
 
-backend/.env
+- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
+- Website - [https://nestjs.com](https://nestjs.com/)
+- Twitter - [@nestframework](https://twitter.com/nestframework)
 
-- Ejemplo:
+## License
 
-PORT=5000
-JWT_SECRET=your_secret_key
-DATABASE_URL=your_database_url
-
-- Las variables reales no deberán ser almacenadas en el repositorio.
-
-4. Ejecutar Backend
-pnpm --filter backend dev
-
-- El backend estará disponible en:
-
-http://localhost:5000
-5. Ejecutar Frontend
-
-- En otra terminal:
-
-pnpm --filter frontend dev
-
-- El frontend estará disponible en:
-
-http://localhost:3000
-6. Ejecutar el proyecto completo
-pnpm dev
-
-- Los comandos anteriores estarán disponibles una vez que la estructura del monorepo y los respectivos proyectos hayan sido configurados.
-
----
-
-### 🐳 Docker
-
-Docker será utilizado para empaquetar y ejecutar los servicios de la aplicación de manera consistente entre los diferentes ambientes.
-
-La configuración se implementará progresivamente durante el desarrollo del proyecto.
-
-Para ejecutar los servicios mediante Docker:
-
-docker compose up --build
-
-Para detener los servicios:
-
-docker compose down
-
----
-
-### 🔄 CI/CD
-
-Se implementará un pipeline mediante GitHub Actions para automatizar progresivamente el proceso de integración y despliegue.
-
-El pipeline contemplará:
-
-Validación del código.
-Instalación de dependencias.
-Ejecución de pruebas.
-Construcción de la aplicación.
-Construcción de imágenes Docker.
-Despliegue al ambiente de Staging.
-Validación del entorno.
-Posterior despliegue a Producción.
-
-La implementación del pipeline será desarrollada durante las etapas correspondientes de la planificación DevOps.
-
----
-
-### 🌿 Estrategia de Ramas
-
-Se utilizará una estrategia Git Flow simplificada.
-
-Ramas principales
-- main: contiene las versiones estables destinadas a Producción.
-- develop: rama de integración de funcionalidades.
-- feature/*: ramas utilizadas para desarrollar funcionalidades específicas.
-Flujo de trabajo:
-
-feature/*
-     ↓
-Pull Request
-     ↓
-develop
-     ↓
-Validación / pruebas
-     ↓
-main
-     ↓
-Producción
-
-- Ejemplos de ramas:
-
-feature/login
-feature/usuarios
-feature/copropietarios
-feature/pagos
-feature/reportes
-
-- Reglas: 
-No realizar modificaciones directamente sobre main.
-Utilizar Pull Requests para integrar cambios.
-Crear las ramas feature/* a partir de develop.
-Mantener las ramas enfocadas en una funcionalidad específica.
-Validar los cambios antes de integrarlos en main.
-Las modificaciones destinadas a Producción deberán haber sido previamente validadas en Staging.
-
----
-
-### 📝 Convención de Commits
-
-Se utilizará una convención de commits descriptiva:
-
-- feat: nueva funcionalidad
-- fix: corrección de errores
-- chore: tareas de configuración o mantenimiento
-- docs: actualización de documentación
-- refactor: modificación interna del código
-- test: incorporación o modificación de pruebas
-- ci: cambios relacionados con CI/CD
-
-- Ejemplos:
-
-feat: implementar autenticacion de usuarios
-
-fix: corregir validacion de contrasena
-
-docs: actualizar arquitectura cloud
-
-ci: agregar workflow de validacion
-
-chore: configurar docker
-
-Se recomienda mantener los commits pequeños, relacionados con un único cambio y con mensajes descriptivos.
-
----
-
-### 📦 Buenas Prácticas
-
-Mantener commits pequeños y relacionados con un único cambio.
-Utilizar mensajes de commit descriptivos.
-No mezclar funcionalidades diferentes en un mismo commit.
-Utilizar Pull Requests para integrar cambios.
-Mantener separadas las responsabilidades del frontend y backend.
-Mantener la documentación técnica actualizada.
-Validar los cambios en Staging antes de llevarlos a Producción.
-No modificar directamente las configuraciones críticas de Producción.
-Realizar los cambios importantes de infraestructura mediante Pull Requests.
-
----
-
-### 🔐 Seguridad
-
-No subir archivos .env al repositorio.
-No almacenar contraseñas, tokens o claves directamente en el código.
-Utilizar variables de entorno para configuraciones sensibles.
-Utilizar Secrets de GitHub para credenciales utilizadas por CI/CD.
-No almacenar credenciales de Producción dentro del repositorio.
-Revisar los scripts antes de ejecutarlos.
-Mantener separadas las credenciales de Desarrollo, Staging y Producción.
-
----
-
-### ☁️ Infraestructura Cloud
-
-La infraestructura Cloud propuesta contempla:
-
-                    INTERNET
-                        │
-                        ▼
-                   ┌─────────┐
-                   │ GitHub  │
-                   └────┬────┘
-                        │
-                     CI/CD
-                        │
-                        ▼
-                ┌──────────────┐
-                │    Docker    │
-                └──────┬───────┘
-                       │
-                       ▼
-                ┌──────────────┐
-                │ DigitalOcean │
-                └──────┬───────┘
-                       │
-              ┌────────┴────────┐
-              ▼                 ▼
-          STAGING          PRODUCCIÓN
-              │                 │
-              └────────┬────────┘
-                       ▼
-                 PostgreSQL
-                       │
-                       ▼
-                    Backups
-
-La implementación de esta infraestructura será realizada progresivamente durante el semestre.
-
----
-
-### 📚 Documentación Técnica
-
-La documentación específica de DevOps estará organizada en:
-
-docs/arquitectura-cloud.md → Arquitectura de infraestructura Cloud.
-docs/git-flow.md → Estrategia de ramas y flujo de trabajo.
-.github/workflows/ → Configuración de los pipelines CI/CD.
-
----
-
-### 🚧 Estado del Proyecto
-
-Estado: En desarrollo.
-
-Estado de infraestructura DevOps
- Repositorio GitHub
- Estructura inicial del repositorio
- Estrategia Git Flow
- Diseño de arquitectura Cloud
- Pipeline CI/CD
- Ambiente Staging
- Despliegue Cloud
- Backups de la base de datos
- Backups automatizados
- SSL/HTTPS
- Despliegue a Producción
-
-Los elementos pendientes serán implementados de acuerdo con la planificación semestral del rol DevOps.
-
----
-
-### 👥 Contribución
-
-Para contribuir al proyecto:
-
-Actualizar la rama develop.
-git checkout develop
-git pull origin develop
-Crear una rama para la funcionalidad:
-git checkout -b feature/nombre-funcionalidad
-Implementar los cambios.
-Realizar un commit descriptivo:
-git add .
-git commit -m "feat: descripcion del cambio"
-Subir la rama:
-git push -u origin feature/nombre-funcionalidad
-Crear un Pull Request hacia develop.
-Esperar la revisión y validación correspondiente antes de realizar el merge.
-
----
-
-### 📄 Licencia
-
-Pendiente de definición.
-
----
-
-## 🧪 Prueba Git Flow
-
-Repositorio configurado correctamente para el flujo de trabajo basado en ramas.
+Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
