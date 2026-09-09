@@ -32,7 +32,7 @@ La arquitectura contempla los siguientes componentes:
 
 | Componente | Tecnología | Función |
 |---|---|---|
-| Frontend |	React + Vite + TypeScript |	Interfaz de usuario |
+| Frontend |	Next.js + React + TypeScript |	Interfaz de usuario |
 | Estilos |	Tailwind CSS |	Diseño de la interfaz |
 | Backend |	NestJS + TypeScript |	API y lógica de negocio |
 | ORM	| Prisma 7 |	Acceso a la base de datos |
@@ -72,7 +72,7 @@ Diagrama general:
                  │          DIGITALOCEAN           │
                  │                                 │
                  │          FRONTEND               │
-                 │   React + Vite + TypeScript     │
+                 │  Next.js + React + TypeScript   │
                  │          + Tailwind             │
                  │                                 │
                  │             Docker              │
@@ -117,7 +117,7 @@ Diagrama general:
 
 ## 5. Frontend
 
-El frontend será desarrollado utilizando React, Vite y TypeScript, utilizando Tailwind CSS para la construcción de la interfaz.
+El frontend será desarrollado utilizando Next.js, React y TypeScript, utilizando Tailwind CSS para la construcción de la interfaz.
 
 Su función es proporcionar la interfaz de usuario y comunicarse con el backend mediante solicitudes HTTP/HTTPS.
 
