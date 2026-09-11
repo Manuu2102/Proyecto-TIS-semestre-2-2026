@@ -124,7 +124,7 @@ const handleSubmit = async (e: React.FormEvent) => {
 
             <button
               type="submit"
-              className="w-full h-11 rounded-md bg-[#C13333] text-[#FAECE7] font-bold"
+              className="w-full h-11 rounded-md bg-[#C13333] hover:bg-[#A82A2A] text-[#FAECE7] font-bold transition-colors duration-200"
             >
               Ingresar
             </button>
