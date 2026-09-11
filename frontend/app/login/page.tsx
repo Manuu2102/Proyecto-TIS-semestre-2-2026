@@ -19,9 +19,9 @@ const handleSubmit = async (e: React.FormEvent) => {
   }
 
   if (password.length < 8) {
-  setError("La contraseña debe tener al menos 8 caracteres.");
-  return;
-}
+    setError("La contraseña debe tener al menos 8 caracteres.");
+    return;
+  }
 
   try {
     const response = await fetch("http://localhost:3001/auth/login", {
