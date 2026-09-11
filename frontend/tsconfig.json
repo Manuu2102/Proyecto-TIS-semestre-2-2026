@@ -19,7 +19,11 @@
       }
     ],
     "paths": {
+<<<<<<< HEAD
       "@/*": ["./src/*"]
+=======
+      "@/*": ["./*"]
+>>>>>>> origin/feature/login
     }
   },
   "include": [
