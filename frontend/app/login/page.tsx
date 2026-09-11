@@ -19,18 +19,19 @@ const handleSubmit = async (e: React.FormEvent) => {
   }
 
   try {
-    const response = await fetch("http://localhost:3000/auth/login", {
+    const response = await fetch("http://localhost:3001/auth/login", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        usuario,
-        password,
+        user_name: usuario,
+        password: password,
       }),
     });
 
     const data = await response.json();
+    console.log("Respuesta del backend:", data);
 
     if (!response.ok) {
       setError(data.message || "Usuario o contraseña incorrectos.");
@@ -39,8 +40,8 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     sessionStorage.setItem("sesionActiva", "true");
     sessionStorage.setItem("token", data.access_token);
-    sessionStorage.setItem("nombreUsuario", data.usuario.nombre);
-    sessionStorage.setItem("rolUsuario", data.usuario.rol);
+    //sessionStorage.setItem("nombreUsuario", data.usuario.nombre);
+    //sessionStorage.setItem("rolUsuario", data.usuario.rol);
 
     router.push("/dashboard");
   } catch {
