@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,234 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model app_user {
+  id        BigInt   @id @default(autoincrement())
+  user_name String   @unique @db.VarChar(100)
+  password  String   @db.VarChar(255)
+  usuario   usuario?
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model baulera {
+  id                   BigInt                 @id @default(autoincrement())
+  numero               Int
+  piso                 Int
+  departamento_baulera departamento_baulera[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model departamento {
+  id                   BigInt                 @id @default(autoincrement())
+  numero               Int
+  piso                 Int
+  habitaciones         Int
+  banos                Int
+  superficie_m2        Int
+  precio               Decimal                @db.Decimal(12, 2)
+  estatus              Boolean
+  amueblado            Boolean
+  descripcion          String                 @db.VarChar(255)
+  libre                Boolean
+  departamento_baulera departamento_baulera[]
+  departamento_parqueo departamento_parqueo[]
+  departamento_usuario departamento_usuario[]
+  expensa              expensa[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model departamento_baulera {
+  id_baulera      BigInt
+  id_departamento BigInt
+  baulera         baulera      @relation(fields: [id_baulera], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_baulera_foreign")
+  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_departamento_foreign")
+
+  @@id([id_departamento, id_baulera])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model departamento_parqueo {
+  id_parqueo      BigInt
+  id_departamento BigInt
+  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_departamento_foreign")
+  parqueo         parqueo      @relation(fields: [id_parqueo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_parqueo_foreign")
+
+  @@id([id_departamento, id_parqueo])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model departamento_usuario {
+  id_copropietario    BigInt
+  id_departamento     BigInt
+  fecha_ocupacion     DateTime     @db.Date
+  fecha_fin_ocupacion DateTime?    @db.Date
+  estatus             Boolean
+  usuario             usuario      @relation(fields: [id_copropietario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_copropietario_foreign")
+  departamento        departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_departamento_foreign")
+
+  @@id([id_departamento, id_copropietario])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model documento {
+  id             BigInt         @id @default(autoincrement())
+  id_tipo        BigInt
+  descripcion    String         @db.VarChar(255)
+  tipo_documento tipo_documento @relation(fields: [id_tipo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "documento_id_tipo_foreign")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model edificio {
+  id                   BigInt @id @default(autoincrement())
+  numero_pisos         Int
+  nombre               String @db.VarChar(100)
+  logo                 String
+  ubicacion            String
+  nros_departamento    Int
+  nros_estacionamiento Int
+  nros_baulera         Int
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model expensa {
+  id              BigInt         @id @default(autoincrement())
+  id_departamento BigInt
+  nombre          String         @db.VarChar(100)
+  periodo         DateTime       @db.Date
+  monto           Decimal        @db.Decimal(12, 2)
+  departamento    departamento   @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "expensa_id_departamento_foreign")
+  pago_expensa    pago_expensa[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model funciones {
+  id          BigInt        @id @default(autoincrement())
+  nombre      String        @db.VarChar(100)
+  status      Boolean
+  rol_funcion rol_funcion[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model historial_personal {
+  id           BigInt    @id @default(autoincrement())
+  id_personal  BigInt
+  fecha_inicio DateTime  @db.Date
+  fecha_fin    DateTime? @db.Date
+  personal     personal  @relation(fields: [id_personal], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "historial_personal_id_personal_foreign")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pago_expensa {
+  id_usuario      BigInt
+  id_expensa      BigInt
+  fecha_pago      DateTime @db.Date
+  pago_anticipado Boolean
+  fecha_cubierta  DateTime @db.Date
+  expensa         expensa  @relation(fields: [id_expensa], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_expensa_id_expensa_foreign")
+  usuario         usuario  @relation(fields: [id_usuario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_expensa_id_usuario_foreign")
+
+  @@id([id_usuario, id_expensa])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pago_personal {
+  id           BigInt    @id @default(autoincrement())
+  id_personal  BigInt
+  monto        Decimal   @db.Decimal(10, 2)
+  id_tipo_pago BigInt
+  personal     personal  @relation(fields: [id_personal], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_personal_foreign")
+  tipo_pago    tipo_pago @relation(fields: [id_tipo_pago], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_tipo_pago_foreign")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model parqueo {
+  id                   BigInt                 @id @default(autoincrement())
+  numero               Int
+  piso                 Int
+  discapacitados       Boolean
+  departamento_parqueo departamento_parqueo[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model personal {
+  id                 BigInt               @id @default(autoincrement())
+  nombre             String               @db.VarChar(255)
+  sexo               String               @db.VarChar(1)
+  ci                 BigInt               @unique
+  apellido_materno   String?              @db.VarChar(255)
+  apellido_paterno   String               @db.VarChar(255)
+  fecha_nacimiento   DateTime             @db.Date
+  email              String               @unique @db.VarChar(255)
+  estatus            Boolean
+  fecha_inicio       DateTime             @db.Date
+  salario            Decimal              @db.Decimal(8, 2)
+  historial_personal historial_personal[]
+  pago_personal      pago_personal[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model rol {
+  id          BigInt        @id @default(autoincrement())
+  nombre_rol  String        @db.VarChar(100)
+  status      Boolean
+  rol_funcion rol_funcion[]
+  rol_usuario rol_usuario[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model rol_funcion {
+  id_rol     BigInt
+  id_funcion BigInt
+  funciones  funciones @relation(fields: [id_funcion], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "rol_funcion_id_funcion_foreign")
+  rol        rol       @relation(fields: [id_rol], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "rol_funcion_id_rol_foreign")
+
+  @@id([id_rol, id_funcion])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model rol_usuario {
+  id_rol     BigInt
+  id_usuario BigInt
+  rol        rol     @relation(fields: [id_rol], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "rol_usuario_id_rol_foreign")
+  usuario    usuario @relation(fields: [id_usuario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "rol_usuario_id_usuario_foreign")
+
+  @@id([id_rol, id_usuario])
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tipo_documento {
+  id        BigInt      @id @default(autoincrement())
+  nombre    String      @db.VarChar(100)
+  documento documento[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tipo_pago {
+  id            BigInt          @id @default(autoincrement())
+  nombre        String          @db.VarChar(100)
+  pago_personal pago_personal[]
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model usuario {
+  id                   BigInt                 @id @default(autoincrement())
+  ci                   BigInt                 @unique
+  nombres              String                 @db.VarChar(20)
+  apellido_materno     String?                @db.VarChar(20)
+  apellido_paterno     String                 @db.VarChar(20)
+  sexo                 String                 @db.VarChar(1)
+  fecha_de_nacimiento  DateTime               @db.Date
+  id_user              BigInt                 @unique
+  email                String                 @unique @db.VarChar(100)
+  estatus              Boolean
+  fecha_de_registro    DateTime               @db.Date
+  telefono             String                 @db.VarChar(20)
+  created_at           DateTime               @default(now()) @db.Timestamp(6)
+  updated_at           DateTime               @default(now()) @db.Timestamp(6)
+  departamento_usuario departamento_usuario[]
+  pago_expensa         pago_expensa[]
+  rol_usuario          rol_usuario[]
+  app_user             app_user               @relation(fields: [id_user], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "usuario_id_user_foreign")
 }
