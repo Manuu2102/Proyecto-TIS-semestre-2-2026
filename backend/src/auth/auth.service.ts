@@ -9,31 +9,29 @@ export class AuthService {
   constructor(
     private prisma: PrismaService,
     private jwtService: JwtService,
-  ) {}
+  ){}
 
-  async login(user_name: string, password: string) {
-
-    const user = await this.prisma.app_user.findUnique({
+  async login(identificador: string, password: string) {
+    const user = await this.prisma.app_user.findFirst({
       where: {
-        user_name,
+        OR: [
+          { user_name: identificador },
+          { usuario: { email: identificador } },
+        ],
+      },
+      include: {
+        usuario: true,
       },
     });
 
     if (!user) {
-      throw new UnauthorizedException(
-        'Usuario o contraseña incorrectos',
-      );
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
     }
 
-    const passwordCorrect = await bcrypt.compare(
-      password,
-      user.password,
-    );
+    const passwordCorrect = await bcrypt.compare(password, user.password);
 
     if (!passwordCorrect) {
-      throw new UnauthorizedException(
-        'Usuario o contraseña incorrectos',
-      );
+      throw new UnauthorizedException('Usuario o contraseña incorrectos');
     }
 
     const payload = {
@@ -45,6 +43,10 @@ export class AuthService {
 
     return {
       access_token: token,
+      usuario: {
+        nombre: user.usuario?.nombres,
+        // rol: pendiente — ver nota abajo
+      },
     };
   }
 }
