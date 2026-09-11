@@ -3,31 +3,50 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+
 export default function LoginPage() {
   const router = useRouter();
   const [usuario, setUsuario] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
 
-    if (!usuario || !password) {
-      setError("Completa usuario y contraseña.");
+  if (!usuario || !password) {
+    setError("Completa usuario y contraseña.");
+    return;
+  }
+
+  try {
+    const response = await fetch("http://localhost:3000/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        usuario,
+        password,
+      }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setError(data.message || "Usuario o contraseña incorrectos.");
       return;
     }
 
-    if (usuario !== "admin@edificio.com" || password !== "12345678") {
-      setError("Usuario o contraseña incorrectos.");
-      return;
-    }
-
-    setError("");
     sessionStorage.setItem("sesionActiva", "true");
-    sessionStorage.setItem("nombreUsuario", "Rodrigo Quispe");
-    sessionStorage.setItem("rolUsuario", "Administrador");
+    sessionStorage.setItem("token", data.access_token);
+    sessionStorage.setItem("nombreUsuario", data.usuario.nombre);
+    sessionStorage.setItem("rolUsuario", data.usuario.rol);
+
     router.push("/dashboard");
-  };
+  } catch {
+    setError("No se pudo conectar con el servidor.");
+  }
+};
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#EDEBE3] px-4 py-10">

@@ -1,9 +1,5 @@
 {
-<<<<<<< HEAD
   "name": "frontend",
-=======
-  "name": "edificio-frontend",
->>>>>>> origin/feature/login
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -26,10 +22,6 @@
     "eslint-config-next": "16.3.4",
     "tailwindcss": "^4",
     "typescript": "^5"
-<<<<<<< HEAD
   },
   "packageManager": "pnpm@10.33.0"
-=======
-  }
->>>>>>> origin/feature/login
 }
