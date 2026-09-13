@@ -11,13 +11,14 @@ El objetivo principal es evitar que el desarrollo de nuevas funcionalidades afec
 ---
 
 ## 2. Herramientas utilizadas
-| Herramienta |	Uso |
-| ---|---|
-| Git |	Control de versiones local |
-| GitHub |	Repositorio remoto y colaboración |
-| GitHub Pull Requests |	Revisión e integración de cambios |
-| GitHub Actions |	Automatización de validaciones y CI/CD |
-| VS Code |	Desarrollo y ejecución de comandos Git |
+
+| Herramienta |      Uso |
+|---|---|
+| Git |      Control de versiones local |
+| GitHub |    Repositorio remoto y colaboración |
+| GitHub Pull Requests |    Revisión e integración de cambios |
+| GitHub Actions |   Automatización de validaciones y CI/CD |
+| VS Code |   Desarrollo y ejecución de comandos Git |
 
 ---
 
@@ -27,12 +28,12 @@ El repositorio utiliza tres niveles principales de ramas:
 
 ```text
 main
-  │
-  └── develop
-        │
-        ├── feature/*
-        ├── feature/*
-        └── feature/*
+ │
+ └── develop
+       │
+       ├── feature/*
+       ├── feature/*
+       └── feature/*
 ```
 
 ### 3.1 Rama main
@@ -41,29 +42,25 @@ La rama main representa la versión estable del proyecto y corresponde al ambien
 
 En esta rama solamente deben incorporarse cambios que hayan pasado por el proceso de desarrollo, integración y validación correspondiente.
 
-**Reglas:**
+#### Reglas:
 
 - No desarrollar directamente sobre main.
 - Los cambios deben llegar mediante Pull Request.
-- Representa la versión preparada para producción.
+- Representa la versión preparada para Producción.
 - Debe mantenerse siempre en un estado estable.
-
----
 
 ### 3.2 Rama develop
 
 La rama develop representa la rama principal de integración del desarrollo y está asociada al ambiente de Staging.
 
-En esta rama se integran las funcionalidades desarrolladas por los diferentes miembros del equipo antes de ser consideradas para producción.
+En esta rama se integran las funcionalidades desarrolladas por los diferentes miembros del equipo antes de ser consideradas para Producción.
 
-**Reglas:**
+#### Reglas:
 
 - No desarrollar directamente sobre develop.
 - Las funcionalidades se incorporan mediante Pull Request.
-- Permite integrar y probar los cambios antes de llegar a main.
+- Permite integrar y validar los cambios antes de llegar a main.
 - Sirve como base para crear nuevas ramas feature/*.
-
----
 
 ### 3.3 Ramas feature/*
 
@@ -75,7 +72,7 @@ La nomenclatura utilizada será:
 
 - feature/nombre-de-la-tarea
 
-**Ejemplos:**
+Ejemplos:
 
 - feature/login
 - feature/registro-usuarios
@@ -99,36 +96,60 @@ El flujo general utilizado por el equipo es:
                      │
               ┌──────▼───────┐
               │   develop    │
-              │   Staging    │
+              │    Staging   │
               └──────┬───────┘
                      │
-              crear rama
+                 crear rama
                      │
               ┌──────▼────────────┐
               │    feature/*      │
-              │ Desarrollo tarea  │
+              │  Desarrollo tarea │
               └──────┬────────────┘
                      │
                   commits
                      │
                      ▼
-              Pull Request
+               Pull Request
                      │
                      ▼
               ┌──────────────┐
               │   develop    │
               └──────┬───────┘
                      │
-                validación
+                 validación
                      │
                      ▼
-              Pull Request
+               Pull Request
                      │
                      ▼
               ┌──────────────┐
               │     main     │
               └──────────────┘
 ```
+
+El flujo general puede resumirse como:
+
+```text
+feature/*
+     ↓
+Pull Request
+     ↓
+develop
+     ↓
+CI
+     ↓
+Staging
+     ↓
+Validación
+     ↓
+Pull Request
+     ↓
+main
+     ↓
+Producción
+```
+
+El ambiente Staging y los despliegues automatizados mediante CD serán implementados progresivamente durante las siguientes etapas del proyecto.
 
 ---
 
@@ -143,7 +164,7 @@ Posteriormente crea una rama para la tarea:
 
 - git switch -c feature/nombre-de-la-tarea
 
-**Ejemplo:**
+Ejemplo:
 
 - git switch -c feature/devops-arquitectura-gitflow
 
@@ -174,16 +195,16 @@ Se recomienda utilizar mensajes de commit claros y consistentes.
 El proyecto utiliza una convención basada en prefijos:
 
 | Prefijo |	Uso |
-| ---|---|
+| --- | --- |
 | feat: |	Nueva funcionalidad |
 | fix: |	Corrección de errores |
 | docs: |	Documentación |
 | refactor: |	Refactorización |
-| test:	| Pruebas |
+| test: |	Pruebas |
 | chore: |	Tareas de mantenimiento |
 | ci: |	Cambios relacionados con CI/CD |
 
-**Ejemplos:**
+Ejemplos:
 
 - feat: agregar módulo de usuarios
 - fix: corregir validación del formulario
@@ -199,7 +220,7 @@ Una vez realizados los cambios, la rama se publica en GitHub:
 
 - git push -u origin feature/nombre-de-la-tarea
 
-**Ejemplo:**
+Ejemplo:
 
 - git push -u origin feature/devops-arquitectura-gitflow
 
@@ -225,7 +246,7 @@ El Pull Request permite:
 - Detectar errores antes de integrar.
 - Mantener trazabilidad de las modificaciones.
 - Asociar los cambios con una tarea del proyecto.
-- Ejecutar validaciones automatizadas mediante GitHub Actions cuando estén configuradas.
+- Ejecutar validaciones automatizadas mediante GitHub Actions.
 - Evitar modificaciones directas sobre develop.
 
 Una vez aprobada la revisión y superadas las validaciones correspondientes, la rama puede integrarse mediante Merge.
@@ -245,7 +266,9 @@ develop
 
 La funcionalidad pasa a formar parte de la versión de integración del proyecto.
 
-El ambiente asociado a develop es Staging, donde se podrán realizar pruebas de integración antes de llevar los cambios a producción.
+El ambiente asociado a develop es Staging, donde se realizarán las pruebas de integración y validación antes de llevar los cambios a Producción.
+
+La preparación del ambiente Staging y su integración con el proceso de CD forman parte de una etapa posterior del proyecto.
 
 ---
 
@@ -272,37 +295,40 @@ La rama main representa entonces la versión destinada al ambiente de Producció
 La estrategia de ramas está directamente relacionada con la arquitectura cloud definida para el proyecto.
 
 | Rama |	Propósito |	Ambiente |
-| ---|---|---|
+| --- | --- | --- |
 | feature/* |	Desarrollo de tareas |	Desarrollo |
 | develop |	Integración y validación |	Staging |
 | main |	Versión estable |	Producción |
 
-Esta separación permite que el código en desarrollo no afecte directamente al sistema utilizado en producción.
+Esta separación permite que el código en desarrollo no afecte directamente al sistema utilizado en Producción.
 
 ---
 
 ## 12. GitHub Actions y validaciones
 
-El flujo de Git se complementará progresivamente con GitHub Actions.
+El flujo de Git se complementa con GitHub Actions para automatizar las validaciones del proyecto.
 
-El objetivo es que los Pull Requests puedan ejecutar automáticamente validaciones como:
+Actualmente, el proceso de Integración Continua (CI) ejecuta las siguientes etapas:
 
 ```text
-Pull Request
+Pull Request / Push
      │
      ▼
 GitHub Actions
      │
+     ├── Checkout
      ├── Instalación de dependencias
+     ├── Generación de Prisma Client
      ├── Lint
-     ├── TypeScript
      ├── Tests
      └── Build
 ```
 
-Estas validaciones permitirán detectar errores antes de integrar los cambios.
+Estas validaciones permiten detectar errores antes de integrar los cambios.
 
-La implementación completa de CI/CD será desarrollada progresivamente durante el proyecto y no se considera que todas estas automatizaciones estén implementadas desde el inicio.
+La generación de Prisma Client se ejecuta antes de las validaciones que requieren el cliente generado.
+
+El proceso de CI se encuentra implementado y operativo. La Entrega/Despliegue Continuo (CD), el despliegue automatizado en Staging y posteriormente en Producción, serán implementados progresivamente durante las siguientes etapas del proyecto.
 
 ---
 
@@ -319,7 +345,7 @@ Para mantener la estabilidad del repositorio se establecen las siguientes reglas
 - Evitar commits directos.
 - Integrar funcionalidades mediante Pull Request.
 - Validar la integración antes de promover cambios a main.
-- feature/*
+### feature/*
 - Utilizar una rama por tarea.
 - Mantener el alcance de la rama limitado a su objetivo.
 - Realizar commits pequeños y descriptivos.
@@ -333,7 +359,6 @@ Para una tarea de DevOps relacionada con la arquitectura cloud y Git Flow, el fl
 
 - git switch develop
 - git pull origin develop
-
 - git switch -c feature/devops-arquitectura-gitflow
 
 Se realizan los cambios necesarios en:
@@ -350,24 +375,29 @@ Posteriormente:
 
 Finalmente, se crea un Pull Request:
 
+
 ```text
 feature/devops-arquitectura-gitflow
+
                     │
+
                     │ Pull Request
+
                     ▼
+
                  develop
 ```
 
 Después de la integración, la rama develop contiene los cambios de la tarea y puede continuar el proceso de validación hacia main.
 
----
+--- 
 
 ## 15. Beneficios de la estrategia
 
 La estrategia Git Flow permite:
 
-- Separar desarrollo, integración y producción.
-- Reducir el riesgo de introducir cambios inestables en producción.
+- Separar desarrollo, integración y Producción.
+- Reducir el riesgo de introducir cambios inestables en Producción.
 - Facilitar el trabajo simultáneo de varios integrantes.
 - Mantener trazabilidad de las modificaciones.
 - Revisar los cambios mediante Pull Requests.
@@ -383,13 +413,20 @@ El proyecto ya cuenta con la estructura básica de ramas necesaria para aplicar 
 
 ```text
 main
-  │
-  └── develop
-        │
-        └── feature/*
+ │
+ └── develop
+       │
+       └── feature/*
 ```
 
-Durante el desarrollo del proyecto, esta estructura se utilizará como base para incorporar progresivamente las validaciones automatizadas, despliegues a Staging y posteriormente el proceso de despliegue hacia Producción.
+Actualmente, el proyecto cuenta con:
+
+- main como rama estable destinada a Producción.
+- develop como rama principal de integración asociada a Staging.
+- feature/* para el desarrollo de tareas específicas.
+- GitHub Actions para ejecutar las validaciones de Integración Continua (CI).
+
+La preparación del ambiente Staging y la automatización de Entrega/Despliegue Continuo (CD) forman parte de las siguientes etapas del proyecto.
 
 La estrategia se implementará de manera progresiva conforme se desarrollen las diferentes etapas del proyecto.
 
@@ -409,17 +446,19 @@ El flujo de trabajo definido para el proyecto es:
            │
 ┌──────────┴──────────┐
 │      develop        │
-│      Staging        │
+│       Staging       │
 └──────────▲──────────┘
            │
       Pull Request
            │
 ┌──────────┴──────────┐
-│     feature/*       │
-│     Desarrollo      │
+│      feature/*      │
+│      Desarrollo     │
 └─────────────────────┘
 ```
 
 Cada funcionalidad comienza en una rama feature/*, posteriormente se integra mediante Pull Request en develop para su validación y, una vez considerada estable, se promueve mediante Pull Request hacia main.
 
-De esta forma, Git y GitHub proporcionan una estructura de trabajo controlada que se integra con la arquitectura cloud y permite evolucionar posteriormente hacia un proceso completo de CI/CD.
+De esta forma, Git y GitHub proporcionan una estructura de trabajo controlada que se integra con la arquitectura cloud y permite evolucionar progresivamente hacia un proceso completo de CI/CD.
+
+---

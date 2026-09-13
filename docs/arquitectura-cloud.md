@@ -32,40 +32,40 @@ La arquitectura contempla los siguientes componentes:
 
 | Componente | Tecnología | Función |
 |---|---|---|
-| Frontend |	Next.js + React + TypeScript |	Interfaz de usuario |
-| Estilos |	Tailwind CSS |	Diseño de la interfaz |
-| Backend |	NestJS + TypeScript |	API y lógica de negocio |
-| ORM	| Prisma 7 |	Acceso a la base de datos |
-| Runtime |	Node.js 24 |	Ejecución de la aplicación |
-| Gestor de paquetes |	pnpm 10 |	Gestión de dependencias |
-| Base de datos |	PostgreSQL |	Persistencia de información |
-| Administración de BD |	Supabase |	Gestión de PostgreSQL |
-| Contenedores |	Docker |	Empaquetado y ejecución |
-| Cloud |	DigitalOcean |	Infraestructura de despliegue |
-| Repositorio |	GitHub |	Control de versiones |
-| CI/CD |	GitHub Actions |	Automatización de integración y despliegue |
+| Frontend |    Next.js + React + TypeScript |  Interfaz de usuario |
+| Estilos | Tailwind CSS |  Diseño de la interfaz |
+| Backend | NestJS + TypeScript |    API y lógica de negocio |
+| ORM    | Prisma 7 |     Acceso a la base de datos |
+| Runtime | Node.js 24 |     Ejecución de la aplicación |
+| Gestor de paquetes |  pnpm 10 |    Gestión de dependencias |
+| Base de datos |   PostgreSQL |     Persistencia de información |
+| Administración de BD |    Supabase |  Gestión de PostgreSQL |
+| Contenedores |    Docker |     Empaquetado y ejecución |
+| Cloud |   DigitalOcean |  Infraestructura de despliegue |
+| Repositorio | GitHub |     Control de versiones |
+| CI/CD |   GitHub Actions |    Automatización de integración y despliegue |
 
---- 
+---
 
 ## 4. Arquitectura general
 
 La solución utilizará una arquitectura de tres capas principales:
 
-- Capa de presentación: aplicación frontend desarrollada con React.
+- Capa de presentación: aplicación frontend desarrollada con Next.js, React y TypeScript.
 - Capa de aplicación: API desarrollada con NestJS.
 - Capa de datos: PostgreSQL administrado mediante Supabase.
 
 Docker permitirá empaquetar los componentes de aplicación para garantizar que puedan ejecutarse de manera consistente entre los diferentes ambientes.
 
-
 Diagrama general:
+
 ```text
                          ┌───────────────────┐
                          │      USUARIO      │
                          │   Navegador Web   │
                          └─────────┬─────────┘
                                    │
-                                  HTTPS
+                                 HTTPS
                                    │
                                    ▼
                  ┌─────────────────────────────────┐
@@ -78,7 +78,7 @@ Diagrama general:
                  │             Docker              │
                  └────────────────┬────────────────┘
                                   │
-                              HTTPS / REST
+                             HTTPS / REST
                                   │
                                   ▼
                  ┌─────────────────────────────────┐
@@ -92,15 +92,15 @@ Diagrama general:
                  │             Docker              │
                  └────────────────┬────────────────┘
                                   │
-                            PostgreSQL
+                             PostgreSQL
                                   │
                                   ▼
                  ┌─────────────────────────────────┐
-                 │            SUPABASE             │
+                 │           SUPABASE              │
                  │                                 │
                  │           PostgreSQL            │
                  │                                 │
-                 │       Base de datos             │
+                 │        Base de datos            │
                  └─────────────────────────────────┘
 
 
@@ -113,6 +113,7 @@ Diagrama general:
                  │       GitHub Actions            │
                  └─────────────────────────────────┘
 ```
+
 ---
 
 ## 5. Frontend
@@ -124,6 +125,7 @@ Su función es proporcionar la interfaz de usuario y comunicarse con el backend 
 El frontend no tendrá acceso directo a la base de datos. Todas las operaciones que requieran información persistente serán realizadas mediante la API del backend.
 
 ### Responsabilidades:
+
 - Presentar la interfaz del sistema.
 - Gestionar la interacción con los usuarios.
 - Consumir la API del backend.
@@ -141,6 +143,7 @@ Representará la capa encargada de la lógica de negocio y proporcionará una AP
 El acceso a PostgreSQL se realizará mediante Prisma 7.
 
 ### Responsabilidades:
+
 - Exponer la API.
 - Implementar la lógica de negocio.
 - Validar solicitudes.
@@ -161,24 +164,25 @@ El backend utilizará Prisma para comunicarse con PostgreSQL.
 
 La configuración de conexión utilizará variables de entorno, entre ellas:
 
-DATABASE_URL="..."
-DIRECT_URL="..."
+- DATABASE_URL="..."
+
+- DIRECT_URL="..."
 
 Los valores reales no forman parte del código fuente y no deberán almacenarse en el repositorio.
 
 El archivo:
 
-backend/.env
+- backend/.env
 
 se mantendrá fuera del control de versiones.
 
 El repositorio contendrá únicamente un archivo de ejemplo:
 
-backend/.env.example
+- backend/.env.example
 
 sin credenciales reales.
 
---- 
+---
 
 ## 8. Contenedores Docker
 
@@ -190,18 +194,27 @@ La arquitectura contempla principalmente:
 
 ```text
 Docker
+
 │
+
 ├── Frontend
+
 │   └── Contenedor de la aplicación web
+
 │
+
 └── Backend
+
     └── Contenedor de la API
 ```
 
 La base de datos no se ejecutará dentro de los contenedores de la aplicación, debido a que PostgreSQL será administrado mediante Supabase.
 
+---
+
 ### Beneficios
-- Reproducibilidad del entorno.
+
+-  Reproducibilidad del entorno.
 - Aislamiento de servicios.
 - Facilidad de despliegue.
 - Simplificación de la configuración.
@@ -237,9 +250,9 @@ Su finalidad será permitir:
 - Detección de errores antes del despliegue final.
 - Validación de versiones generadas por el proceso CI/CD.
 
-El código integrado en develop será candidato para ser desplegado en Staging. 
+El código integrado en develop será candidato para ser desplegado en Staging.
 
----
+La preparación y despliegue del ambiente Staging forman parte de la siguiente etapa del proyecto.
 
 ### 10.2 Producción
 
@@ -249,33 +262,55 @@ Los cambios llegarán a Producción después de haber sido integrados y validado
 
 La rama main representará el código considerado estable para Producción.
 
-```text
 Flujo de ambientes
+
+```text
 feature/*
+
     │
+
     │ Pull Request
+
     ▼
+
  develop
+
     │
-    │ CI/CD
+
+    │ CI
+
     ▼
+
  STAGING
+
     │
+
     │ Validación
+
     ▼
+
  Pull Request
+
     │
+
     ▼
-  main
+
+ main
+
     │
-    │ CI/CD
+
+    │ CD
+
     ▼
+
 PRODUCCIÓN
 ```
 
+El despliegue automatizado mediante CD será implementado progresivamente durante las siguientes etapas del proyecto.
+
 ---
 
-##  11. Separación de datos entre ambientes
+## 11. Separación de datos entre ambientes
 
 Se procurará mantener separados los datos utilizados en Staging de los datos utilizados en Producción.
 
@@ -283,18 +318,29 @@ La configuración recomendada es disponer de recursos de base de datos independi
 
 ```text
                     SUPABASE
+
                        │
+
               ┌────────┴────────┐
+
               │                 │
+
               ▼                 ▼
+
           PostgreSQL         PostgreSQL
-           Staging           Producción
+
+           Staging            Producción
+
               │                 │
+
               ▲                 ▲
+
               │                 │
-          Backend           Backend
-          Staging          Producción
-```
+
+           Backend          Backend
+
+           Staging         Producción
+``` 
 
 Esta separación evita que las pruebas realizadas en Staging afecten los datos reales de Producción.
 
@@ -310,8 +356,9 @@ No se almacenarán credenciales, contraseñas, tokens ni cadenas de conexión re
 
 Ejemplo:
 
-DATABASE_URL="..."
-DIRECT_URL="..."
+- DATABASE_URL="..."
+
+- DIRECT_URL="..."
 
 La configuración real será proporcionada mediante variables de entorno del ambiente correspondiente.
 
@@ -325,19 +372,21 @@ El proyecto utilizará Git y GitHub como sistema de control de versiones.
 
 Las ramas principales serán:
 
-- main
-- develop
-- feature/*
+```text
+main
+develop
+feature/*
+```
 
-**main**
+### main
 
 Contendrá la versión estable destinada a Producción.
 
-**develop**
+### develop
 
 Será la rama de integración de las funcionalidades desarrolladas por el equipo y estará asociada al ambiente de Staging.
 
-**feature/***
+### feature/*
 
 Se utilizará para desarrollar funcionalidades, correcciones o tareas específicas.
 
@@ -345,26 +394,53 @@ El flujo general será:
 
 ```text
 feature/*
+
      │
+
      ▼
+
 Pull Request
+
      │
+
      ▼
+
 develop
+
      │
+
      ▼
+
+CI
+
+     │
+
+     ▼
+
 Staging
+
      │
+
      ▼
+
 Validación
+
      │
+
      ▼
+
 Pull Request
+
      │
+
      ▼
+
 main
+
      │
+
      ▼
+
 Producción
 ```
 
@@ -376,37 +452,69 @@ La definición detallada de Git Flow se encuentra en el documento git-flow.md.
 
 GitHub Actions será utilizado para automatizar progresivamente el proceso de integración y despliegue.
 
-El flujo previsto será:
+Actualmente se encuentra implementado el componente de Integración Continua (CI), encargado de validar automáticamente los cambios del proyecto.
+
+El workflow actual ejecuta:
 
 ```text
-Developer
-    │
-    ▼
-GitHub
-    │
-    ▼
-Pull Request
-    │
-    ▼
+Pull Request / Push
+
+     │
+
+     ▼
+
 GitHub Actions
-    │
-    ├── Instalación de dependencias
-    ├── Lint
-    ├── Pruebas
-    └── Build
-            │
-            ▼
-        Docker
-            │
-            ▼
-       DigitalOcean
-            │
-       ┌────┴────┐
-       ▼         ▼
-    Staging   Producción
+
+     │
+
+     ├── Checkout
+
+     ├── Instalación de dependencias
+
+     ├── Generación de Prisma Client
+
+     ├── Lint
+
+     ├── Tests
+
+     └── Build
 ```
 
-El pipeline se implementará progresivamente de acuerdo con las etapas establecidas para el proyecto.
+El componente de Entrega/Despliegue Continuo (CD) se encuentra definido a nivel arquitectónico y será implementado progresivamente.
+
+El flujo previsto para CD será:
+
+```text
+GitHub
+
+    │
+
+    ▼
+
+GitHub Actions
+
+    │
+
+    ▼
+
+Docker
+
+    │
+
+    ▼
+
+DigitalOcean
+
+    │
+
+    ├── Staging
+
+    │
+
+    └── Producción
+```
+
+La implementación de CD estará relacionada con la preparación del ambiente Staging y posteriormente con el despliegue de la versión estable hacia Producción.
 
 ---
 
@@ -471,29 +579,53 @@ El funcionamiento general de la arquitectura será:
 
 ```text
 1. Usuario accede al sistema
+
               │
+
               ▼
+
 2. Frontend en DigitalOcean
+
               │
+
               ▼
+
 3. Solicitud HTTPS a la API
+
               │
+
               ▼
+
 4. Backend NestJS
+
               │
+
               ▼
+
 5. Prisma
+
               │
+
               ▼
+
 6. PostgreSQL en Supabase
+
               │
+
               ▼
+
 7. Respuesta al Backend
+
               │
+
               ▼
+
 8. Respuesta al Frontend
+
               │
+
               ▼
+
 9. Información presentada al usuario
 ```
 
@@ -504,47 +636,48 @@ El funcionamiento general de la arquitectura será:
 La infraestructura será implementada progresivamente para reducir riesgos y permitir validar cada componente antes de avanzar a la siguiente etapa.
 
 ### Etapa 1 — Repositorio y desarrollo
--Configuración del repositorio GitHub.
--Configuración de Git Flow.
--Configuración del monorepo.
--Configuración de frontend y backend.
--Configuración de Prisma.
+- Configuración del repositorio GitHub.
+- Configuración de Git Flow.
+- Configuración del monorepo.
+- Configuración de frontend y backend.
+- Configuración de Prisma.
 ### Etapa 2 — Arquitectura cloud
--Definición de DigitalOcean.
--Definición de Docker.
--Integración con Supabase.
--Definición de Staging y Producción.
+- Definición de DigitalOcean.
+- Definición de Docker.
+- Integración con Supabase.
+- Definición de Staging y Producción.
 ### Etapa 3 — Contenerización
--Creación de Dockerfiles.
--Configuración de imágenes.
--Pruebas de ejecución local mediante Docker.
+- Creación de Dockerfiles.
+- Configuración de imágenes.
+- Pruebas de ejecución local mediante Docker.
 ### Etapa 4 — CI/CD
--Configuración de GitHub Actions.
--Validación automática del código.
--Ejecución de pruebas.
--Construcción de imágenes Docker.
--Automatización de despliegues.
+- Configuración de GitHub Actions.
+- Validación automática del código.
+- Ejecución de pruebas.
+- Construcción de imágenes Docker.
+- Automatización de despliegues.
 ### Etapa 5 — Staging
--Despliegue del sistema en Staging.
--Configuración de variables de entorno.
--Pruebas de integración.
--Validación de la aplicación.
+- Preparación del ambiente Staging.
+- Despliegue del sistema en Staging.
+- Configuración de variables de entorno.
+- Pruebas de integración.
+- Validación de la aplicación.
 ### Etapa 6 — Producción
--Despliegue de la versión estable.
--Configuración de variables de entorno de Producción.
--Verificación del servicio.
--Monitoreo inicial.
+- Despliegue de la versión estable.
+- Configuración de variables de entorno de Producción.
+- Verificación del servicio.
+- Monitoreo inicial.
 ### Etapa 7 — Backups y recuperación
--Definición de política de backups.
--Automatización de respaldos cuando corresponda.
--Verificación de respaldos.
--Pruebas de restauración.
+- Definición de política de backups.
+- Automatización de respaldos cuando corresponda.
+- Verificación de respaldos.
+- Pruebas de restauración.
 ### Etapa 8 — Seguridad y optimización
--Configuración de HTTPS.
--Revisión de secretos.
--Restricción de accesos.
--Optimización de recursos.
--Revisión de disponibilidad y rendimiento.
+- Configuración de HTTPS.
+- Revisión de secretos.
+- Restricción de accesos.
+- Optimización de recursos.
+- Revisión de disponibilidad y rendimiento.
 
 ---
 
@@ -558,7 +691,7 @@ La utilización de Docker permite reproducir los entornos de ejecución y reduci
 
 La separación entre frontend, backend y base de datos evita que los usuarios tengan acceso directo a la información almacenada y permite centralizar las reglas de negocio en el backend.
 
-GitHub y Git Flow proporcionan un mecanismo organizado para controlar los cambios del código, mientras que GitHub Actions permitirá automatizar las validaciones y despliegues.
+GitHub y Git Flow proporcionan un mecanismo organizado para controlar los cambios del código, mientras que GitHub Actions permite automatizar las validaciones de Integración Continua (CI) y permitirá incorporar progresivamente el proceso de Entrega/Despliegue Continuo (CD).
 
 Finalmente, la separación de Staging y Producción, junto con una estrategia de backups y recuperación, permitirá reducir el impacto de errores durante el desarrollo y mejorar la confiabilidad del sistema.
 
@@ -568,42 +701,80 @@ Finalmente, la separación de Staging y Producción, junto con una estrategia de
 
 ```text
                     ┌──────────────────┐
+
                     │      GITHUB      │
+
                     │   Git + GitFlow  │
+
                     └────────┬─────────┘
+
                              │
+
                              ▼
+
                     ┌──────────────────┐
+
                     │ GitHub Actions   │
+
                     │      CI/CD       │
+
                     └────────┬─────────┘
+
                              │
+
                              ▼
+
                     ┌──────────────────┐
+
                     │      Docker      │
+
                     └────────┬─────────┘
+
                              │
+
                              ▼
+
                     ┌──────────────────┐
+
                     │   DigitalOcean   │
+
                     │                  │
+
                     │ ┌──────────────┐ │
+
                     │ │   Frontend   │ │
+
                     │ └──────────────┘ │
+
                     │                  │
+
                     │ ┌──────────────┐ │
+
                     │ │    Backend   │ │
+
                     │ └──────┬───────┘ │
+
                     └────────┼─────────┘
+
                              │
+
                              │ Prisma
+
                              ▼
+
                     ┌──────────────────┐
+
                     │     Supabase     │
+
                     │   PostgreSQL     │
+
                     │                  │
+
                     │     Backups      │
+
                     └──────────────────┘
 ```
 
 Esta arquitectura constituye la base para la implementación progresiva de la infraestructura DevOps del proyecto.
+
+Actualmente, el componente de Integración Continua (CI) se encuentra implementado y operativo. La preparación del ambiente Staging y la implementación de Entrega/Despliegue Continuo (CD) corresponden a las siguientes etapas del proyecto.
