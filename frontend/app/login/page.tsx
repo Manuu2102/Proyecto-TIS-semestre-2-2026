@@ -37,25 +37,27 @@ const handleSubmit = async (e: React.FormEvent) => {
 
     const data = await response.json();
 
-  if (!response.ok) {
-    setError(data.message || "Usuario o contraseña incorrectos.");
-    return;
-  }
+    if (!response.ok) {
+      setError(data.message || "Usuario o contraseña incorrectos.");
+      return;
+    }
 
-  sessionStorage.setItem("sesionActiva", "true");
-  sessionStorage.setItem("token", data.access_token);
-  sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
+    sessionStorage.setItem("sesionActiva", "true");
+    sessionStorage.setItem("token", data.access_token);
+    sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
 
-  const roles: string[] = data.usuario.roles ?? [];
+    const roles: string[] = data.usuario.roles ?? [];
 
-  if (roles.includes("admin")) {
-    router.push("/dashboard/admin");
-  } else if (roles.includes("copropietario")) {
-    router.push("/dashboard/copropietario");
-  } else {
-    router.push("/dashboard");
-  }
-  } catch {
+    if (roles.includes("ADMINISTRADOR")) {
+      router.push("/dashboard/admin");
+    } else if (roles.includes("DIRECTORIO")) {
+      router.push("/dashboard/directorio");
+    } else if (roles.includes("CONSULTA")) {
+      router.push("/dashboard/consulta");
+    } else {
+      router.push("/dashboard");
+    }
+  }catch{
     setError("No se pudo conectar con el servidor.");
   }
 };
