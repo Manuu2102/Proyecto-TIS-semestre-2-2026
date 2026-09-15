@@ -34,8 +34,6 @@ export class AuthService {
         },
       },
     });
-
-    // Siempre corre bcrypt, exista o no el usuario, para prevenir ataques de timing
     const hashToCompare = user?.password ?? DUMMY_HASH;
     const passwordCorrect = await bcrypt.compare(password, hashToCompare);
 

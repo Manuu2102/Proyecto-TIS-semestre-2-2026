@@ -24,7 +24,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-white">
-      <h1 className="hidden sm:block text-xl font-bold mt-4 mb-2">
+      <h1 className="hidden sm:block text-xl font-bold mt-4 mb-2 text-gray-500">
         hola admin
       </h1>
       <button
