@@ -2,7 +2,15 @@
 
 import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
-import { BuildingIcon, EyeIcon, EyeOffIcon, LockIcon, MailIcon, ShieldIcon } from "../../components/Icons";
+import {
+  BuildingIcon,
+  EyeIcon,
+  EyeOffIcon,
+  LockIcon,
+  MailIcon,
+  ShieldIcon,
+} from "../../components/Icons";
+import { loginUser } from "../auth";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -22,13 +30,17 @@ export default function LoginPage() {
       return;
     }
 
-    // Demo frontend: password de prueba para validar el flujo de acceso.
-    if (password !== "123456") {
+    const authUser = loginUser(user, password);
+    if (!authUser) {
       setError("Usuario o Contraseña Incorrectos.");
       return;
     }
     if (remember) localStorage.setItem("edificio_remember", "true");
-    router.push("/copropietarios");
+    sessionStorage.setItem("sesionActiva", "true");
+    sessionStorage.setItem("nombreUsuario", authUser.nombre);
+    sessionStorage.setItem("rolUsuario", authUser.role);
+    sessionStorage.setItem("departamentoUsuario", authUser.departamento || "");
+    router.push("/dashboard");
   }
 
   return (
@@ -36,15 +48,25 @@ export default function LoginPage() {
       <section className="auth-visual">
         <div className="auth-visual-top">
           <div className="brand brand-light">
-            <span className="brand-mark"><BuildingIcon size={22} /></span>
-            <span>Edificio <strong>XYZ</strong></span>
+            <span className="brand-mark">
+              <BuildingIcon size={22} />
+            </span>
+            <span>
+              Edificio <strong>XYZ</strong>
+            </span>
           </div>
-          <span className="status-pill"><span /> Administración inteligente</span>
+          <span className="status-pill">
+            <span /> Administración inteligente
+          </span>
         </div>
 
         <div className="auth-visual-content">
           <p className="eyebrow">SISTEMA INTEGRAL</p>
-          <h1>Todo el edificio,<br /><span>en un solo lugar.</span></h1>
+          <h1>
+            Todo el edificio,
+            <br />
+            <span>en un solo lugar.</span>
+          </h1>
           <p className="auth-description">
             Administra copropietarios, departamentos, finanzas y operaciones
             desde una experiencia clara y organizada.
@@ -60,8 +82,12 @@ export default function LoginPage() {
       <section className="auth-form-side">
         <div className="auth-form-wrap">
           <div className="mobile-brand brand">
-            <span className="brand-mark"><BuildingIcon size={20} /></span>
-            <span>Edificio <strong>XYZ</strong></span>
+            <span className="brand-mark">
+              <BuildingIcon size={20} />
+            </span>
+            <span>
+              Edificio <strong>XYZ</strong>
+            </span>
           </div>
 
           <div className="form-heading">
@@ -75,7 +101,12 @@ export default function LoginPage() {
               <span>Usuario o correo electrónico</span>
               <div className="input-wrap">
                 <MailIcon size={18} />
-                <input name="user" type="text" placeholder="admin@edificio.xyz" autoComplete="username" />
+                <input
+                  name="user"
+                  type="text"
+                  placeholder="admin@edificio.xyz"
+                  autoComplete="username"
+                />
               </div>
             </label>
 
@@ -89,16 +120,28 @@ export default function LoginPage() {
                   placeholder="Ingresa tu contraseña"
                   autoComplete="current-password"
                 />
-                <button type="button" className="icon-button" aria-label="Mostrar contraseña"
-                  onClick={() => setShowPassword(v => !v)}>
-                  {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                <button
+                  type="button"
+                  className="icon-button"
+                  aria-label="Mostrar contraseña"
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? (
+                    <EyeOffIcon size={18} />
+                  ) : (
+                    <EyeIcon size={18} />
+                  )}
                 </button>
               </div>
             </label>
 
             <div className="form-options">
               <label className="check-label">
-                <input type="checkbox" checked={remember} onChange={e => setRemember(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                />
                 <span>Recordarme</span>
               </label>
               <button type="button" className="text-button"></button>
@@ -111,7 +154,9 @@ export default function LoginPage() {
             </button>
           </form>
 
-          <p className="form-note">Sistema de administración del Edificio Central</p>
+          <p className="form-note">
+            Sistema de administración del Edificio Central
+          </p>
         </div>
       </section>
     </main>

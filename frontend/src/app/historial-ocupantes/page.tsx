@@ -1,0 +1,64 @@
+"use client";
+import { useState } from "react";
+import { DashboardLayout } from "../../components/DashboardLayout";
+import { HomeIcon } from "../../components/Icons";
+const data = {
+  "A-101": [
+    ["María Fernanda Rojas", "Actual · 2024—", "Propietaria"],
+    ["Luis Alberto Rojas", "2019—2024", "Propietario anterior"],
+    ["Carla Méndez", "2017—2019", "Inquilina anterior"],
+  ],
+  "A-202": [
+    ["Carlos Andrés Pérez", "Actual · 2025—", "Propietario"],
+    ["Diego Salazar", "2022—2025", "Inquilino anterior"],
+  ],
+};
+export default function Historial() {
+  const [d, setD] = useState("A-101");
+  return (
+    <DashboardLayout active="ocupantes">
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">EP-01 · TRAZABILIDAD</p>
+          <h1>Historial de ocupantes</h1>
+          <p>Consulta quién ocupó cada departamento y durante qué período.</p>
+        </div>
+      </div>
+      <div className="history-selector">
+        <label className="field">
+          <span>Seleccionar departamento</span>
+          <select value={d} onChange={(e) => setD(e.target.value)}>
+            <option>A-101</option>
+            <option>A-202</option>
+          </select>
+        </label>
+      </div>
+      <section className="panel">
+        <div className="history-list">
+          {data[d as keyof typeof data].map((x, i) => (
+            <div className="history-item" key={i}>
+              <div
+                className={
+                  i === 0 ? "history-marker current" : "history-marker"
+                }
+              >
+                <HomeIcon size={16} />
+              </div>
+              <div>
+                <strong>{x[0]}</strong>
+                <span>{x[2]}</span>
+                <p>{x[1]}</p>
+              </div>
+              {i === 0 && (
+                <span className="status status-success">
+                  <span />
+                  Actual
+                </span>
+              )}
+            </div>
+          ))}
+        </div>
+      </section>
+    </DashboardLayout>
+  );
+}

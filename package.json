@@ -12,5 +12,8 @@
     "build": "pnpm --recursive build",
     "lint": "pnpm --recursive lint",
     "test": "pnpm --recursive test"
+  },
+  "devDependencies": {
+    "eslint": "9.39.5"
   }
 }
