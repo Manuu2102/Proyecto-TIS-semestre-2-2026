@@ -1,6 +1,6 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { PrismaService } from '../../prisma/prisma.service.js';
+import { PrismaService } from '../prisma/prisma.service.js';
 import * as bcrypt from 'bcrypt';
 
 const DUMMY_HASH = '$2b$10$CwTycUXWue0Thq9StjUM0uJ8gcT8G5J8t2p8g5W8x2b3F9C8k8k8O';
