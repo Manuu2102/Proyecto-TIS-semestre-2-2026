@@ -1,166 +1,252 @@
 "use client";
 
-import { useState } from "react";
+import { FormEvent, useState } from "react";
 import { useRouter } from "next/navigation";
+import styles from "./login.module.css";
 
+function Icon({
+  children,
+  size = 20,
+}: {
+  children: React.ReactNode;
+  size?: number;
+}) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      {children}
+    </svg>
+  );
+}
+const BuildingIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16" />
+    <path d="M16 9h3a1 1 0 0 1 1 1v11M8 7h4M8 11h4M8 15h4M8 19h1M12 19h1M3 21h18" />
+  </Icon>
+);
+const EyeIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z" />
+    <circle cx="12" cy="12" r="2.5" />
+  </Icon>
+);
+const EyeOffIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="m3 3 18 18" />
+    <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 4.2A10.6 10.6 0 0 1 12 4c6.5 0 10 8 10 8a18 18 0 0 1-3.1 4.1M6.6 6.6C3.7 8.5 2 12 2 12s3.5 8 10 8a10.8 10.8 0 0 0 4.1-.8" />
+  </Icon>
+);
+const MailIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <rect x="3" y="5" width="18" height="14" rx="2" />
+    <path d="m3 7 9 6 9-6" />
+  </Icon>
+);
+const LockIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <rect x="4" y="10" width="16" height="11" rx="2" />
+    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+  </Icon>
+);
+const ShieldIcon = ({ size = 20 }: { size?: number }) => (
+  <Icon size={size}>
+    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z" />
+    <path d="m9 12 2 2 4-4" />
+  </Icon>
+);
 
 export default function LoginPage() {
   const router = useRouter();
-  const [usuario, setUsuario] = useState("");
-  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [remember, setRemember] = useState(false);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
 
-const handleSubmit = async (e: React.FormEvent) => {
-  e.preventDefault();
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    setError("");
 
-  if (!usuario || !password) {
-    setError("Completa usuario y contraseña.");
-    return;
-  }
+    const form = new FormData(e.currentTarget);
+    const usuario = String(form.get("user") || "").trim();
+    const password = String(form.get("password") || "");
 
-  if (password.length < 8) {
-    setError("La contraseña debe tener al menos 8 caracteres.");
-    return;
-  }
-
-  try {
-    const response = await fetch("http://localhost:3001/auth/login", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        user_name: usuario,
-        password: password,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      setError(data.message || "Usuario o contraseña incorrectos.");
+    if (!usuario || !password) {
+      setError("Completa tu usuario y contraseña para continuar.");
       return;
     }
 
-    sessionStorage.setItem("sesionActiva", "true");
-    sessionStorage.setItem("token", data.access_token);
-    sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
-
-    const roles: string[] = data.usuario.roles ?? [];
-
-    if (roles.includes("ADMINISTRADOR")) {
-      router.push("/dashboard/admin");
-    } else if (roles.includes("DIRECTORIO")) {
-      router.push("/dashboard/directorio");
-    } else if (roles.includes("CONSULTA")) {
-      router.push("/dashboard/consulta");
-    } else {
-      router.push("/dashboard");
+    if (password.length < 8) {
+      setError("La contraseña debe tener al menos 8 caracteres.");
+      return;
     }
-  }catch{
-    setError("No se pudo conectar con el servidor.");
+
+    setLoading(true);
+    try {
+      const response = await fetch("http://localhost:3001/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          user_name: usuario,
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || "Usuario o contraseña incorrectos.");
+        return;
+      }
+
+      if (remember) localStorage.setItem("edificio_remember", "true");
+      sessionStorage.setItem("sesionActiva", "true");
+      sessionStorage.setItem("token", data.access_token);
+      sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
+
+      const roles: string[] = data.usuario.roles ?? [];
+
+      if (roles.includes("ADMINISTRADOR")) {
+        router.push("/dashboard/admin");
+      } else if (roles.includes("DIRECTORIO")) {
+        router.push("/dashboard/directorio");
+      } else if (roles.includes("CONSULTA")) {
+        router.push("/dashboard/consulta");
+      } else {
+        router.push("/dashboard");
+      }
+    } catch {
+      setError("No se pudo conectar con el servidor.");
+    } finally {
+      setLoading(false);
+    }
   }
-};
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center bg-[#EDEBE3] px-4 py-10">
-      <div className="w-full max-w-225 flex flex-col sm:flex-row rounded-2xl overflow-hidden border border-[#D3D1C7] shadow-lg">
-        <div className="w-full sm:w-[42%] bg-[#C13333] p-8 sm:p-10 flex flex-row sm:flex-col justify-between items-center sm:items-start text-[#FAECE7] gap-4 sm:gap-0">
-          <div className="flex flex-col items-center sm:items-start sm:flex-1">
-            <div className="w-12 h-12 rounded-xl bg-[#FFE6D9] flex items-center justify-center mb-0 sm:mb-6">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#712B13" strokeWidth="2" className="w-6 h-6">
-                <path d="M3 11l9-8 9 8" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M5 10v10h14V10" strokeLinecap="round" strokeLinejoin="round" />
-                <path d="M10 20v-6h4v6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </div>
-            <h1 className="hidden sm:block text-xl font-bold mt-4 mb-2">
-              Edificio Central
-            </h1>
-            <p className="hidden sm:block text-sm leading-relaxed text-[#F0997B]">
-              Panel administrativo para la gestión de copropietarios,
-              expensas y personal.
-            </p>
+    <main className={styles["auth-page"]}>
+      <section className={styles["auth-visual"]}>
+        <div className={styles["auth-visual-top"]}>
+          <div className={`${styles.brand} ${styles["brand-light"]}`}>
+            <span className={styles["brand-mark"]}>
+              <BuildingIcon size={22} />
+            </span>
+            <span>
+              Edificio <strong>Central</strong>
+            </span>
           </div>
-
-          <div className="flex items-center gap-2 sm:mt-auto">
-            <svg viewBox="0 0 24 24" fill="none" stroke="#F0997B" strokeWidth="2" className="w-4 h-4">
-              <rect x="5" y="11" width="14" height="9" rx="2" />
-              <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-            </svg>
-            <span className="text-xs text-[#F0997B]">Conexión segura</span>
-          </div>
+          <span className={styles["status-pill"]}>
+            <span /> Administración inteligente
+          </span>
         </div>
 
-        <div className="flex-1 bg-[#F5F1EA] p-6 sm:p-9">
-          <h2 className="text-lg font-bold text-[#2C2C2A] mb-1">
-            Iniciar sesión
-          </h2>
-          <p className="text-sm text-[#5F5E5A] mb-6">
-            Ingresa tus credenciales de administrador.
+        <div className={styles["auth-visual-content"]}>
+          <p className={styles.eyebrow}>SISTEMA INTEGRAL</p>
+          <h1>
+            Todo el edificio,
+            <br />
+            <span>en un solo lugar.</span>
+          </h1>
+          <p className={styles["auth-description"]}>
+            Administra copropietarios, departamentos, finanzas y operaciones
+            desde una experiencia clara y organizada.
           </p>
+        </div>
 
-          <form onSubmit={handleSubmit}>
-            <label className="text-xs font-semibold text-[#2C2C2A] block mb-1">
-              Usuario o correo
+        <div className={styles["auth-visual-footer"]}>
+          <ShieldIcon size={17} />
+          <span>Acceso seguro y controlado por roles</span>
+        </div>
+      </section>
+
+      <section className={styles["auth-form-side"]}>
+        <div className={styles["auth-form-wrap"]}>
+          <div className={`${styles["mobile-brand"]} ${styles.brand}`}>
+            <span className={styles["brand-mark"]}>
+              <BuildingIcon size={20} />
+            </span>
+            <span>
+              Edificio <strong>Central</strong>
+            </span>
+          </div>
+
+          <div className={styles["form-heading"]}>
+            <p className={styles.eyebrow}>BIENVENIDO</p>
+            <h2>Iniciar sesión</h2>
+            <p>Ingresa tus credenciales para acceder al sistema.</p>
+          </div>
+
+          <form className={styles["form-stack"]} onSubmit={handleSubmit}>
+            <label className={styles.field}>
+              <span>Usuario o correo electrónico</span>
+              <div className={styles["input-wrap"]}>
+                <MailIcon size={18} />
+                <input
+                  name="user"
+                  type="text"
+                  placeholder="admin@edificio.com"
+                  autoComplete="username"
+                />
+              </div>
             </label>
-            <input
-              type="text"
-              value={usuario}
-              onChange={(e) => setUsuario(e.target.value)}
-              placeholder="admin@edificio.com"
-              className="w-full h-10 rounded-md px-3 mb-4 bg-white border border-[#D3D1C7] text-sm font-semibold text-[#2C2C2A] outline-none focus:border-[#C13333]"
-            />
 
-            <label className="text-xs font-semibold text-[#2C2C2A] block mb-1">
-              Contraseña
+            <label className={styles.field}>
+              <span>Contraseña</span>
+              <div className={styles["input-wrap"]}>
+                <LockIcon size={18} />
+                <input
+                  name="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Ingresa tu contraseña"
+                  autoComplete="current-password"
+                />
+                <button
+                  type="button"
+                  className={styles["icon-button"]}
+                  aria-label={showPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                  onClick={() => setShowPassword((v) => !v)}
+                >
+                  {showPassword ? <EyeOffIcon size={18} /> : <EyeIcon size={18} />}
+                </button>
+              </div>
             </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-              className="w-full h-10 rounded-md px-3 mb-2 bg-white border border-[#D3D1C7] text-sm font-semibold text-[#2C2C2A] outline-none focus:border-[#C13333]"
-            />
 
-            {error && <p className="text-xs text-[#A32D2D] mb-2">{error}</p>}
+            <div className={styles["form-options"]}>
+              <label className={styles["check-label"]}>
+                <input
+                  type="checkbox"
+                  checked={remember}
+                  onChange={(e) => setRemember(e.target.checked)}
+                />
+                <span>Recordarme</span>
+              </label>
+            </div>
 
-            <label className="flex items-center gap-2 text-xs text-[#5F5E5A] mt-3 mb-5">
-              <input type="checkbox" className="w-4 h-4" />
-              Recordarme
-            </label>
+            {error && <div className={`${styles.alert} ${styles["alert-error"]}`}>{error}</div>}
 
             <button
+              className={`${styles.btn} ${styles["btn-primary"]} ${styles["btn-large"]}`}
               type="submit"
-              className="w-full h-11 rounded-md bg-[#C13333] hover:bg-[#A82A2A] text-[#FAECE7] font-bold transition-colors duration-200"
+              disabled={loading}
             >
-              Ingresar
+              {loading ? "Ingresando..." : "Iniciar sesión"}
             </button>
           </form>
 
-          <div className="border-t border-[#D3D1C7] mt-6 pt-4">
-            <p className="text-xs text-[#888780] mb-2">
-              Rol asignado tras verificación
-            </p>
-            <div className="mb-4">
-              <span className="text-xs font-semibold px-3 py-1.5 rounded-md bg-[#FFE6D9] text-[#712B13]">
-                Administrador
-              </span>
-            </div>
-
-            <div className="flex items-start gap-2 bg-white/60 rounded-md p-3">
-              <svg viewBox="0 0 24 24" fill="none" stroke="#5F5E5A" strokeWidth="2" className="w-4 h-4 mt-0.5 shrink-0">
-                <rect x="5" y="11" width="14" height="9" rx="2" />
-                <path d="M8 11V7a4 4 0 0 1 8 0v4" />
-              </svg>
-              <p className="text-xs text-[#5F5E5A]">
-                Rutas como /dashboard permanecen bloqueadas hasta validar la
-                sesión.
-              </p>
-            </div>
-          </div>
+          <p className={styles["form-note"]}>
+            Sistema de administración del Edificio Central
+          </p>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
