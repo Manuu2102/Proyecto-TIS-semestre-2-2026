@@ -70,14 +70,12 @@ export class UsuariosService {
         },
       };
     } catch (dbError) {
-      // Si falla la creación en tu tabla, el usuario de Auth queda huérfano.
-      // Lo eliminamos para no dejar un registro inconsistente en Supabase Auth.
       await this.supabase.client.auth.admin.deleteUser(authData.user.id);
       throw dbError;
     }
   }
 
-  async assignRole(idUsuario: string, idRol: number) {
+  async assignRole(adminId: string, idUsuario: string, idRol: number) {
     const usuario = await this.prisma.usuario.findUnique({ where: { id: idUsuario } });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
@@ -89,9 +87,11 @@ export class UsuariosService {
     });
     if (yaAsignado) throw new ConflictException('El usuario ya tiene ese rol asignado');
 
-    const resultado = await this.prisma.rol_usuario.create({
-      data: { id_rol: idRol, id_usuario: idUsuario },
-    });
+    const resultado = await this.prisma.conUsuario(adminId, (tx) =>
+      tx.rol_usuario.create({
+        data: { id_rol: idRol, id_usuario: idUsuario },
+      }),
+    );
 
     return {
       message: 'Rol asignado correctamente',
