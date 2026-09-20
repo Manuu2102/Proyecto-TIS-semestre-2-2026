@@ -583,7 +583,7 @@ model auditoria {
   id               BigInt   @id @default(autoincrement())
   usuario_id       String?  @db.Uuid
   tabla_afectada   String
-  registro_id      String
+  registro_id      String?
   accion           String
   datos_anteriores Json?
   datos_nuevos     Json?

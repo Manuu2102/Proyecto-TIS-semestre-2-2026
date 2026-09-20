@@ -34,7 +34,6 @@ export class UsuariosService {
       throw new ConflictException('El email ya está registrado');
     }
 
-    // 1. Crear el usuario en Supabase Auth
     const { data: authData, error } = await this.supabase.client.auth.signUp({
       email: data.email,
       password: data.password,
@@ -43,8 +42,6 @@ export class UsuariosService {
     if (error || !authData.user) {
       throw new ConflictException(error?.message ?? 'No se pudo registrar el usuario');
     }
-
-    // 2. Crear el registro en tu tabla `usuario`, usando el mismo UUID
     try {
       const usuario = await this.prisma.usuario.create({
         data: {
