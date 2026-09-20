@@ -614,11 +614,11 @@ model departamento {
   habitaciones         Int
   banos                Int
   superficie_m2        Int
-  estatus              Boolean
-  descripcion          String                 @db.VarChar(255)
-  amueblado            Boolean
-  libre                Boolean
   precio               Decimal                @db.Decimal(12, 2)
+  estatus              Boolean
+  amueblado            Boolean
+  descripcion          String                 @db.VarChar(255)
+  libre                Boolean
   departamento_baulera departamento_baulera[]
   departamento_parqueo departamento_parqueo[]
   departamento_usuario departamento_usuario[]

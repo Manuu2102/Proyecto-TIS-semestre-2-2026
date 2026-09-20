@@ -28,5 +28,17 @@ build/
 .DS_Store
 Thumbs.db
 
-# TypeScript build info
+# Herramientas QAS locales (no subir al repo)
+cypress/
+cypress.config.js
+collections/
+k6/
+scripts/
+.github.qas-backup/
+package.json.qas-backup
+package-lock.json
+reporte.pdf
+reporte.xlsx
+
+# Archivos de build
 *.tsbuildinfo
