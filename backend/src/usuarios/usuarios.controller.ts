@@ -1,9 +1,10 @@
 import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { UsuariosService } from './usuarios.service.js';
 import { AssignRoleDto } from './dto/assign-role.dto.js';
-import { JwtAuthGuard} from '../auth/jwt-auth.guard.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 
 @Controller('usuarios')
 export class UsuariosController {
@@ -13,7 +14,6 @@ export class UsuariosController {
   crearUsuario(
     @Body()
     body: {
-      user_name: string;
       password: string;
       ci: string;
       nombres: string;
@@ -31,10 +31,14 @@ export class UsuariosController {
       fecha_de_nacimiento: new Date(body.fecha_de_nacimiento),
     });
   }
+
   @Post('assign-role')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('ADMINISTRADOR')
-  assignRole(@Body() dto: AssignRoleDto) {
-    return this.usuariosService.assignRole(dto.id_usuario, dto.id_rol);
+  assignRole(
+    @Body() dto: AssignRoleDto,
+    @CurrentUser('id') adminId: string, 
+  ) {
+    return this.usuariosService.assignRole(adminId, dto.id_usuario, dto.id_rol); 
   }
 }

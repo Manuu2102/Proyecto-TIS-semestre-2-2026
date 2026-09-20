@@ -1,9 +1,8 @@
-import { IsInt, IsPositive } from 'class-validator';
+import { IsInt, IsPositive, IsUUID } from 'class-validator';
 
 export class AssignRoleDto {
-  @IsInt()
-  @IsPositive()
-  id_usuario: number;
+  @IsUUID()
+  id_usuario: string;
 
   @IsInt()
   @IsPositive()
