@@ -76,11 +76,11 @@ export default function LoginPage() {
     setError("");
 
     const form = new FormData(e.currentTarget);
-    const usuario = String(form.get("user") || "").trim();
+    const usuario = String(form.get("email") || "").trim();
     const password = String(form.get("password") || "");
 
     if (!usuario || !password) {
-      setError("Completa tu usuario y contraseña para continuar.");
+      setError("Completa tu correo electronico y contraseña para continuar.");
       return;
     }
 
@@ -91,13 +91,15 @@ export default function LoginPage() {
 
     setLoading(true);
     try {
-      const response = await fetch("http://localhost:3001/auth/login", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
+      const response = await fetch(`${apiUrl}/auth/login`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          user_name: usuario,
+          email: usuario,
           password: password,
         }),
       });
@@ -191,8 +193,8 @@ export default function LoginPage() {
               <div className={styles["input-wrap"]}>
                 <MailIcon size={18} />
                 <input
-                  name="user"
-                  type="text"
+                  name="email"
+                  type="email"
                   placeholder="admin@edificio.com"
                   autoComplete="username"
                 />
