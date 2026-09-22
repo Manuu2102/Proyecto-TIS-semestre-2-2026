@@ -1,0 +1,32 @@
+# Dependencias
+node_modules
+**/node_modules
+
+# Builds
+dist
+**/dist
+.next
+**/.next
+
+# Variables de entorno
+.env
+**/.env
+
+# Git
+.git
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Archivos temporales
+*.tmp
+*.temp
+
+# Archivos de VS Code
+.vscode
+
+# Documentación innecesaria para el build
+*.md
