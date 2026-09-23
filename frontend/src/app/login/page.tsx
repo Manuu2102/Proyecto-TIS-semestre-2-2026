@@ -64,6 +64,20 @@ const ShieldIcon = ({ size = 20 }: { size?: number }) => (
   </Icon>
 );
 
+type Role = "ADMINISTRADOR" | "COPROPIETARIO" | "INQUILINO" | "DIRECTORIO" | "CONSULTA";
+
+// Prioridad si el backend algún día devuelve más de un rol por usuario.
+const ROLE_PRIORITY: Role[] = ["ADMINISTRADOR", "DIRECTORIO", "COPROPIETARIO", "INQUILINO", "CONSULTA"];
+
+function extraerRolPrincipal(roles: string[] | undefined): Role {
+  if (!Array.isArray(roles) || roles.length === 0) return "CONSULTA";
+  const nombres = roles.map((r) => r.toUpperCase());
+  for (const prioridad of ROLE_PRIORITY) {
+    if (nombres.includes(prioridad)) return prioridad;
+  }
+  return "CONSULTA";
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
@@ -111,22 +125,17 @@ export default function LoginPage() {
         return;
       }
 
+      const rolPrincipal = extraerRolPrincipal(data.usuario.roles);
+
       if (remember) localStorage.setItem("edificio_remember", "true");
       sessionStorage.setItem("sesionActiva", "true");
       sessionStorage.setItem("token", data.access_token);
-      sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
+      sessionStorage.setItem("rolUsuario", rolPrincipal);
+      sessionStorage.setItem("nombreUsuario", data.usuario.nombre || usuario);
+      // departamentoUsuario: el backend aún no lo devuelve; dashboard/page.tsx
+      // usará su default "Sin unidad" hasta que /auth/login incluya ese dato.
 
-      const roles: string[] = data.usuario.roles ?? [];
-
-      if (roles.includes("ADMINISTRADOR")) {
-        router.push("/dashboard/admin");
-      } else if (roles.includes("DIRECTORIO")) {
-        router.push("/dashboard/directorio");
-      } else if (roles.includes("CONSULTA")) {
-        router.push("/dashboard/consulta");
-      } else {
-        router.push("/dashboard");
-      }
+      router.push("/dashboard");
     } catch {
       setError("No se pudo conectar con el servidor.");
     } finally {
