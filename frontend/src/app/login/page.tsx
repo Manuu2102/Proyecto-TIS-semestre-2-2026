@@ -105,24 +105,24 @@ export default function LoginPage() {
       setError(data.message || "Usuario o contraseña incorrectos.");
       return;
     }
+    const usuario = data.usuario;
+    const roles: string[] = usuario.roles ?? [];
+    const prioridad = ["ADMINISTRADOR", "DIRECTORIO", "COPROPIETARIO", "INQUILINO", "CONSULTA"];
+    const rol = prioridad.find((r) => roles.includes(r)) ?? "CONSULTA";
 
     if (remember) localStorage.setItem("edificio_remember", "true");
+
     sessionStorage.setItem("sesionActiva", "true");
     sessionStorage.setItem("token", data.access_token);
     sessionStorage.setItem("refreshToken", data.refresh_token);
-    sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
+    sessionStorage.setItem("rolUsuario", rol); 
+    sessionStorage.setItem(
+      "nombreUsuario",
+      `${usuario.nombre ?? ""} ${usuario.apellido ?? ""}`.trim() || usuario.email
+    );
+    sessionStorage.setItem("departamentoUsuario", usuario.departamento ?? "Sin unidad");
 
-    const roles: string[] = data.usuario.roles ?? [];
-
-    if (roles.includes("ADMINISTRADOR")) {
-      router.push("/dashboard/admin");
-    } else if (roles.includes("DIRECTORIO")) {
-      router.push("/dashboard/directorio");
-    } else if (roles.includes("CONSULTA")) {
-      router.push("/dashboard/consulta");
-    } else {
-      router.push("/dashboard");
-    }
+    router.push("/dashboard"); 
   } catch {
     setError("No se pudo conectar con el servidor.");
   } finally {

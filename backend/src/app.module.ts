@@ -1,27 +1,30 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { createObserveModule } from '@nestjs/observe';
+
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AuditoriaModule } from './auditoria/auditoria.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
-import { AuditoriaModule } from './auditoria/auditoria.module.js';
-
-
-export const { ObserveModule, ObserveInstrument } = createObserveModule();
+import { DepartamentosModule } from './departamentos/departamentos.module.js';
+import { OcupacionesModule } from './ocupaciones/ocupaciones.module.js';
+import { CopropietariosModule } from './copropietarios/copropietarios.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-
-    PrismaModule,
     AuthModule,
+    PrismaModule,
     UsuariosModule,
+    DepartamentosModule,
+    OcupacionesModule,
+    CopropietariosModule,
     AuditoriaModule,
   ],
+
   controllers: [AppController],
   providers: [AppService],
 })
