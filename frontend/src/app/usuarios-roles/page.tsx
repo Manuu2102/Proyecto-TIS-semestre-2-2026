@@ -61,8 +61,34 @@ export default function UsuariosRolesPage() {
   }
 
   useEffect(() => {
-    loadUsers();
-  }, []);
+  let isMounted = true;
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await apiFetch("/usuarios");
+      if (isMounted) setUsers(data);
+    } catch (err) {
+      if (isMounted) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar la lista de usuarios."
+        );
+      }
+    } finally {
+      if (isMounted) setLoading(false);
+    }
+  };
+
+  void fetchUsers();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
 
   function openManager() {
     setOpen(true);
