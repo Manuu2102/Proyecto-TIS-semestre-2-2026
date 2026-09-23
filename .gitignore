@@ -30,3 +30,15 @@ Thumbs.db
 
 # TypeScript build info
 *.tsbuildinfo
+
+# Herramientas QAS locales (no subir al repo)
+cypress/
+cypress.config.js
+collections/
+k6/
+scripts/
+.github.qas-backup/
+package.json.qas-backup
+package-lock.json
+reporte.pdf
+reporte.xlsx
