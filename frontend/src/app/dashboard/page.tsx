@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "../../../components/DashboardLayout";
@@ -34,12 +34,17 @@ const adminCards = [
   ["Documentos", "86", "Archivos almacenados", FileIcon],
 ] as const;
 
-// Traduce el rol que guardó app/login/page.tsx (ya normalizado a un string simple)
-// a uno de los 5 roles soportados. Si no coincide con ninguno, cae a CONSULTA.
 function normalizeRole(value: string | null): Role {
   const role = (value || "").toUpperCase();
   if (["ADMINISTRADOR", "COPROPIETARIO", "INQUILINO", "DIRECTORIO", "CONSULTA"].includes(role)) return role as Role;
   return "CONSULTA";
+}
+
+function readUnitPhotos(unit: string): string[] {
+  if (typeof window === "undefined") return [];
+  const saved = localStorage.getItem(`edificio_unit_photos_${unit}`);
+  if (!saved) return [];
+  try { return JSON.parse(saved); } catch { return []; }
 }
 
 function Metric({ icon: Icon, label, value, note }: { icon: IconType; label: string; value: string; note: string }) {
@@ -62,14 +67,7 @@ function AdminDashboard({ name }: { name: string }) {
 }
 
 function OwnerDashboard({ name, unit }: { name: string; unit: string }) {
-  const [photos, setPhotos] = useState<string[]>([]);
-
-  useEffect(() => {
-    const saved = localStorage.getItem(`edificio_unit_photos_${unit}`);
-    if (saved) {
-      try { setPhotos(JSON.parse(saved)); } catch { setPhotos([]); }
-    }
-  }, [unit]);
+  const [photos, setPhotos] = useState<string[]>(() => readUnitPhotos(unit));
 
   function addPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -99,13 +97,7 @@ function OwnerDashboard({ name, unit }: { name: string; unit: string }) {
 }
 
 function TenantDashboard({ name, unit }: { name: string; unit: string }) {
-  const [photos, setPhotos] = useState<string[]>([]);
-  useEffect(() => {
-    const saved = localStorage.getItem(`edificio_unit_photos_${unit}`);
-    if (saved) {
-      try { setPhotos(JSON.parse(saved)); } catch { setPhotos([]); }
-    }
-  }, [unit]);
+  const [photos] = useState<string[]>(() => readUnitPhotos(unit));
 
   return <>
     <div className="page-heading"><div><span className="eyebrow">INQUILINO</span><h1>Mi hogar y mis pagos</h1><p>Hola, {name.split(" ")[0]}. Consulta aquí todo lo relacionado con tu vivienda.</p></div></div>
@@ -130,32 +122,36 @@ function GenericDashboard({ role, name }: { role: Role; name: string }) {
   return <><div className="page-heading"><div><span className="eyebrow">{role}</span><h1>{title}</h1><p>{subtitle}</p></div></div><RoleHero eyebrow="RESUMEN" title={<>Hola, {name.split(" ")[0]} <span>👋</span></>} text={subtitle} /><div className="metric-grid"><Metric icon={BuildingIcon} label="Departamentos" value="32" note="Unidades registradas"/><Metric icon={FileIcon} label="Documentos" value="18" note="Disponibles"/><Metric icon={BellIcon} label="Comunicados" value="6" note="Avisos recientes"/><Metric icon={ShieldIcon} label="Estado" value="Activo" note="Operación normal"/></div></>;
 }
 
+type DashboardSession = { role: Role; name: string; unit: string };
+
+function readDashboardSession(): DashboardSession | null {
+  if (typeof window === "undefined") return null;
+  const activa = sessionStorage.getItem("sesionActiva");
+  if (!activa) return null;
+  return {
+    role: normalizeRole(sessionStorage.getItem("rolUsuario")),
+    name: sessionStorage.getItem("nombreUsuario") || "Usuario",
+    unit: sessionStorage.getItem("departamentoUsuario") || "Sin unidad",
+  };
+}
+
 export default function DashboardPage() {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
-  const [role, setRole] = useState<Role>("CONSULTA");
-  const [name, setName] = useState("Usuario");
-  const [unit, setUnit] = useState("Sin unidad");
+  const [session] = useState<DashboardSession | null>(() => readDashboardSession());
 
-  useEffect(() => {
-    // Misma sesión que crea app/login/page.tsx tras validar contra el backend.
-    const activa = sessionStorage.getItem("sesionActiva");
-    if (!activa) { router.replace("/login"); return; }
-
-    const currentRole = normalizeRole(sessionStorage.getItem("rolUsuario"));
-    setRole(currentRole);
-    setName(sessionStorage.getItem("nombreUsuario") || "Usuario");
-    setUnit(sessionStorage.getItem("departamentoUsuario") || "Sin unidad");
-    setReady(true);
-  }, [router]);
+  useMemo(() => {
+    if (!session) router.replace("/login");
+  }, [session, router]);
 
   const content = useMemo(() => {
+    if (!session) return null;
+    const { role, name, unit } = session;
     if (role === "ADMINISTRADOR") return <AdminDashboard name={name} />;
-    if (role === "COPROPIETARIO") return <OwnerDashboard name={name} unit={unit} />;
-    if (role === "INQUILINO") return <TenantDashboard name={name} unit={unit} />;
+    if (role === "COPROPIETARIO") return <OwnerDashboard name={name} unit={unit} key={unit} />;
+    if (role === "INQUILINO") return <TenantDashboard name={name} unit={unit} key={unit} />;
     return <GenericDashboard role={role} name={name} />;
-  }, [role, name, unit]);
+  }, [session]);
 
-  if (!ready) return <div className="auth-loading">Cargando tu panel…</div>;
+  if (!session) return <div className="auth-loading">Cargando tu panel…</div>;
   return <DashboardLayout active="dashboard">{content}</DashboardLayout>;
 }

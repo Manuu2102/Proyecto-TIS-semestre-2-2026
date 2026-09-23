@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
@@ -17,8 +17,6 @@ type NavigationSection = {
   items: NavigationItem[];
 };
 
-// La navegación es siempre directa: los módulos no están dentro de menús desplegables.
-// Las secciones solo sirven para separar visualmente los grupos, como en el diseño de referencia.
 const adminSections: NavigationSection[] = [
   { title: "Principal", items: [{ key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutIcon }] },
   { title: "Administración", items: [
@@ -74,9 +72,6 @@ const consultationSections: NavigationSection[] = [
   ] },
 ];
 
-// El login guarda en sessionStorage un único rol "principal" (string simple),
-// elegido a partir del array de roles que devuelve el backend. Aquí se traduce
-// ese rol a la navegación que le corresponde.
 function sectionsForRole(role: string): NavigationSection[] {
   const normalized = role.trim().toUpperCase();
   if (normalized.startsWith("ADMIN")) return adminSections;
@@ -93,31 +88,34 @@ function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "US";
 }
 
+// Lee la sesión de forma síncrona; se usa como valor inicial de useState
+// (nunca dentro de un efecto), para evitar setState-en-efecto.
+function readSession(): { nombre: string; rol: string } | null {
+  if (typeof window === "undefined") return null;
+  const activa = sessionStorage.getItem("sesionActiva");
+  if (!activa) return null;
+  return {
+    nombre: sessionStorage.getItem("nombreUsuario") || "Usuario",
+    rol: sessionStorage.getItem("rolUsuario") || "Consulta",
+  };
+}
+
 export function DashboardLayout({ children, active }: { children: React.ReactNode; active: string }) {
   const [mobile, setMobile] = useState(false);
-  // sessionSet distingue "todavía no verifiqué sessionStorage" (null) de "verifiqué y no hay sesión".
-  const [session, setSession] = useState<{ nombre: string; rol: string } | null>(null);
-  // Evita que, al cerrar sesión, el layout se re-renderice con session=null
-  // (y por tanto con la navegación/rol "Consulta" por defecto) mientras
-  // router.replace("/login") todavía no termina de navegar.
+  const [session] = useState<{ nombre: string; rol: string } | null>(() => readSession());
   const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-  const navSections = sectionsForRole(session?.rol ?? "");
-  const allowedPaths = new Set(navSections.flatMap(section => section.items.map(item => item.href)));
+
+  const navSections = useMemo(() => sectionsForRole(session?.rol ?? ""), [session]);
+  const allowedPaths = useMemo(
+    () => new Set(navSections.flatMap(section => section.items.map(item => item.href))),
+    [navSections]
+  );
 
   useEffect(() => {
-    // Misma sesión que crea app/login/page.tsx: sessionStorage con estas claves.
-    const activa = sessionStorage.getItem("sesionActiva");
-    if (!activa) {
-      router.replace("/login");
-      return;
-    }
-    setSession({
-      nombre: sessionStorage.getItem("nombreUsuario") || "Usuario",
-      rol: sessionStorage.getItem("rolUsuario") || "Consulta",
-    });
-  }, [router]);
+    if (!session) router.replace("/login");
+  }, [session, router]);
 
   useEffect(() => {
     if (!session || pathname === "/dashboard" || pathname === "/login") return;

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import {
   ShieldIcon,
@@ -99,42 +99,37 @@ const logs = [
   ],
 ];
 
+function readRoleLogs(): string[][] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = localStorage.getItem("edificio_audit_roles");
+    const parsed = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map(
+      (item: {
+        usuario?: string;
+        accion?: string;
+        fecha?: string;
+        anterior?: string;
+        nuevo?: string;
+      }) => [
+        "Administrador",
+        item.accion || "Cambio de rol",
+        item.fecha || "",
+        "",
+        `${item.usuario || "Usuario"} · ${item.anterior || ""} → ${item.nuevo || ""}`,
+      ]
+    );
+  } catch {
+    return [];
+  }
+}
+
 export default function SeguridadPage() {
   const [role, setRole] = useState("Administrador");
   const [matrix, setMatrix] = useState(initial);
   const [q, setQ] = useState("");
-  const [roleLogs, setRoleLogs] = useState<string[][]>([]);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem("edificio_audit_roles");
-      const parsed = raw ? JSON.parse(raw) : [];
-
-      if (Array.isArray(parsed)) {
-        setRoleLogs(
-          parsed.map(
-            (item: {
-              usuario?: string;
-              accion?: string;
-              fecha?: string;
-              anterior?: string;
-              nuevo?: string;
-            }) => [
-              "Administrador",
-              item.accion || "Cambio de rol",
-              item.fecha || "",
-              "",
-              `${item.usuario || "Usuario"} · ${
-                item.anterior || ""
-              } → ${item.nuevo || ""}`,
-            ]
-          )
-        );
-      }
-    } catch {
-      setRoleLogs([]);
-    }
-  }, []);
+  const [roleLogs] = useState<string[][]>(() => readRoleLogs());
 
   const toggle = (p: string) => {
     setMatrix({
@@ -145,15 +140,12 @@ export default function SeguridadPage() {
     });
   };
 
-  const allLogs = [...roleLogs, ...logs];
-
-  const filtered = useMemo(
-    () =>
-      allLogs.filter((x) =>
-        x.join(" ").toLowerCase().includes(q.toLowerCase())
-      ),
-    [q, roleLogs]
-  );
+  const filtered = useMemo(() => {
+    const allLogs = [...roleLogs, ...logs];
+    return allLogs.filter((x) =>
+      x.join(" ").toLowerCase().includes(q.toLowerCase())
+    );
+  }, [q, roleLogs]);
 
   return (
     <DashboardLayout active="seguridad">

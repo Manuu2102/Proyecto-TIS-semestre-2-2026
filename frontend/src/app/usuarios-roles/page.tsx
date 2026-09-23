@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import { ShieldIcon, UsersIcon } from "../../../components/Icons";
@@ -16,21 +16,30 @@ type UserRecord = {
   departamento?: string;
 };
 
-export default function UsuariosRolesPage() {
-  const [users, setUsers] = useState<UserRecord[]>([]);
-  const [open, setOpen] = useState(false);
+function readCurrentUsers(): UserRecord[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const currentRaw = localStorage.getItem("edificio_current_user");
+    if (!currentRaw) return [];
+    const current = JSON.parse(currentRaw) as UserRecord;
+    if (current.role !== "ADMINISTRADOR") return [];
+    const raw = localStorage.getItem("edificio_users");
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
 
-  useEffect(() => {
-    const raw = localStorage.getItem("edificio_current_user");
-    if (!raw) return;
-    try {
-      const current = JSON.parse(raw) as UserRecord;
-      if (current.role !== "ADMINISTRADOR") return;
-      loadUsers();
-    } catch {
-      // DashboardLayout controla la sesión y redirección.
-    }
-  }, []);
+let auditIdCounter = 0;
+function nextAuditId() {
+  auditIdCounter += 1;
+  return `${Date.now()}-${auditIdCounter}`;
+}
+
+export default function UsuariosRolesPage() {
+  const [users, setUsers] = useState<UserRecord[]>(() => readCurrentUsers());
+  const [open, setOpen] = useState(false);
 
   function loadUsers() {
     try {
@@ -86,33 +95,35 @@ export default function UsuariosRolesPage() {
         </div>
       </section>
 
-      <RoleManagerModal open={open} onClose={() => setOpen(false)} />
+      <RoleManagerModal
+        open={open}
+        users={users}
+        onUsersChange={setUsers}
+        onClose={() => setOpen(false)}
+      />
     </DashboardLayout>
   );
 }
 
-function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const [users, setUsers] = useState<UserRecord[]>([]);
+function RoleManagerModal({
+  open,
+  users,
+  onUsersChange,
+  onClose,
+}: {
+  open: boolean;
+  users: UserRecord[];
+  onUsersChange: (users: UserRecord[]) => void;
+  onClose: () => void;
+}) {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [message, setMessage] = useState("");
 
-  function loadUsers() {
-    try {
-      const raw = localStorage.getItem("edificio_users");
-      const parsed = raw ? JSON.parse(raw) : [];
-      setUsers(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setUsers([]);
-    }
+  function handleClose() {
+    setMessage("");
+    onClose();
   }
-
-  useEffect(() => {
-    if (open) {
-      loadUsers();
-      setMessage("");
-    }
-  }, [open]);
 
   function changeRole(id: number, role: ManagedRole) {
     setSavingId(id);
@@ -129,7 +140,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
       const audit = auditRaw ? JSON.parse(auditRaw) : [];
       const entries = Array.isArray(audit) ? audit : [];
       entries.unshift({
-        id: Date.now(),
+        id: nextAuditId(),
         fecha: new Date().toLocaleString("es-BO"),
         usuario: target.nombre,
         anterior: oldRole,
@@ -137,7 +148,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
         accion: "Cambio de rol",
       });
       localStorage.setItem("edificio_audit_roles", JSON.stringify(entries.slice(0, 50)));
-      setUsers(parsed);
+      onUsersChange(parsed);
       setMessage(`Rol actualizado: ${target.nombre} ahora tiene ${role}.`);
     } catch {
       setMessage("No se pudo actualizar el rol.");
@@ -167,7 +178,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
       const audit = auditRaw ? JSON.parse(auditRaw) : [];
       const entries = Array.isArray(audit) ? audit : [];
       entries.unshift({
-        id: Date.now(),
+        id: nextAuditId(),
         fecha: new Date().toLocaleString("es-BO"),
         usuario: target.nombre,
         anterior: target.role,
@@ -175,7 +186,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
         accion: "Eliminación de usuario",
       });
       localStorage.setItem("edificio_audit_roles", JSON.stringify(entries.slice(0, 50)));
-      setUsers(nextUsers);
+      onUsersChange(nextUsers);
       setMessage(`Usuario eliminado: ${target.nombre}.`);
     } catch {
       setMessage("No se pudo eliminar el usuario.");
@@ -187,7 +198,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
   const adminRoles = ["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"] as const;
 
   return (
-    <Modal open={open} title="Gestionar roles" onClose={onClose}>
+    <Modal open={open} title="Gestionar roles" onClose={handleClose}>
       <div className="hu48-modal-body">
         <div className="hu48-modal-intro">
           <div><p>Selecciona el rol que determinará los permisos de cada usuario. Los cambios se registran automáticamente en auditoría.</p></div>
@@ -209,7 +220,7 @@ function RoleManagerModal({ open, onClose }: { open: boolean; onClose: () => voi
         </div>
         {message && <div className="alert alert-success hu48-message">{message}</div>}
         <div className="hu48-audit-note"><ShieldIcon size={18}/><div><strong>Registro de auditoría</strong><span>Cada cambio guarda usuario, fecha, rol anterior y nuevo rol.</span></div></div>
-        <div className="modal-actions"><button className="btn btn-secondary" onClick={onClose}>Cerrar</button></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={handleClose}>Cerrar</button></div>
       </div>
     </Modal>
   );
