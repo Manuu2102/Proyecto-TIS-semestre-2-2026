@@ -60,7 +60,6 @@ type InquilinoFormData = {
   ci: string;
   telefono: string;
   correo: string;
-  password?: string;
   departamento: string;
   inicio: string;
 };
@@ -363,7 +362,6 @@ function InquilinoForm({
     ci: initial?.ci ?? "",
     telefono: initial?.telefono ?? "",
     correo: initial?.correo ?? "",
-    password: "",
     departamento: initial?.departamento ?? "",
     inicio: initial?.inicio ?? "",
   });
@@ -387,42 +385,13 @@ function InquilinoForm({
   ) {
     e.preventDefault();
 
-    // En un registro nuevo todos los campos son obligatorios
-    if (!initial) {
-      if (
-        !f.nombre ||
-        !f.ci ||
-        !f.telefono ||
-        !f.correo ||
-        !f.password ||
-        !f.departamento ||
-        !f.inicio
-      ) {
-        setError(
-          "Completa todos los campos obligatorios."
-        );
-        return;
-      }
-
-      if (f.password.length < 8) {
-        setError(
-          "La contraseña debe tener al menos 8 caracteres."
-        );
-        return;
-      }
-    }
-
-    // En edición la contraseña no es obligatoria
     if (
-      initial &&
-      (
-        !f.nombre ||
-        !f.ci ||
-        !f.telefono ||
-        !f.correo ||
-        !f.departamento ||
-        !f.inicio
-      )
+      !f.nombre ||
+      !f.ci ||
+      !f.telefono ||
+      !f.correo ||
+      !f.departamento ||
+      !f.inicio
     ) {
       setError(
         "Completa todos los campos obligatorios."
@@ -435,7 +404,6 @@ function InquilinoForm({
       ci: f.ci,
       telefono: f.telefono,
       correo: f.correo,
-      password: f.password || undefined,
       departamento: f.departamento,
       inicio: f.inicio,
     });
@@ -482,24 +450,6 @@ function InquilinoForm({
             field("correo", v)
           }
           placeholder="correo@email.com"
-        />
-
-        <Field
-          label={
-            initial
-              ? "Nueva contraseña"
-              : "Contraseña de acceso"
-          }
-          type="password"
-          value={f.password}
-          onChange={(v) =>
-            field("password", v)
-          }
-          placeholder={
-            initial
-              ? "Dejar vacío para mantener actual"
-              : "Mínimo 8 caracteres"
-          }
         />
 
         <Field
