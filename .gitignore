@@ -42,3 +42,8 @@ package.json.qas-backup
 package-lock.json
 reporte.pdf
 reporte.xlsx
+
+# Archivos de prueba
+prueba.pdf
+descargado.pdf
+*.pdf
