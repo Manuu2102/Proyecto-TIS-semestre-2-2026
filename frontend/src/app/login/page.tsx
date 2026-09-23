@@ -72,66 +72,63 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
+  e.preventDefault();
+  setError("");
 
-    const form = new FormData(e.currentTarget);
-    const usuario = String(form.get("email") || "").trim();
-    const password = String(form.get("password") || "");
+  const form = new FormData(e.currentTarget);
+  const email = String(form.get("email") || "").trim();
+  const password = String(form.get("password") || "");
 
-    if (!usuario || !password) {
-      setError("Completa tu correo electronico y contraseña para continuar.");
+  if (!email || !password) {
+    setError("Completa tu correo y contraseña para continuar.");
+    return;
+  }
+
+  if (password.length < 6) {
+    setError("La contraseña debe tener al menos 6 caracteres.");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const response = await fetch("http://localhost:3001/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setError(data.message || "Usuario o contraseña incorrectos.");
       return;
     }
 
-    if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
-      return;
+    if (remember) localStorage.setItem("edificio_remember", "true");
+    sessionStorage.setItem("sesionActiva", "true");
+    sessionStorage.setItem("token", data.access_token);
+    sessionStorage.setItem("refreshToken", data.refresh_token);
+    sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
+
+    const roles: string[] = data.usuario.roles ?? [];
+
+    if (roles.includes("ADMINISTRADOR")) {
+      router.push("/dashboard/admin");
+    } else if (roles.includes("DIRECTORIO")) {
+      router.push("/dashboard/directorio");
+    } else if (roles.includes("CONSULTA")) {
+      router.push("/dashboard/consulta");
+    } else {
+      router.push("/dashboard");
     }
+  } catch {
+    setError("No se pudo conectar con el servidor.");
+  } finally {
+    setLoading(false);
+  }
 
-    setLoading(true);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
-
-      const response = await fetch(`${apiUrl}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: usuario,
-          password: password,
-        }),
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.message || "Usuario o contraseña incorrectos.");
-        return;
-      }
-
-      if (remember) localStorage.setItem("edificio_remember", "true");
-      sessionStorage.setItem("sesionActiva", "true");
-      sessionStorage.setItem("token", data.access_token);
-      sessionStorage.setItem("rolUsuario", JSON.stringify(data.usuario.roles));
-
-      const roles: string[] = data.usuario.roles ?? [];
-
-      if (roles.includes("ADMINISTRADOR")) {
-        router.push("/dashboard/admin");
-      } else if (roles.includes("DIRECTORIO")) {
-        router.push("/dashboard/directorio");
-      } else if (roles.includes("CONSULTA")) {
-        router.push("/dashboard/consulta");
-      } else {
-        router.push("/dashboard");
-      }
-    } catch {
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setLoading(false);
-    }
   }
 
   return (
@@ -189,7 +186,7 @@ export default function LoginPage() {
 
           <form className={styles["form-stack"]} onSubmit={handleSubmit}>
             <label className={styles.field}>
-              <span>Usuario o correo electrónico</span>
+              <span>Correo electrónico</span>
               <div className={styles["input-wrap"]}>
                 <MailIcon size={18} />
                 <input
