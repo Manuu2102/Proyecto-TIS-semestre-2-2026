@@ -1,0 +1,29 @@
+name: CD - Staging
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  deploy-staging:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validar configuración Docker
+        run: docker compose config
+
+      - name: Construir imágenes de staging
+        run: docker compose build
+
+      - name: Mostrar estado del despliegue
+        run: |
+          echo "======================================"
+          echo "CD - STAGING"
+          echo "======================================"
+          echo "Docker Compose validado correctamente."
+          echo "Las imágenes de frontend y backend fueron construidas."
+          echo "Despliegue al servidor pendiente de infraestructura."
