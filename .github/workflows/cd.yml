@@ -13,6 +13,10 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Preparar variables de entorno
+        run: |
+          touch backend/.env
+
       - name: Validar configuración Docker
         run: docker compose config
 
