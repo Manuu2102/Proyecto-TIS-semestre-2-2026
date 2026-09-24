@@ -42,10 +42,29 @@ export class AuditoriaService {
       this.prisma.auditoria.count({ where }),
     ]);
 
+    // Junta los UUIDs únicos de usuarios que aparecen en estos registros
+    const usuarioIds = [
+      ...new Set(registros.map((r) => r.usuario_id).filter((id): id is string => !!id)),
+    ];
+
+    const usuarios = usuarioIds.length
+      ? await this.prisma.usuario.findMany({
+          where: { id: { in: usuarioIds } },
+          select: { id: true, nombres: true, apellido_paterno: true },
+        })
+      : [];
+
+    const nombresPorId = new Map(
+      usuarios.map((u) => [u.id, `${u.nombres} ${u.apellido_paterno}`]),
+    );
+
     return {
       data: registros.map((r) => ({
         ...r,
         id: r.id.toString(),
+        usuario_nombre: r.usuario_id
+          ? (nombresPorId.get(r.usuario_id) ?? 'Usuario desconocido')
+          : 'Sistema',
       })),
       meta: {
         total,

@@ -1,60 +1,101 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import { ShieldIcon, UsersIcon } from "../../../components/Icons";
 
-type Role = "ADMINISTRADOR" | "COPROPIETARIO" | "INQUILINO" | "DIRECTORIO" | "CONSULTA";
 type ManagedRole = "ADMINISTRADOR" | "DIRECTORIO" | "CONSULTA";
 
 type UserRecord = {
-  id: number;
+  id: string;
   nombre: string;
   email: string;
-  role: Role;
-  departamento?: string;
+  role: string;
+  estatus: boolean;
 };
 
-function readCurrentUsers(): UserRecord[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const currentRaw = localStorage.getItem("edificio_current_user");
-    if (!currentRaw) return [];
-    const current = JSON.parse(currentRaw) as UserRecord;
-    if (current.role !== "ADMINISTRADOR") return [];
-    const raw = localStorage.getItem("edificio_users");
-    const parsed = raw ? JSON.parse(raw) : [];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+const API_URL = "http://localhost:3001";
+
+function getToken() {
+  return sessionStorage.getItem("token");
 }
 
-let auditIdCounter = 0;
-function nextAuditId() {
-  auditIdCounter += 1;
-  return `${Date.now()}-${auditIdCounter}`;
+async function apiFetch(path: string, options: RequestInit = {}) {
+  const token = getToken();
+  const response = await fetch(`${API_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...options.headers,
+    },
+  });
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    throw new Error(data?.message || "Error en la solicitud");
+  }
+
+  return data;
 }
 
 export default function UsuariosRolesPage() {
-  const [users, setUsers] = useState<UserRecord[]>(() => readCurrentUsers());
+  const [users, setUsers] = useState<UserRecord[]>([]);
   const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  function loadUsers() {
+  async function loadUsers() {
+    setLoading(true);
+    setError("");
     try {
-      const raw = localStorage.getItem("edificio_users");
-      const parsed = raw ? JSON.parse(raw) : [];
-      setUsers(Array.isArray(parsed) ? parsed : []);
-    } catch {
-      setUsers([]);
+      const data = await apiFetch("/usuarios");
+      setUsers(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "No se pudo cargar la lista de usuarios.");
+    } finally {
+      setLoading(false);
     }
   }
 
+  useEffect(() => {
+  let isMounted = true;
+
+  const fetchUsers = async () => {
+    setLoading(true);
+    setError("");
+
+    try {
+      const data = await apiFetch("/usuarios");
+      if (isMounted) setUsers(data);
+    } catch (err) {
+      if (isMounted) {
+        setError(
+          err instanceof Error
+            ? err.message
+            : "No se pudo cargar la lista de usuarios."
+        );
+      }
+    } finally {
+      if (isMounted) setLoading(false);
+    }
+  };
+
+  void fetchUsers();
+
+  return () => {
+    isMounted = false;
+  };
+}, []);
+
   function openManager() {
-    loadUsers();
     setOpen(true);
   }
+
+  const roleCount = (role: ManagedRole) =>
+    users.filter((u) => u.role === role).length;
 
   return (
     <DashboardLayout active="usuarios-roles">
@@ -66,19 +107,21 @@ export default function UsuariosRolesPage() {
         </div>
       </div>
 
+      {error && <div className="alert alert-error">{error}</div>}
+
       <section className="panel usuarios-roles-card">
         <div className="usuarios-roles-icon"><UsersIcon size={30} /></div>
         <div className="usuarios-roles-copy">
           <span className="eyebrow">GESTIÓN DE ROLES</span>
           <h2>Control de usuarios y permisos</h2>
-          <p>Desde este módulo puedes asignar roles, eliminar usuarios y registrar automáticamente los cambios en auditoría.</p>
+          <p>Desde este módulo puedes asignar roles y eliminar usuarios. Los cambios quedan registrados automáticamente en auditoría.</p>
           <div className="hu48-role-chips">
-            {(["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"] as const).map(role => (
-              <span key={role}><b>{users.filter(user => user.role === role).length}</b>{role}</span>
+            {(["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"] as const).map((role) => (
+              <span key={role}><b>{roleCount(role)}</b>{role}</span>
             ))}
           </div>
         </div>
-        <button className="btn btn-primary usuarios-roles-open" onClick={openManager}>
+        <button className="btn btn-primary usuarios-roles-open" onClick={openManager} disabled={loading}>
           <UsersIcon size={17} /> Gestionar roles
         </button>
       </section>
@@ -91,14 +134,20 @@ export default function UsuariosRolesPage() {
           </div>
         </div>
         <div className="hu48-summary">
-          <div className="hu48-info"><ShieldIcon size={20}/><div><strong>Auditoría activa</strong><span>Los cambios de rol y eliminaciones quedan registrados con fecha y hora.</span></div></div>
+          <div className="hu48-info">
+            <ShieldIcon size={20} />
+            <div>
+              <strong>Auditoría activa</strong>
+              <span>Los cambios de rol y eliminaciones quedan registrados con fecha y hora.</span>
+            </div>
+          </div>
         </div>
       </section>
 
       <RoleManagerModal
         open={open}
         users={users}
-        onUsersChange={setUsers}
+        onUsersReload={loadUsers}
         onClose={() => setOpen(false)}
       />
     </DashboardLayout>
@@ -108,16 +157,16 @@ export default function UsuariosRolesPage() {
 function RoleManagerModal({
   open,
   users,
-  onUsersChange,
+  onUsersReload,
   onClose,
 }: {
   open: boolean;
   users: UserRecord[];
-  onUsersChange: (users: UserRecord[]) => void;
+  onUsersReload: () => void;
   onClose: () => void;
 }) {
-  const [savingId, setSavingId] = useState<number | null>(null);
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
 
   function handleClose() {
@@ -125,101 +174,93 @@ function RoleManagerModal({
     onClose();
   }
 
-  function changeRole(id: number, role: ManagedRole) {
-    setSavingId(id);
+  async function changeRole(idUsuario: string, roleNombre: ManagedRole) {
+    setSavingId(idUsuario);
+    setMessage("");
     try {
-      const raw = localStorage.getItem("edificio_users");
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) throw new Error("Usuarios inválidos");
-      const target = parsed.find((item: UserRecord) => item.id === id);
-      if (!target) throw new Error("Usuario no encontrado");
-      const oldRole = target.role;
-      target.role = role;
-      localStorage.setItem("edificio_users", JSON.stringify(parsed));
-      const auditRaw = localStorage.getItem("edificio_audit_roles");
-      const audit = auditRaw ? JSON.parse(auditRaw) : [];
-      const entries = Array.isArray(audit) ? audit : [];
-      entries.unshift({
-        id: nextAuditId(),
-        fecha: new Date().toLocaleString("es-BO"),
-        usuario: target.nombre,
-        anterior: oldRole,
-        nuevo: role,
-        accion: "Cambio de rol",
+      // Necesitas el id numérico del rol — ajusta según cómo tengas cargada tu tabla `rol`
+      const ID_ROL: Record<ManagedRole, number> = {
+        ADMINISTRADOR: 1,
+        DIRECTORIO: 2,
+        CONSULTA: 3,
+      };
+
+      await apiFetch("/usuarios/assign-role", {
+        method: "POST",
+        body: JSON.stringify({
+          id_usuario: idUsuario,
+          id_rol: ID_ROL[roleNombre],
+        }),
       });
-      localStorage.setItem("edificio_audit_roles", JSON.stringify(entries.slice(0, 50)));
-      onUsersChange(parsed);
-      setMessage(`Rol actualizado: ${target.nombre} ahora tiene ${role}.`);
-    } catch {
-      setMessage("No se pudo actualizar el rol.");
+
+      onUsersReload();
+      setMessage(`Rol actualizado correctamente.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "No se pudo actualizar el rol.");
     } finally {
       setSavingId(null);
     }
   }
 
-  function deleteUser(id: number) {
+  async function deleteUser(idUsuario: string, nombre: string) {
     if (!window.confirm("¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.")) return;
-    setDeletingId(id);
+
+    setDeletingId(idUsuario);
+    setMessage("");
     try {
-      const raw = localStorage.getItem("edificio_users");
-      const parsed = raw ? JSON.parse(raw) : [];
-      if (!Array.isArray(parsed)) throw new Error("Usuarios inválidos");
-      const target = parsed.find((item: UserRecord) => item.id === id);
-      if (!target) throw new Error("Usuario no encontrado");
-      const currentRaw = localStorage.getItem("edificio_current_user");
-      const current = currentRaw ? JSON.parse(currentRaw) : null;
-      if (current?.id === id) {
-        setMessage("No puedes eliminar la cuenta con la que estás conectado.");
-        return;
-      }
-      const nextUsers = parsed.filter((item: UserRecord) => item.id !== id);
-      localStorage.setItem("edificio_users", JSON.stringify(nextUsers));
-      const auditRaw = localStorage.getItem("edificio_audit_roles");
-      const audit = auditRaw ? JSON.parse(auditRaw) : [];
-      const entries = Array.isArray(audit) ? audit : [];
-      entries.unshift({
-        id: nextAuditId(),
-        fecha: new Date().toLocaleString("es-BO"),
-        usuario: target.nombre,
-        anterior: target.role,
-        nuevo: "ELIMINADO",
-        accion: "Eliminación de usuario",
-      });
-      localStorage.setItem("edificio_audit_roles", JSON.stringify(entries.slice(0, 50)));
-      onUsersChange(nextUsers);
-      setMessage(`Usuario eliminado: ${target.nombre}.`);
-    } catch {
-      setMessage("No se pudo eliminar el usuario.");
+      await apiFetch(`/usuarios/${idUsuario}`, { method: "DELETE" });
+      onUsersReload();
+      setMessage(`Usuario eliminado: ${nombre}.`);
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : "No se pudo eliminar el usuario.");
     } finally {
       setDeletingId(null);
     }
   }
 
-  const adminRoles = ["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"] as const;
+  const adminRoles: ManagedRole[] = ["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"];
 
   return (
     <Modal open={open} title="Gestionar roles" onClose={handleClose}>
       <div className="hu48-modal-body">
         <div className="hu48-modal-intro">
-          <div><p>Selecciona el rol que determinará los permisos de cada usuario. Los cambios se registran automáticamente en auditoría.</p></div>
+          <p>Selecciona el rol que determinará los permisos de cada usuario. Los cambios se registran automáticamente en auditoría.</p>
         </div>
         <div className="hu48-role-table">
-          <div className="hu48-role-row hu48-role-header"><span>USUARIO</span><span>ROL ACTUAL</span><span>ASIGNAR ROL</span><span>ACCIÓN</span></div>
-          {users.map(user => (
+          <div className="hu48-role-row hu48-role-header">
+            <span>USUARIO</span><span>ROL ACTUAL</span><span>ASIGNAR ROL</span><span>ACCIÓN</span>
+          </div>
+          {users.map((user) => (
             <div className="hu48-role-row" key={user.id}>
               <div><strong>{user.nombre}</strong><small>{user.email}</small></div>
               <span className="role-badge">{user.role}</span>
-              <select value={adminRoles.includes(user.role as ManagedRole) ? user.role : "CONSULTA"} disabled={savingId === user.id || deletingId === user.id} onChange={event => changeRole(user.id, event.target.value as ManagedRole)} aria-label={`Rol de ${user.nombre}`}>
-                {adminRoles.map(role => <option key={role} value={role}>{role}</option>)}
+              <select
+                value={adminRoles.includes(user.role as ManagedRole) ? user.role : "CONSULTA"}
+                disabled={savingId === user.id || deletingId === user.id}
+                onChange={(e) => changeRole(user.id, e.target.value as ManagedRole)}
+                aria-label={`Rol de ${user.nombre}`}
+              >
+                {adminRoles.map((role) => (
+                  <option key={role} value={role}>{role}</option>
+                ))}
               </select>
-              <button className="btn btn-danger hu48-delete-btn" type="button" disabled={savingId === user.id || deletingId === user.id} onClick={() => deleteUser(user.id)} aria-label={`Eliminar a ${user.nombre}`}>
+              <button
+                className="btn btn-danger hu48-delete-btn"
+                type="button"
+                disabled={savingId === user.id || deletingId === user.id}
+                onClick={() => deleteUser(user.id, user.nombre)}
+                aria-label={`Eliminar a ${user.nombre}`}
+              >
                 {deletingId === user.id ? "Eliminando..." : "Eliminar"}
               </button>
             </div>
           ))}
         </div>
         {message && <div className="alert alert-success hu48-message">{message}</div>}
-        <div className="hu48-audit-note"><ShieldIcon size={18}/><div><strong>Registro de auditoría</strong><span>Cada cambio guarda usuario, fecha, rol anterior y nuevo rol.</span></div></div>
+        <div className="hu48-audit-note">
+          <ShieldIcon size={18} />
+          <div><strong>Registro de auditoría</strong><span>Cada cambio guarda usuario, fecha, rol anterior y nuevo rol.</span></div>
+        </div>
         <div className="modal-actions"><button className="btn btn-secondary" onClick={handleClose}>Cerrar</button></div>
       </div>
     </Modal>

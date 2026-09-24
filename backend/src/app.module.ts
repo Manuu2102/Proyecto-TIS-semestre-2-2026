@@ -3,7 +3,7 @@ import { ConfigModule } from '@nestjs/config';
 
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
-
+import { AuditoriaModule } from './auditoria/auditoria.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { UsuariosModule } from './usuarios/usuarios.module.js';
@@ -17,13 +17,13 @@ import { DocumentosModule } from './Documentos/documentos.module.js';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-
     AuthModule,
     PrismaModule,
     UsuariosModule,
     DepartamentosModule,
     OcupacionesModule,
     CopropietariosModule,
+    AuditoriaModule,
     DocumentosModule,
   ],
 

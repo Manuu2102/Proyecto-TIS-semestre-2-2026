@@ -64,20 +64,6 @@ const ShieldIcon = ({ size = 20 }: { size?: number }) => (
   </Icon>
 );
 
-type Role = "ADMINISTRADOR" | "COPROPIETARIO" | "INQUILINO" | "DIRECTORIO" | "CONSULTA";
-
-// Prioridad si el backend algún día devuelve más de un rol por usuario.
-const ROLE_PRIORITY: Role[] = ["ADMINISTRADOR", "DIRECTORIO", "COPROPIETARIO", "INQUILINO", "CONSULTA"];
-
-function extraerRolPrincipal(roles: string[] | undefined): Role {
-  if (!Array.isArray(roles) || roles.length === 0) return "CONSULTA";
-  const nombres = roles.map((r) => r.toUpperCase());
-  for (const prioridad of ROLE_PRIORITY) {
-    if (nombres.includes(prioridad)) return prioridad;
-  }
-  return "CONSULTA";
-}
-
 export default function LoginPage() {
   const router = useRouter();
   const [showPassword, setShowPassword] = useState(false);
@@ -86,61 +72,63 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setError("");
+  e.preventDefault();
+  setError("");
 
-    const form = new FormData(e.currentTarget);
-    const usuario = String(form.get("email") || "").trim();
-    const password = String(form.get("password") || "");
+  const form = new FormData(e.currentTarget);
+  const email = String(form.get("email") || "").trim();
+  const password = String(form.get("password") || "");
 
-    if (!usuario || !password) {
-      setError("Completa tu correo electronico y contraseña para continuar.");
+  if (!email || !password) {
+    setError("Completa tu correo y contraseña para continuar.");
+    return;
+  }
+
+  if (password.length < 6) {
+    setError("La contraseña debe tener al menos 6 caracteres.");
+    return;
+  }
+
+  setLoading(true);
+  try {
+    const response = await fetch("http://localhost:3001/auth/login", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      setError(data.message || "Usuario o contraseña incorrectos.");
       return;
     }
+    const usuario = data.usuario;
+    const roles: string[] = usuario.roles ?? [];
+    const prioridad = ["ADMINISTRADOR", "DIRECTORIO", "COPROPIETARIO", "INQUILINO", "CONSULTA"];
+    const rol = prioridad.find((r) => roles.includes(r)) ?? "CONSULTA";
 
-    if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
-      return;
-    }
+    if (remember) localStorage.setItem("edificio_remember", "true");
 
-    setLoading(true);
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+    sessionStorage.setItem("sesionActiva", "true");
+    sessionStorage.setItem("token", data.access_token);
+    sessionStorage.setItem("refreshToken", data.refresh_token);
+    sessionStorage.setItem("rolUsuario", rol); 
+    sessionStorage.setItem(
+      "nombreUsuario",
+      `${usuario.nombre ?? ""} ${usuario.apellido ?? ""}`.trim() || usuario.email
+    );
+    sessionStorage.setItem("departamentoUsuario", usuario.departamento ?? "Sin unidad");
 
-      const response = await fetch(`${apiUrl}/auth/login`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          email: usuario,
-          password: password,
-        }),
-      });
+    router.push("/dashboard"); 
+  } catch {
+    setError("No se pudo conectar con el servidor.");
+  } finally {
+    setLoading(false);
+  }
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        setError(data.message || "Usuario o contraseña incorrectos.");
-        return;
-      }
-
-      const rolPrincipal = extraerRolPrincipal(data.usuario.roles);
-
-      if (remember) localStorage.setItem("edificio_remember", "true");
-      sessionStorage.setItem("sesionActiva", "true");
-      sessionStorage.setItem("token", data.access_token);
-      sessionStorage.setItem("rolUsuario", rolPrincipal);
-      sessionStorage.setItem("nombreUsuario", data.usuario.nombre || usuario);
-      // departamentoUsuario: el backend aún no lo devuelve; dashboard/page.tsx
-      // usará su default "Sin unidad" hasta que /auth/login incluya ese dato.
-
-      router.push("/dashboard");
-    } catch {
-      setError("No se pudo conectar con el servidor.");
-    } finally {
-      setLoading(false);
-    }
   }
 
   return (
@@ -198,7 +186,7 @@ export default function LoginPage() {
 
           <form className={styles["form-stack"]} onSubmit={handleSubmit}>
             <label className={styles.field}>
-              <span>Usuario o correo electrónico</span>
+              <span>Correo electrónico</span>
               <div className={styles["input-wrap"]}>
                 <MailIcon size={18} />
                 <input
