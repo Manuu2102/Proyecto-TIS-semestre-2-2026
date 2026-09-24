@@ -11,52 +11,43 @@ import {
   HomeIcon,
 } from "../../../components/Icons";
 
+type Estado = "Activo" | "Inactivo";
+
 type Inquilino = {
   id: number;
-  nombre: string;
+  nombres: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
   ci: string;
   telefono: string;
   correo: string;
   departamento: string;
   inicio: string;
-  estado: "Activo" | "Inactivo";
+  estado: Estado;
 };
 
+// Simula la lista real de departamentos (vendrá de /departamentos en el backend).
+const DEPARTAMENTOS_DISPONIBLES = [
+  "A-101", "A-102", "A-103", "A-105", "A-106",
+  "A-201", "A-202",
+  "B-201", "B-202", "B-204",
+  "B-301", "B-302", "B-402",
+];
+
+const CI_REGEX = /^[0-9]{5,10}$/;
+const TELEFONO_REGEX = /^[0-9]{7,15}$/;
+const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
 const initialData: Inquilino[] = [
-  {
-    id: 1,
-    nombre: "Ana Lucía Vargas",
-    ci: "7012245",
-    telefono: "720 118 332",
-    correo: "ana.vargas@email.com",
-    departamento: "A-103",
-    inicio: "12/02/2026",
-    estado: "Activo",
-  },
-  {
-    id: 2,
-    nombre: "Diego Mauricio Salazar",
-    ci: "6389102",
-    telefono: "744 390 221",
-    correo: "diego.salazar@email.com",
-    departamento: "B-204",
-    inicio: "03/05/2026",
-    estado: "Activo",
-  },
-  {
-    id: 3,
-    nombre: "Valeria Núñez",
-    ci: "8190031",
-    telefono: "709 223 456",
-    correo: "valeria.nunez@email.com",
-    departamento: "B-402",
-    inicio: "21/01/2026",
-    estado: "Activo",
-  },
+  { id: 1, nombres: "Ana Lucía", apellidoPaterno: "Vargas", apellidoMaterno: "Rocha", ci: "7012245", telefono: "72011833", correo: "ana.vargas@email.com", departamento: "A-103", inicio: "2026-02-12", estado: "Activo" },
+  { id: 2, nombres: "Diego Mauricio", apellidoPaterno: "Salazar", apellidoMaterno: "Vega", ci: "6389102", telefono: "74439022", correo: "diego.salazar@email.com", departamento: "B-204", inicio: "2026-05-03", estado: "Activo" },
+  { id: 3, nombres: "Valeria", apellidoPaterno: "Núñez", apellidoMaterno: "Castro", ci: "8190031", telefono: "70922345", correo: "valeria.nunez@email.com", departamento: "B-402", inicio: "2026-01-21", estado: "Activo" },
 ];
 
 type InquilinoFormData = {
-  nombre: string;
+  nombres: string;
+  apellidoPaterno: string;
+  apellidoMaterno: string;
   ci: string;
   telefono: string;
   correo: string;
@@ -66,19 +57,14 @@ type InquilinoFormData = {
 
 export default function InquilinosPage() {
   const [items, setItems] = useState<Inquilino[]>(initialData);
-
   const [query, setQuery] = useState("");
-
   const [open, setOpen] = useState(false);
-
-  const [editing, setEditing] =
-    useState<Inquilino | null>(null);
+  const [editing, setEditing] = useState<Inquilino | null>(null);
 
   const filtered = useMemo(() => {
     const texto = query.toLowerCase();
-
     return items.filter((x) =>
-      `${x.nombre} ${x.ci} ${x.departamento}`
+      `${x.nombres} ${x.apellidoPaterno} ${x.apellidoMaterno} ${x.ci} ${x.departamento}`
         .toLowerCase()
         .includes(texto)
     );
@@ -99,100 +85,81 @@ export default function InquilinosPage() {
     setEditing(null);
   }
 
-  function save(data: InquilinoFormData) {
-    if (editing) {
-      // Editar inquilino existente
-      setItems((actuales) =>
-        actuales.map((x) =>
-          x.id === editing.id
-            ? {
-                ...x,
-                nombre: data.nombre,
-                ci: data.ci,
-                telefono: data.telefono,
-                correo: data.correo,
-                departamento: data.departamento,
-                inicio: data.inicio,
-              }
-            : x
-        )
-      );
+  function validarDuplicado(ci: string, correo: string): string | null {
+    const ciDup = items.some((x) => x.ci === ci && x.id !== editing?.id);
+    if (ciDup) return "Ya existe un inquilino registrado con ese CI.";
 
-      cerrarModal();
+    const correoDup = items.some(
+      (x) => x.correo.toLowerCase() === correo.toLowerCase() && x.id !== editing?.id
+    );
+    if (correoDup) return "Ya existe un inquilino registrado con ese correo.";
 
-      alert("Los datos del inquilino se actualizaron correctamente.");
-    } else {
-      // Registrar nuevo inquilino
-      const nuevoInquilino: Inquilino = {
-        id: Date.now(),
-        nombre: data.nombre,
-        ci: data.ci,
-        telefono: data.telefono,
-        correo: data.correo,
-        departamento: data.departamento,
-        inicio: data.inicio,
-        estado: "Activo",
-      };
-
-      setItems((actuales) => [
-        nuevoInquilino,
-        ...actuales,
-      ]);
-
-      cerrarModal();
-
-      alert("El inquilino se registró correctamente.");
-    }
+    return null;
   }
 
-  function eliminarInquilino(id: number) {
-    const confirmar = window.confirm(
-      "¿Estás seguro de que deseas eliminar este inquilino?"
-    );
+  function save(data: InquilinoFormData): string | null {
+    const duplicadoError = validarDuplicado(data.ci, data.correo);
+    if (duplicadoError) return duplicadoError;
 
-    if (!confirmar) {
-      return;
+    if (editing) {
+      setItems((actuales) =>
+        actuales.map((x) => (x.id === editing.id ? { ...x, ...data } : x))
+      );
+      cerrarModal();
+    } else {
+      const nuevoInquilino: Inquilino = {
+        id: Date.now(),
+        ...data,
+        estado: "Activo",
+      };
+      setItems((actuales) => [nuevoInquilino, ...actuales]);
+      cerrarModal();
     }
 
-    setItems((actuales) =>
-      actuales.filter((item) => item.id !== id)
-    );
+    return null;
+  }
 
-    alert("El inquilino se eliminó correctamente.");
+  // Baja lógica primero (se conserva el historial de ocupación); solo se
+  // borra físicamente si ya estaba Inactivo.
+  function eliminarInquilino(id: number) {
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+
+    if (item.estado === "Activo") {
+      const confirmar = window.confirm(
+        `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Se conservará su historial de ocupación.`
+      );
+      if (!confirmar) return;
+      setItems((actuales) =>
+        actuales.map((x) => (x.id === id ? { ...x, estado: "Inactivo" } : x))
+      );
+    } else {
+      const confirmar = window.confirm(
+        "Este inquilino ya está Inactivo. ¿Eliminar el registro de forma permanente?"
+      );
+      if (!confirmar) return;
+      setItems((actuales) => actuales.filter((x) => x.id !== id));
+    }
   }
 
   return (
     <DashboardLayout active="inquilinos">
       <div className="page-header">
         <div>
-          <p className="eyebrow">
-            ADMINISTRACIÓN
-          </p>
-
+          <p className="eyebrow">ADMINISTRACIÓN</p>
           <h1>Inquilinos</h1>
-
-          <p>
-            Registra y consulta las personas que ocupan
-            los departamentos.
-          </p>
+          <p>Registra y consulta las personas que ocupan los departamentos.</p>
         </div>
 
-        <button
-          className="btn btn-primary"
-          onClick={abrirRegistro}
-        >
+        <button className="btn btn-primary" onClick={abrirRegistro}>
           <PlusIcon size={17} />
           Registrar inquilino
         </button>
       </div>
 
-      {/* MÉTRICAS */}
       <div className="metric-row">
         <div className="metric-card">
-          <div className="metric-icon">
-            <HomeIcon size={20} />
-          </div>
-
+          <div className="metric-icon"><HomeIcon size={20} /></div>
           <div>
             <span>Total inquilinos</span>
             <strong>{items.length}</strong>
@@ -200,43 +167,26 @@ export default function InquilinosPage() {
         </div>
 
         <div className="metric-card">
-          <div className="metric-icon soft">
-            <HomeIcon size={20} />
-          </div>
-
+          <div className="metric-icon soft"><HomeIcon size={20} /></div>
           <div>
             <span>Ocupaciones activas</span>
-
-            <strong>
-              {
-                items.filter(
-                  (x) => x.estado === "Activo"
-                ).length
-              }
-            </strong>
+            <strong>{items.filter((x) => x.estado === "Activo").length}</strong>
           </div>
         </div>
       </div>
 
-      {/* LISTADO */}
       <section className="panel">
         <div className="panel-toolbar">
           <div>
             <h3>Listado de inquilinos</h3>
-
-            <p>
-              {filtered.length} registros encontrados
-            </p>
+            <p>{filtered.length} registros encontrados</p>
           </div>
 
           <div className="search-box">
             <SearchIcon size={17} />
-
             <input
               value={query}
-              onChange={(e) =>
-                setQuery(e.target.value)
-              }
+              onChange={(e) => setQuery(e.target.value)}
               placeholder="Buscar por nombre, CI o departamento..."
             />
           </div>
@@ -260,48 +210,28 @@ export default function InquilinosPage() {
               {filtered.map((x) => (
                 <tr key={x.id}>
                   <td>
-                    <strong>{x.nombre}</strong>
-
+                    <strong>{x.nombres} {x.apellidoPaterno} {x.apellidoMaterno}</strong>
                     <small>{x.correo}</small>
                   </td>
-
                   <td>{x.ci}</td>
-
                   <td>{x.telefono}</td>
-
-                  <td>
-                    <span className="tag">
-                      {x.departamento}
-                    </span>
-                  </td>
-
+                  <td><span className="tag">{x.departamento}</span></td>
                   <td>{x.inicio}</td>
-
                   <td>
-                    <span className="status status-success">
+                    <span className={x.estado === "Activo" ? "status status-success" : "status status-neutral"}>
                       <span />
                       {x.estado}
                     </span>
                   </td>
-
                   <td>
                     <div className="row-actions">
-                      <button
-                        className="icon-action"
-                        onClick={() =>
-                          editarInquilino(x)
-                        }
-                        title="Editar"
-                      >
+                      <button className="icon-action" onClick={() => editarInquilino(x)} title="Editar">
                         <EditIcon size={16} />
                       </button>
-
                       <button
                         className="icon-action danger"
-                        onClick={() =>
-                          eliminarInquilino(x.id)
-                        }
-                        title="Eliminar"
+                        onClick={() => eliminarInquilino(x.id)}
+                        title={x.estado === "Activo" ? "Marcar como inactivo" : "Eliminar definitivamente"}
                       >
                         <TrashIcon size={16} />
                       </button>
@@ -312,13 +242,7 @@ export default function InquilinosPage() {
 
               {filtered.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={7}
-                    style={{
-                      textAlign: "center",
-                      padding: "30px",
-                    }}
-                  >
+                  <td colSpan={7} style={{ textAlign: "center", padding: "30px" }}>
                     No se encontraron inquilinos.
                   </td>
                 </tr>
@@ -328,21 +252,8 @@ export default function InquilinosPage() {
         </div>
       </section>
 
-      {/* MODAL */}
-      <Modal
-        open={open}
-        title={
-          editing
-            ? "Editar inquilino"
-            : "Registrar inquilino"
-        }
-        onClose={cerrarModal}
-      >
-        <InquilinoForm
-          initial={editing}
-          onSave={save}
-          onCancel={cerrarModal}
-        />
+      <Modal open={open} title={editing ? "Editar inquilino" : "Registrar inquilino"} onClose={cerrarModal}>
+        <InquilinoForm initial={editing} onSave={save} onCancel={cerrarModal} />
       </Modal>
     </DashboardLayout>
   );
@@ -354,11 +265,13 @@ function InquilinoForm({
   onCancel,
 }: {
   initial: Inquilino | null;
-  onSave: (data: InquilinoFormData) => void;
+  onSave: (data: InquilinoFormData) => string | null;
   onCancel: () => void;
 }) {
   const [f, setF] = useState({
-    nombre: initial?.nombre ?? "",
+    nombres: initial?.nombres ?? "",
+    apellidoPaterno: initial?.apellidoPaterno ?? "",
+    apellidoMaterno: initial?.apellidoMaterno ?? "",
     ci: initial?.ci ?? "",
     telefono: initial?.telefono ?? "",
     correo: initial?.correo ?? "",
@@ -368,131 +281,77 @@ function InquilinoForm({
 
   const [error, setError] = useState("");
 
-  function field(
-    key: keyof typeof f,
-    value: string
-  ) {
-    setF((actual) => ({
-      ...actual,
-      [key]: value,
-    }));
-
+  function field(key: keyof typeof f, value: string) {
+    setF((actual) => ({ ...actual, [key]: value }));
     setError("");
   }
 
-  function submit(
-    e: React.FormEvent<HTMLFormElement>
-  ) {
+  function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (
-      !f.nombre ||
-      !f.ci ||
-      !f.telefono ||
-      !f.correo ||
-      !f.departamento ||
-      !f.inicio
-    ) {
-      setError(
-        "Completa todos los campos obligatorios."
-      );
+    if (!f.nombres.trim() || !f.apellidoPaterno.trim() || !f.departamento || !f.inicio) {
+      setError("Completa todos los campos obligatorios.");
       return;
     }
 
-    onSave({
-      nombre: f.nombre,
-      ci: f.ci,
-      telefono: f.telefono,
-      correo: f.correo,
+    if (!CI_REGEX.test(f.ci.trim())) {
+      setError("El CI debe tener solo números (5 a 10 dígitos).");
+      return;
+    }
+
+    if (!TELEFONO_REGEX.test(f.telefono.trim())) {
+      setError("El teléfono debe tener solo números (7 a 15 dígitos).");
+      return;
+    }
+
+    if (!CORREO_REGEX.test(f.correo.trim())) {
+      setError("El correo electrónico no tiene un formato válido.");
+      return;
+    }
+
+    const errorGuardado = onSave({
+      nombres: f.nombres.trim(),
+      apellidoPaterno: f.apellidoPaterno.trim(),
+      apellidoMaterno: f.apellidoMaterno.trim(),
+      ci: f.ci.trim(),
+      telefono: f.telefono.trim(),
+      correo: f.correo.trim(),
       departamento: f.departamento,
       inicio: f.inicio,
     });
+
+    if (errorGuardado) setError(errorGuardado);
   }
 
   return (
-    <form
-      onSubmit={submit}
-      className="modal-form"
-    >
+    <form onSubmit={submit} className="modal-form">
       <div className="form-grid">
-        <Field
-          label="Nombre completo"
-          value={f.nombre}
-          onChange={(v) =>
-            field("nombre", v)
-          }
-          placeholder="Ej. Ana Lucía Vargas"
-        />
+        <Field label="Nombres" value={f.nombres} onChange={(v) => field("nombres", v)} placeholder="Ej. Ana Lucía" />
+        <Field label="Apellido paterno" value={f.apellidoPaterno} onChange={(v) => field("apellidoPaterno", v)} placeholder="Ej. Vargas" />
+        <Field label="Apellido materno" value={f.apellidoMaterno} onChange={(v) => field("apellidoMaterno", v)} placeholder="Ej. Rocha (opcional)" />
+        <Field label="CI" value={f.ci} onChange={(v) => field("ci", v.replace(/\D/g, ""))} placeholder="Solo números, ej. 7012245" />
+        <Field label="Teléfono" value={f.telefono} onChange={(v) => field("telefono", v.replace(/\D/g, ""))} placeholder="Solo números, ej. 69848860" />
+        <Field label="Correo electrónico" type="email" value={f.correo} onChange={(v) => field("correo", v)} placeholder="correo@email.com" />
 
-        <Field
-          label="CI"
-          value={f.ci}
-          onChange={(v) =>
-            field("ci", v)
-          }
-          placeholder="Ej. 7012245"
-        />
+        <label className="field">
+          <span>Departamento *</span>
+          <select value={f.departamento} onChange={(e) => field("departamento", e.target.value)}>
+            <option value="">Selecciona un departamento</option>
+            {DEPARTAMENTOS_DISPONIBLES.map((dep) => (
+              <option key={dep} value={dep}>{dep}</option>
+            ))}
+          </select>
+        </label>
 
-        <Field
-          label="Teléfono"
-          value={f.telefono}
-          onChange={(v) =>
-            field("telefono", v)
-          }
-          placeholder="Ej. 720 118 332"
-        />
-
-        <Field
-          label="Correo electrónico"
-          type="email"
-          value={f.correo}
-          onChange={(v) =>
-            field("correo", v)
-          }
-          placeholder="correo@email.com"
-        />
-
-        <Field
-          label="Departamento"
-          value={f.departamento}
-          onChange={(v) =>
-            field("departamento", v)
-          }
-          placeholder="Ej. A-103"
-        />
-
-        <Field
-          label="Fecha de inicio"
-          type="date"
-          value={f.inicio}
-          onChange={(v) =>
-            field("inicio", v)
-          }
-        />
+        <Field label="Fecha de inicio de ocupación" type="date" value={f.inicio} onChange={(v) => field("inicio", v)} />
       </div>
 
-      {error && (
-        <div className="alert alert-error">
-          {error}
-        </div>
-      )}
+      {error && <div className="alert alert-error">{error}</div>}
 
       <div className="modal-actions">
-        <button
-          type="button"
-          className="btn btn-secondary"
-          onClick={onCancel}
-        >
-          Cancelar
-        </button>
-
-        <button
-          type="submit"
-          className="btn btn-primary"
-        >
-          {initial
-            ? "Guardar cambios"
-            : "Registrar inquilino"}
+        <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
+        <button type="submit" className="btn btn-primary">
+          {initial ? "Guardar cambios" : "Registrar inquilino"}
         </button>
       </div>
     </form>
@@ -515,15 +374,7 @@ function Field({
   return (
     <label className="field">
       <span>{label} *</span>
-
-      <input
-        type={type}
-        value={value}
-        onChange={(e) =>
-          onChange(e.target.value)
-        }
-        placeholder={placeholder}
-      />
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
     </label>
   );
 }
