@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+
 import { DashboardLayout } from "../../../components/DashboardLayout";
 
 type EstadoDepartamento = "Ocupado" | "Disponible";
@@ -108,6 +109,19 @@ const departamentosIniciales: Departamento[] = [
   },
 ];
 
+// Lista de personas ya registradas en Copropietarios / Inquilinos.
+const personasRegistradas: string[] = [
+  "María Fernanda Rojas",
+  "Carlos Andrés Pérez",
+  "Sofía Valentina Cruz",
+  "Melody Gutiérrez",
+  "Rodrigo Quispe",
+  "Alejandra Guzmán",
+  "Ana Lucía Vargas",
+  "Diego Mauricio Salazar",
+  "Valeria Núñez",
+];
+
 const tiposIniciales: TipoDepartamento[] = [
   {
     id: 1,
@@ -172,10 +186,17 @@ export default function DepartamentosPage() {
     tipo: "",
     estado: "Ocupado" as EstadoDepartamento,
     ocupante: "",
+    ocupanteRespaldo: "",
     superficie: "",
   });
 
+  /*
+   * NUEVO:
+   * El formulario de tipo comienza seleccionando uno de los
+   * tipos existentes. Al seleccionarlo se cargan sus datos.
+   */
   const [formTipo, setFormTipo] = useState({
+    tipoSeleccionado: "",
     nombre: "",
     expensa: "",
     superficie: "",
@@ -235,6 +256,7 @@ export default function DepartamentosPage() {
       tipo: "",
       estado: "Ocupado",
       ocupante: "",
+      ocupanteRespaldo: "",
       superficie: "",
     });
 
@@ -244,12 +266,16 @@ export default function DepartamentosPage() {
   const editarDepartamento = (d: Departamento) => {
     setEditandoDepartamento(d);
 
+    const ocupanteReal =
+      d.estado === "Disponible" ? "" : d.ocupante;
+
     setFormDepartamento({
       codigo: d.codigo,
       piso: d.piso.toString(),
       tipo: d.tipo,
       estado: d.estado,
-      ocupante: d.ocupante,
+      ocupante: ocupanteReal,
+      ocupanteRespaldo: ocupanteReal,
       superficie: d.superficie.toString(),
     });
 
@@ -264,6 +290,16 @@ export default function DepartamentosPage() {
       !formDepartamento.superficie
     ) {
       alert("Completa todos los campos obligatorios.");
+      return;
+    }
+
+    if (
+      formDepartamento.estado === "Ocupado" &&
+      !formDepartamento.ocupante
+    ) {
+      alert(
+        "Selecciona quién ocupa la unidad, o marca la unidad como Disponible."
+      );
       return;
     }
 
@@ -285,11 +321,19 @@ export default function DepartamentosPage() {
       piso: Number(formDepartamento.piso),
       tipo: formDepartamento.tipo,
       superficie: Number(formDepartamento.superficie),
+
       ocupante:
         formDepartamento.estado === "Disponible"
           ? "Disponible"
           : formDepartamento.ocupante || "Sin ocupante",
+
+      /*
+       * Se conserva el comportamiento actual de los datos.
+       * La lógica de selección de tipos del nuevo formulario
+       * no modifica los departamentos ya registrados.
+       */
       expensa: 650,
+
       estado: formDepartamento.estado,
     };
 
@@ -299,11 +343,17 @@ export default function DepartamentosPage() {
           d.id === editandoDepartamento.id ? departamento : d
         )
       );
+
+      alert(
+        "Los datos del departamento se actualizaron correctamente."
+      );
     } else {
       setDepartamentos((actuales) => [
         ...actuales,
         departamento,
       ]);
+
+      alert("El departamento se registró correctamente.");
     }
 
     setModalDepartamento(false);
@@ -311,19 +361,32 @@ export default function DepartamentosPage() {
   };
 
   const eliminarDepartamento = (id: number) => {
-    if (!window.confirm("¿Deseas eliminar este departamento?")) {
+    if (
+      !window.confirm(
+        "¿Deseas eliminar este departamento?"
+      )
+    ) {
       return;
     }
 
     setDepartamentos((actuales) =>
       actuales.filter((d) => d.id !== id)
     );
+
+    alert("El departamento se eliminó correctamente.");
   };
+
+  /*
+   * ============================================================
+   * TIPOS DE DEPARTAMENTO
+   * ============================================================
+   */
 
   const abrirNuevoTipo = () => {
     setEditandoTipo(null);
 
     setFormTipo({
+      tipoSeleccionado: "",
       nombre: "",
       expensa: "",
       superficie: "",
@@ -338,6 +401,7 @@ export default function DepartamentosPage() {
     setEditandoTipo(tipo);
 
     setFormTipo({
+      tipoSeleccionado: tipo.nombre,
       nombre: tipo.nombre,
       expensa: tipo.expensa.toString(),
       superficie: tipo.superficie.toString(),
@@ -348,31 +412,36 @@ export default function DepartamentosPage() {
     setModalTipo(true);
   };
 
+  /*
+   * Al guardar NO se crea un nuevo tipo.
+   * Se actualiza el tipo seleccionado.
+   * Esto evita duplicar "Pequeño", "Mediano", etc.
+   */
   const guardarTipo = () => {
     if (
-      !formTipo.nombre ||
+      !formTipo.tipoSeleccionado ||
       !formTipo.expensa ||
       !formTipo.superficie
     ) {
-      alert("Completa todos los campos obligatorios.");
+      alert(
+        "Selecciona un tipo y completa todos los campos obligatorios."
+      );
       return;
     }
 
-    const existe = tipos.some(
+    const tipoSeleccionado = tipos.find(
       (tipo) =>
-        tipo.nombre.toLowerCase() ===
-          formTipo.nombre.toLowerCase() &&
-        tipo.id !== editandoTipo?.id
+        tipo.nombre === formTipo.tipoSeleccionado
     );
 
-    if (existe) {
-      alert("Ya existe un tipo con ese nombre.");
+    if (!tipoSeleccionado) {
+      alert("El tipo seleccionado no es válido.");
       return;
     }
 
-    const tipo: TipoDepartamento = {
-      id: editandoTipo?.id ?? Date.now(),
-      nombre: formTipo.nombre,
+    const tipoActualizado: TipoDepartamento = {
+      id: tipoSeleccionado.id,
+      nombre: tipoSeleccionado.nombre,
       expensa: Number(formTipo.expensa),
       superficie: Number(formTipo.superficie),
       descripcion:
@@ -380,21 +449,38 @@ export default function DepartamentosPage() {
       activo: formTipo.activo,
     };
 
-    if (editandoTipo) {
-      setTipos((actuales) =>
-        actuales.map((t) =>
-          t.id === editandoTipo.id ? tipo : t
-        )
-      );
-    } else {
-      setTipos((actuales) => [...actuales, tipo]);
-    }
+    setTipos((actuales) =>
+      actuales.map((tipo) =>
+        tipo.id === tipoSeleccionado.id
+          ? tipoActualizado
+          : tipo
+      )
+    );
 
     setModalTipo(false);
     setEditandoTipo(null);
+
+    alert(
+      `El tipo "${tipoSeleccionado.nombre}" se actualizó correctamente.`
+    );
   };
 
   const eliminarTipo = (id: number) => {
+    const tipoEncontrado = tipos.find(
+      (tipo) => tipo.id === id
+    );
+
+    const enUso = departamentos.some(
+      (d) => d.tipo === tipoEncontrado?.nombre
+    );
+
+    if (enUso) {
+      alert(
+        "No se puede eliminar: hay departamentos usando este tipo. Márcalo como Inactivo en su lugar."
+      );
+      return;
+    }
+
     if (
       !window.confirm(
         "¿Deseas eliminar este tipo de departamento?"
@@ -406,18 +492,19 @@ export default function DepartamentosPage() {
     setTipos((actuales) =>
       actuales.filter((tipo) => tipo.id !== id)
     );
+
+    alert(
+      "El tipo de departamento se eliminó correctamente."
+    );
   };
 
   return (
     <DashboardLayout active="departamentos">
       <div className="min-h-screen bg-[#f7f4ef]">
-
         <main className="mx-auto max-w-[1250px] px-7 py-7">
 
           {/* HEADER */}
-
           <div className="mb-7 flex items-end justify-between">
-
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#c83232]" />
@@ -453,13 +540,10 @@ export default function DepartamentosPage() {
                 ? "Registrar departamento"
                 : "Registrar tipo"}
             </button>
-
           </div>
 
           {/* ESTADÍSTICAS */}
-
           <div className="mb-6 grid grid-cols-4 gap-4">
-
             {tab === "unidades" ? (
               <>
                 <StatCard
@@ -515,13 +599,10 @@ export default function DepartamentosPage() {
                 />
               </>
             )}
-
           </div>
 
           {/* TABS */}
-
           <div className="mb-4 flex gap-7 border-b border-[#e6dfd8]">
-
             <TabButton
               active={tab === "unidades"}
               onClick={() => setTab("unidades")}
@@ -535,7 +616,6 @@ export default function DepartamentosPage() {
             >
               Tipos y Expensas
             </TabButton>
-
           </div>
 
           {/* ==================================================
@@ -546,7 +626,6 @@ export default function DepartamentosPage() {
             <div className="overflow-hidden rounded-xl border border-[#e7e0d9] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.035)]">
 
               <div className="flex items-center justify-between border-b border-[#eee9e4] px-5 py-4">
-
                 <div>
                   <h2 className="text-[13px] font-bold text-[#36322f]">
                     Unidades del edificio
@@ -562,13 +641,10 @@ export default function DepartamentosPage() {
                   onChange={setBusqueda}
                   placeholder="Buscar por número, piso o estado..."
                 />
-
               </div>
 
               <div className="overflow-x-auto">
-
                 <table className="w-full">
-
                   <thead>
                     <tr className="bg-[#fbfaf8]">
                       <HeaderCell>DEPARTAMENTO</HeaderCell>
@@ -583,16 +659,13 @@ export default function DepartamentosPage() {
                   </thead>
 
                   <tbody>
-
                     {departamentosFiltrados.map((d) => (
                       <tr
                         key={d.id}
                         className="border-t border-[#eeeae6] transition hover:bg-[#fdfbf9]"
                       >
-
                         <td className="px-5 py-4">
                           <div className="flex items-center gap-2.5">
-
                             <div className="flex h-7 w-7 items-center justify-center rounded-md bg-[#fff0eb] text-[#c83232]">
                               <BuildingIcon />
                             </div>
@@ -600,7 +673,6 @@ export default function DepartamentosPage() {
                             <span className="text-[10px] font-bold text-[#3b3734]">
                               {d.codigo}
                             </span>
-
                           </div>
                         </td>
 
@@ -617,9 +689,7 @@ export default function DepartamentosPage() {
                         </td>
 
                         <td className="px-5 py-4">
-
                           <div className="flex items-center gap-2">
-
                             <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#f1ece7] text-[8px] font-bold text-[#746c66]">
                               {d.ocupante === "Disponible"
                                 ? "—"
@@ -629,9 +699,7 @@ export default function DepartamentosPage() {
                             <span className="text-[10px] text-[#68615c]">
                               {d.ocupante}
                             </span>
-
                           </div>
-
                         </td>
 
                         <td className="px-5 py-4 text-[10px] font-medium text-[#5d5752]">
@@ -643,9 +711,7 @@ export default function DepartamentosPage() {
                         </td>
 
                         <td className="px-5 py-4">
-
                           <div className="flex gap-1.5">
-
                             <IconButton
                               title="Editar"
                               onClick={() =>
@@ -664,24 +730,17 @@ export default function DepartamentosPage() {
                             >
                               <TrashIcon />
                             </IconButton>
-
                           </div>
-
                         </td>
-
                       </tr>
                     ))}
-
                   </tbody>
-
                 </table>
-
               </div>
 
               {departamentosFiltrados.length === 0 && (
                 <EmptyState texto="No se encontraron departamentos." />
               )}
-
             </div>
           )}
 
@@ -693,7 +752,6 @@ export default function DepartamentosPage() {
             <div className="overflow-hidden rounded-xl border border-[#e7e0d9] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.035)]">
 
               <div className="flex items-center justify-between border-b border-[#eee9e4] px-5 py-4">
-
                 <div>
                   <h2 className="text-[13px] font-bold text-[#36322f]">
                     Tipos de departamento
@@ -705,22 +763,17 @@ export default function DepartamentosPage() {
                 </div>
 
                 <div className="relative">
-
                   <SearchIcon />
 
                   <input
                     placeholder="Buscar por nombre..."
                     className="h-9 w-[220px] rounded-lg border border-[#e5ded7] pl-8 pr-3 text-[9px] outline-none focus:border-[#d1a19b]"
                   />
-
                 </div>
-
               </div>
 
               <div className="overflow-x-auto">
-
                 <table className="w-full">
-
                   <thead>
                     <tr className="bg-[#fbfaf8]">
                       <HeaderCell>TIPO</HeaderCell>
@@ -733,17 +786,13 @@ export default function DepartamentosPage() {
                   </thead>
 
                   <tbody>
-
                     {tipos.map((tipo) => (
                       <tr
                         key={tipo.id}
                         className="border-t border-[#eeeae6] transition hover:bg-[#fdfbf9]"
                       >
-
                         <td className="px-5 py-4">
-
                           <div className="flex items-center gap-2.5">
-
                             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#fff0eb] text-[#c83232]">
                               <TagIcon />
                             </div>
@@ -757,9 +806,7 @@ export default function DepartamentosPage() {
                                 Tipo de unidad
                               </p>
                             </div>
-
                           </div>
-
                         </td>
 
                         <td className="px-5 py-4 text-[10px] font-semibold text-[#57514c]">
@@ -775,7 +822,6 @@ export default function DepartamentosPage() {
                         </td>
 
                         <td className="px-5 py-4">
-
                           <span
                             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[8px] font-semibold ${
                               tipo.activo
@@ -783,7 +829,6 @@ export default function DepartamentosPage() {
                                 : "bg-[#eeeae7] text-[#837b75]"
                             }`}
                           >
-
                             <span
                               className={`h-1.5 w-1.5 rounded-full ${
                                 tipo.activo
@@ -795,15 +840,11 @@ export default function DepartamentosPage() {
                             {tipo.activo
                               ? "Activo"
                               : "Inactivo"}
-
                           </span>
-
                         </td>
 
                         <td className="px-5 py-4">
-
                           <div className="flex gap-1.5">
-
                             <IconButton
                               title="Editar"
                               onClick={() =>
@@ -822,23 +863,15 @@ export default function DepartamentosPage() {
                             >
                               <TrashIcon />
                             </IconButton>
-
                           </div>
-
                         </td>
-
                       </tr>
                     ))}
-
                   </tbody>
-
                 </table>
-
               </div>
-
             </div>
           )}
-
         </main>
 
         {/* ==================================================
@@ -847,25 +880,19 @@ export default function DepartamentosPage() {
 
         {modalDepartamento && (
           <ModalOverlay>
-
             <div className="w-full max-w-[570px] overflow-hidden rounded-[18px] border border-[#e4dcd5] bg-white shadow-[0_30px_90px_rgba(38,29,24,0.25)]">
 
               {/* CABECERA */}
-
               <div className="relative border-b border-[#eee8e2] px-8 pb-6 pt-7">
-
                 <div className="absolute left-0 top-0 h-[3px] w-full bg-[#c83232]" />
 
                 <div className="flex items-start justify-between">
-
                   <div className="flex items-start gap-3.5">
-
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#fff0eb] text-[#c83232]">
                       <BuildingIcon />
                     </div>
 
                     <div>
-
                       <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#c83232]">
                         {editandoDepartamento
                           ? "Edición"
@@ -881,9 +908,7 @@ export default function DepartamentosPage() {
                       <p className="mt-1 text-[10px] text-[#948c86]">
                         Ingresa los datos de la unidad habitacional.
                       </p>
-
                     </div>
-
                   </div>
 
                   <button
@@ -894,31 +919,25 @@ export default function DepartamentosPage() {
                   >
                     <CloseIcon />
                   </button>
-
                 </div>
-
               </div>
 
               {/* FORMULARIO */}
-
               <div className="px-8 py-7">
-
                 <div className="mb-5">
-
                   <div className="mb-3 flex items-center gap-2">
-
                     <span className="h-1.5 w-1.5 rounded-full bg-[#c83232]" />
 
                     <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#665e58]">
                       Información de la unidad
                     </span>
-
                   </div>
 
                   <div className="grid grid-cols-2 gap-5">
 
                     <ElegantInput
                       label="Número / código"
+                      required
                       placeholder="Ej. A-103"
                       value={formDepartamento.codigo}
                       onChange={(value) =>
@@ -931,6 +950,7 @@ export default function DepartamentosPage() {
 
                     <ElegantInput
                       label="Piso"
+                      required
                       placeholder="Ej. 1"
                       type="number"
                       value={formDepartamento.piso}
@@ -944,9 +964,17 @@ export default function DepartamentosPage() {
 
                     <ElegantSelect
                       label="Tipo de departamento"
+                      required
                       value={formDepartamento.tipo}
                       placeholder="Seleccionar tipo"
-                      options={tipos.map((t) => t.nombre)}
+                      options={tipos
+                        .filter(
+                          (t) =>
+                            t.activo ||
+                            t.nombre ===
+                              formDepartamento.tipo
+                        )
+                        .map((t) => t.nombre)}
                       onChange={(value) =>
                         setFormDepartamento({
                           ...formDepartamento,
@@ -957,24 +985,57 @@ export default function DepartamentosPage() {
 
                     <ElegantSelect
                       label="Estado de ocupación"
+                      required
                       value={formDepartamento.estado}
                       options={[
                         "Ocupado",
                         "Disponible",
                       ]}
-                      onChange={(value) =>
-                        setFormDepartamento({
-                          ...formDepartamento,
-                          estado:
-                            value as EstadoDepartamento,
-                        })
-                      }
+                      onChange={(value) => {
+                        const nuevoEstado =
+                          value as EstadoDepartamento;
+
+                        if (
+                          nuevoEstado === "Disponible"
+                        ) {
+                          setFormDepartamento({
+                            ...formDepartamento,
+                            estado: nuevoEstado,
+                            ocupanteRespaldo:
+                              formDepartamento.ocupante ||
+                              formDepartamento.ocupanteRespaldo,
+                            ocupante: "",
+                          });
+                        } else {
+                          setFormDepartamento({
+                            ...formDepartamento,
+                            estado: nuevoEstado,
+                            ocupante:
+                              formDepartamento.ocupante ||
+                              formDepartamento.ocupanteRespaldo,
+                          });
+                        }
+                      }}
                     />
 
-                    <ElegantInput
+                    <ElegantSelect
                       label="Propietario / ocupante"
-                      placeholder="Ej. María Fernanda Pérez"
+                      required={
+                        formDepartamento.estado ===
+                        "Ocupado"
+                      }
+                      disabled={
+                        formDepartamento.estado ===
+                        "Disponible"
+                      }
+                      placeholder={
+                        formDepartamento.estado ===
+                        "Disponible"
+                          ? "No aplica: unidad disponible"
+                          : "Seleccionar persona registrada"
+                      }
                       value={formDepartamento.ocupante}
+                      options={personasRegistradas}
                       onChange={(value) =>
                         setFormDepartamento({
                           ...formDepartamento,
@@ -985,6 +1046,7 @@ export default function DepartamentosPage() {
 
                     <ElegantInput
                       label="Superficie"
+                      required
                       placeholder="Ej. 85"
                       type="number"
                       value={formDepartamento.superficie}
@@ -996,21 +1058,16 @@ export default function DepartamentosPage() {
                         })
                       }
                     />
-
                   </div>
-
                 </div>
 
                 <div className="rounded-xl border border-[#eee5df] bg-[#fcfaf8] p-4">
-
                   <div className="flex items-start gap-3">
-
                     <div className="mt-0.5 text-[#c83232]">
                       <InfoIcon />
                     </div>
 
                     <div>
-
                       <p className="text-[9px] font-semibold text-[#5b544f]">
                         Información importante
                       </p>
@@ -1019,25 +1076,18 @@ export default function DepartamentosPage() {
                         El código del departamento debe ser único
                         dentro del edificio.
                       </p>
-
                     </div>
-
                   </div>
-
                 </div>
-
               </div>
 
               {/* BOTONES */}
-
               <div className="flex items-center justify-between border-t border-[#eee8e2] bg-[#fcfaf8] px-8 py-4">
-
                 <span className="text-[9px] text-[#a09891]">
                   Los campos marcados son obligatorios
                 </span>
 
                 <div className="flex gap-3">
-
                   <button
                     onClick={() =>
                       setModalDepartamento(false)
@@ -1055,13 +1105,9 @@ export default function DepartamentosPage() {
                       ? "Guardar cambios"
                       : "Registrar departamento"}
                   </button>
-
                 </div>
-
               </div>
-
             </div>
-
           </ModalOverlay>
         )}
 
@@ -1071,27 +1117,23 @@ export default function DepartamentosPage() {
 
         {modalTipo && (
           <ModalOverlay>
-
             <div className="w-full max-w-[570px] overflow-hidden rounded-[18px] border border-[#e4dcd5] bg-white shadow-[0_30px_90px_rgba(38,29,24,0.25)]">
 
+              {/* CABECERA */}
               <div className="relative border-b border-[#eee8e2] px-8 pb-6 pt-7">
-
                 <div className="absolute left-0 top-0 h-[3px] w-full bg-[#c83232]" />
 
                 <div className="flex items-start justify-between">
-
                   <div className="flex items-start gap-3.5">
-
                     <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-[#fff0eb] text-[#c83232]">
                       <TagIcon />
                     </div>
 
                     <div>
-
                       <p className="text-[9px] font-bold uppercase tracking-[0.18em] text-[#c83232]">
                         {editandoTipo
                           ? "Edición"
-                          : "Nuevo registro"}
+                          : "Configuración"}
                       </p>
 
                       <h2 className="mt-1 text-[20px] font-bold tracking-[-0.4px] text-[#302d2b]">
@@ -1101,11 +1143,9 @@ export default function DepartamentosPage() {
                       </h2>
 
                       <p className="mt-1 text-[10px] text-[#948c86]">
-                        Define las características y expensa mensual.
+                        Selecciona el tipo y configura sus características y expensa mensual.
                       </p>
-
                     </div>
-
                   </div>
 
                   <button
@@ -1114,41 +1154,74 @@ export default function DepartamentosPage() {
                   >
                     <CloseIcon />
                   </button>
-
                 </div>
-
               </div>
 
+              {/* FORMULARIO */}
               <div className="px-8 py-7">
-
                 <div className="mb-5">
-
                   <div className="mb-3 flex items-center gap-2">
-
                     <span className="h-1.5 w-1.5 rounded-full bg-[#c83232]" />
 
                     <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#665e58]">
                       Características del tipo
                     </span>
-
                   </div>
 
                   <div className="grid grid-cols-2 gap-5">
 
-                    <ElegantInput
-                      label="Nombre del tipo"
-                      placeholder="Ej. Mediano"
-                      value={formTipo.nombre}
-                      onChange={(value) =>
-                        setFormTipo({
-                          ...formTipo,
-                          nombre: value,
-                        })
-                      }
-                    />
+                    {/* NUEVO SELECTOR */}
+                    <div className="col-span-2">
+                      <ElegantSelect
+                        label="Tipo de departamento"
+                        required
+                        value={formTipo.tipoSeleccionado}
+                        placeholder="Seleccionar tipo de departamento"
+                        options={tipos.map(
+                          (tipo) => tipo.nombre
+                        )}
+                        onChange={(value) => {
+                          const tipoSeleccionado =
+                            tipos.find(
+                              (tipo) =>
+                                tipo.nombre === value
+                            );
+
+                          if (!tipoSeleccionado) {
+                            setFormTipo({
+                              ...formTipo,
+                              tipoSeleccionado: "",
+                              nombre: "",
+                              expensa: "",
+                              superficie: "",
+                              descripcion: "",
+                            });
+
+                            return;
+                          }
+
+                          setFormTipo({
+                            ...formTipo,
+                            tipoSeleccionado:
+                              tipoSeleccionado.nombre,
+                            nombre:
+                              tipoSeleccionado.nombre,
+                            expensa:
+                              tipoSeleccionado.expensa.toString(),
+                            superficie:
+                              tipoSeleccionado.superficie.toString(),
+                            descripcion:
+                              tipoSeleccionado.descripcion,
+                            activo:
+                              tipoSeleccionado.activo,
+                          });
+                        }}
+                      />
+                    </div>
 
                     <ElegantInput
                       label="Expensa mensual"
+                      required
                       placeholder="Ej. 450"
                       type="number"
                       prefix="Bs."
@@ -1163,6 +1236,7 @@ export default function DepartamentosPage() {
 
                     <ElegantInput
                       label="Superficie"
+                      required
                       placeholder="Ej. 120"
                       type="number"
                       suffix="m²"
@@ -1175,10 +1249,7 @@ export default function DepartamentosPage() {
                       }
                     />
 
-                    <div />
-
                     <div className="col-span-2">
-
                       <ElegantInput
                         label="Descripción"
                         placeholder="Ej. Cuenta con 2 dormitorios"
@@ -1190,27 +1261,21 @@ export default function DepartamentosPage() {
                           })
                         }
                       />
-
                     </div>
-
                   </div>
-
                 </div>
 
+                {/* ESTADO */}
                 <div>
-
                   <div className="mb-3 flex items-center gap-2">
-
                     <span className="h-1.5 w-1.5 rounded-full bg-[#c83232]" />
 
                     <span className="text-[9px] font-bold uppercase tracking-[0.12em] text-[#665e58]">
                       Estado del tipo
                     </span>
-
                   </div>
 
                   <div className="flex gap-3">
-
                     <button
                       onClick={() =>
                         setFormTipo({
@@ -1224,11 +1289,8 @@ export default function DepartamentosPage() {
                           : "border-[#e5ddd7] bg-white text-[#938b84]"
                       }`}
                     >
-
                       <span className="h-2 w-2 rounded-full bg-current" />
-
                       Activo
-
                     </button>
 
                     <button
@@ -1244,21 +1306,15 @@ export default function DepartamentosPage() {
                           : "border-[#e5ddd7] bg-white text-[#938b84]"
                       }`}
                     >
-
                       <span className="h-2 w-2 rounded-full bg-current" />
-
                       Inactivo
-
                     </button>
-
                   </div>
-
                 </div>
-
               </div>
 
+              {/* BOTONES */}
               <div className="flex justify-end gap-3 border-t border-[#eee8e2] bg-[#fcfaf8] px-8 py-4">
-
                 <button
                   onClick={() => setModalTipo(false)}
                   className="h-9 rounded-lg border border-[#e5dbd3] bg-white px-5 text-[10px] font-semibold text-[#756d67] transition hover:bg-[#f8f3ef]"
@@ -1268,20 +1324,17 @@ export default function DepartamentosPage() {
 
                 <button
                   onClick={guardarTipo}
-                  className="h-9 rounded-lg bg-[#c83232] px-6 text-[10px] font-semibold text-white shadow-[0_4px_10px_rgba(200,50,50,0.2)] transition hover:bg-[#b72b2b]"
+                  disabled={!formTipo.tipoSeleccionado}
+                  className="h-9 rounded-lg bg-[#c83232] px-6 text-[10px] font-semibold text-white shadow-[0_4px_10px_rgba(200,50,50,0.2)] transition hover:bg-[#b72b2b] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {editandoTipo
                     ? "Guardar cambios"
-                    : "Registrar tipo"}
+                    : "Guardar configuración"}
                 </button>
-
               </div>
-
             </div>
-
           </ModalOverlay>
         )}
-
       </div>
     </DashboardLayout>
   );
@@ -1302,7 +1355,6 @@ function StatCard({
 }) {
   return (
     <div className="group flex h-[82px] items-center gap-3 rounded-xl border border-[#e7e0d9] bg-white px-4 shadow-[0_2px_8px_rgba(0,0,0,0.025)] transition hover:-translate-y-[1px]">
-
       <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#fff0eb] text-[#c83232] transition group-hover:bg-[#c83232] group-hover:text-white">
         {icon}
       </div>
@@ -1316,7 +1368,6 @@ function StatCard({
           {value}
         </p>
       </div>
-
     </div>
   );
 }
@@ -1371,7 +1422,6 @@ function SearchInput({
 }) {
   return (
     <div className="relative">
-
       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#aaa19a]">
         <SearchIcon />
       </div>
@@ -1382,7 +1432,6 @@ function SearchInput({
         placeholder={placeholder}
         className="h-9 w-[245px] rounded-lg border border-[#e5ded7] bg-white pl-9 pr-3 text-[9px] outline-none transition placeholder:text-[#aaa19a] focus:border-[#d5aaa4] focus:ring-2 focus:ring-[#c83232]/5"
       />
-
     </div>
   );
 }
@@ -1395,6 +1444,7 @@ function ElegantInput({
   type = "text",
   prefix,
   suffix,
+  required = false,
 }: {
   label: string;
   placeholder: string;
@@ -1403,17 +1453,21 @@ function ElegantInput({
   type?: string;
   prefix?: string;
   suffix?: string;
+  required?: boolean;
 }) {
   return (
     <div>
-
       <label className="mb-2 block text-[9px] font-semibold text-[#514b46]">
         {label}
-        <span className="ml-1 text-[#c83232]">*</span>
+
+        {required && (
+          <span className="ml-1 text-[#c83232]">
+            *
+          </span>
+        )}
       </label>
 
       <div className="relative">
-
         {prefix && (
           <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[9px] font-medium text-[#8c837c]">
             {prefix}
@@ -1435,9 +1489,7 @@ function ElegantInput({
             {suffix}
           </span>
         )}
-
       </div>
-
     </div>
   );
 }
@@ -1448,29 +1500,40 @@ function ElegantSelect({
   placeholder,
   options,
   onChange,
+  required = false,
+  disabled = false,
 }: {
   label: string;
   value: string;
   placeholder?: string;
   options: string[];
   onChange: (value: string) => void;
+  required?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div>
-
       <label className="mb-2 block text-[9px] font-semibold text-[#514b46]">
         {label}
-        <span className="ml-1 text-[#c83232]">*</span>
+
+        {required && (
+          <span className="ml-1 text-[#c83232]">
+            *
+          </span>
+        )}
       </label>
 
       <div className="relative">
-
         <select
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className="h-[42px] w-full appearance-none rounded-[9px] border border-[#ded6cf] bg-[#fffdfc] px-3 pr-9 text-[10px] text-[#4d4742] shadow-[inset_0_1px_2px_rgba(0,0,0,0.015)] outline-none transition hover:border-[#d2c8c0] focus:border-[#c83232] focus:bg-white focus:ring-[3px] focus:ring-[#c83232]/10"
+          className={`h-[42px] w-full appearance-none rounded-[9px] border border-[#ded6cf] bg-[#fffdfc] px-3 pr-9 text-[10px] text-[#4d4742] shadow-[inset_0_1px_2px_rgba(0,0,0,0.015)] outline-none transition hover:border-[#d2c8c0] focus:border-[#c83232] focus:bg-white focus:ring-[3px] focus:ring-[#c83232]/10 ${
+            disabled
+              ? "cursor-not-allowed opacity-50"
+              : ""
+          }`}
         >
-
           {placeholder && (
             <option value="">
               {placeholder}
@@ -1478,19 +1541,19 @@ function ElegantSelect({
           )}
 
           {options.map((option) => (
-            <option key={option} value={option}>
+            <option
+              key={option}
+              value={option}
+            >
               {option}
             </option>
           ))}
-
         </select>
 
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[#8f867f]">
           <ChevronIcon />
         </span>
-
       </div>
-
     </div>
   );
 }
@@ -1556,7 +1619,6 @@ function EmptyState({
 }) {
   return (
     <div className="flex flex-col items-center justify-center py-14">
-
       <div className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[#fff0eb] text-[#c83232]">
         <BuildingIcon />
       </div>
@@ -1568,7 +1630,6 @@ function EmptyState({
       <p className="mt-1 text-[9px] text-[#99918b]">
         {texto}
       </p>
-
     </div>
   );
 }
@@ -1681,7 +1742,13 @@ function MoneyIcon() {
       stroke="currentColor"
       strokeWidth="1.7"
     >
-      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <rect
+        x="3"
+        y="5"
+        width="18"
+        height="14"
+        rx="2"
+      />
       <circle cx="12" cy="12" r="3" />
     </svg>
   );
