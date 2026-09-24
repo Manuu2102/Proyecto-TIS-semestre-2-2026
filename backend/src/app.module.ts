@@ -10,6 +10,7 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { DepartamentosModule } from './departamentos/departamentos.module.js';
 import { OcupacionesModule } from './ocupaciones/ocupaciones.module.js';
 import { CopropietariosModule } from './copropietarios/copropietarios.module.js';
+import { DocumentosModule } from './Documentos/documentos.module.js';
 
 @Module({
   imports: [
