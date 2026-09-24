@@ -72,30 +72,81 @@ export class UsuariosService {
     }
   }
 
-  async assignRole(adminId: string, idUsuario: string, idRol: number) {
+async assignRole(adminId: string, idUsuario: string, idRol: number) {
+  const usuario = await this.prisma.usuario.findUnique({ where: { id: idUsuario } });
+  if (!usuario) throw new NotFoundException('Usuario no encontrado');
+
+  const rol = await this.prisma.rol.findUnique({ where: { id: idRol } });
+  if (!rol) throw new NotFoundException('Rol no encontrado');
+
+  const yaAsignado = await this.prisma.rol_usuario.findUnique({
+    where: { id_rol_id_usuario: { id_rol: idRol, id_usuario: idUsuario } },
+  });
+  if (yaAsignado) throw new ConflictException('El usuario ya tiene ese rol asignado');
+
+  const resultado = await this.prisma.conUsuario(adminId, async (tx) => {
+    // Borra todos los roles anteriores de este usuario
+    await tx.rol_usuario.deleteMany({
+      where: { id_usuario: idUsuario },
+    });
+
+    // Asigna el nuevo rol
+    return tx.rol_usuario.create({
+      data: { id_rol: idRol, id_usuario: idUsuario },
+    });
+  });
+
+  return {
+    message: 'Rol asignado correctamente',
+    asignacion: {
+      id_rol: resultado.id_rol.toString(),
+      id_usuario: resultado.id_usuario,
+    },
+  };
+}
+
+  async listarUsuarios() {
+    const usuarios = await this.prisma.usuario.findMany({
+      select: {
+        id: true,
+        nombres: true,
+        apellido_paterno: true,
+        apellido_materno: true,
+        email: true,
+        estatus: true,
+        rol_usuario: {
+          select: {
+            rol: { select: { id: true, nombre_rol: true } },
+          },
+      },
+    },
+    orderBy: { nombres: 'asc' },
+  });
+
+  return usuarios.map((u) => ({
+    id: u.id,
+    nombre: `${u.nombres} ${u.apellido_paterno}${u.apellido_materno ? ' ' + u.apellido_materno : ''}`,
+    email: u.email,
+    estatus: u.estatus,
+    // tu esquema permite varios roles por usuario; tomamos el primero para simplificar la vista
+    role: u.rol_usuario[0]?.rol.nombre_rol ?? 'SIN ROL',
+  }));
+}
+
+  async eliminarUsuario(adminId: string, idUsuario: string) {
+    if (adminId === idUsuario) {
+      throw new ConflictException('No puedes eliminar tu propia cuenta');
+    }
+
     const usuario = await this.prisma.usuario.findUnique({ where: { id: idUsuario } });
     if (!usuario) throw new NotFoundException('Usuario no encontrado');
 
-    const rol = await this.prisma.rol.findUnique({ where: { id: idRol } });
-    if (!rol) throw new NotFoundException('Rol no encontrado');
-
-    const yaAsignado = await this.prisma.rol_usuario.findUnique({
-      where: { id_rol_id_usuario: { id_rol: idRol, id_usuario: idUsuario } },
-    });
-    if (yaAsignado) throw new ConflictException('El usuario ya tiene ese rol asignado');
-
-    const resultado = await this.prisma.conUsuario(adminId, (tx) =>
-      tx.rol_usuario.create({
-        data: { id_rol: idRol, id_usuario: idUsuario },
-      }),
+    await this.prisma.conUsuario(adminId, (tx) =>
+      tx.usuario.delete({ where: { id: idUsuario } }),
     );
 
-    return {
-      message: 'Rol asignado correctamente',
-      asignacion: {
-        id_rol: resultado.id_rol.toString(),
-        id_usuario: resultado.id_usuario,
-      },
-    };
+    await this.supabase.adminClient.auth.admin.deleteUser(idUsuario);
+
+    return { message: `Usuario ${usuario.nombres} eliminado correctamente` };
   }
 }

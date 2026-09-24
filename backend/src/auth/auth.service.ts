@@ -16,7 +16,7 @@ export class AuthService {
     });
 
      if (error) {
-      console.log('Error de Supabase:', error.message); // ← AQUÍ, línea nueva
+      console.log('Error de Supabase:', error.message); 
     }
     
     if (error || !data.session) {
@@ -24,7 +24,7 @@ export class AuthService {
     }
 
     const usuario = await this.prisma.usuario.findUnique({
-      where: { id: data.user.id }, // UUID de Supabase Auth
+      where: { id: data.user.id },
       select: {
         nombres: true,
         estatus: true,

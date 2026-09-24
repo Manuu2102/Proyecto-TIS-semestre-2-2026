@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Delete, Param, Post, UseGuards } from '@nestjs/common';
 import { UsuariosService } from './usuarios.service.js';
 import { AssignRoleDto } from './dto/assign-role.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -40,5 +40,22 @@ export class UsuariosController {
     @CurrentUser('id') adminId: string, 
   ) {
     return this.usuariosService.assignRole(adminId, dto.id_usuario, dto.id_rol); 
+  }
+
+  @Get()
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMINISTRADOR')
+  listarUsuarios() {
+    return this.usuariosService.listarUsuarios();
+  }
+
+  @Delete(':id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('ADMINISTRADOR')
+  eliminarUsuario(
+    @Param('id') id: string,
+    @CurrentUser('id') adminId: string,
+  ) {
+    return this.usuariosService.eliminarUsuario(adminId, id);
   }
 }

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
+import { supabase } from "@/lib/supabase";
 
 type NavigationItem = {
   key: string;
@@ -84,6 +85,7 @@ function sectionsForRole(role: string): NavigationSection[] {
 const allNavigation = [...adminSections, ...ownerSections, ...tenantSections, ...directorSections, ...consultationSections].flatMap(section => section.items);
 const titles: Record<string, string> = Object.fromEntries(allNavigation.map(item => [item.key, item.label]));
 
+
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "US";
 }
@@ -122,16 +124,19 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
     if (!allowedPaths.has(pathname)) router.replace("/dashboard");
   }, [session, pathname, router, allowedPaths]);
 
-  function logout() {
-    setLoggingOut(true);
-    setMobile(false);
+  async function logout() {
+  setLoggingOut(true);
+  setMobile(false);
+
+  try {
+    const { error } = await supabase.auth.signOut();
+    if (error) console.error("Error al cerrar sesión:", error.message);
+  } finally {
+    sessionStorage.clear(); // o removeItem de cada clave, como ya haces
     router.replace("/login");
-    sessionStorage.removeItem("sesionActiva");
-    sessionStorage.removeItem("token");
-    sessionStorage.removeItem("nombreUsuario");
-    sessionStorage.removeItem("rolUsuario");
-    sessionStorage.removeItem("departamentoUsuario");
+    router.refresh(); // limpia el caché de Server Components
   }
+}
 
   if (loggingOut) {
     return <div className="auth-loading">Cerrando sesión…</div>;
