@@ -24,6 +24,7 @@ import { DocumentosModule } from './Documentos/documentos.module.js';
     OcupacionesModule,
     CopropietariosModule,
     AuditoriaModule,
+    DocumentosModule,
   ],
 
   controllers: [AppController],
