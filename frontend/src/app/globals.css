@@ -481,3 +481,42 @@ td small { display:block; color:#9A918B; font-size:10px; }
 
 /* Usuarios y roles */
 .usuarios-roles-card{display:grid;grid-template-columns:auto 1fr auto;align-items:center;gap:20px;margin-bottom:20px;padding:24px}.usuarios-roles-icon{width:58px;height:58px;border-radius:14px;background:var(--secondary);color:var(--primary);display:grid;place-items:center}.usuarios-roles-copy h2{margin:5px 0 6px;font-size:20px}.usuarios-roles-copy p{margin:0;color:var(--muted);font-size:12px;line-height:1.55;max-width:720px}.usuarios-roles-copy .hu48-role-chips{justify-content:flex-start;margin-top:14px}.usuarios-roles-open{white-space:nowrap}@media(max-width:700px){.usuarios-roles-card{grid-template-columns:1fr;padding:20px}.usuarios-roles-open{width:100%}}
+
+.audit-campos {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+.audit-campo {
+  display: grid;
+  grid-template-columns: 140px 1fr;   /* columna fija para el nombre */
+  gap: 16px;
+  font-size: 13px;
+  padding: 3px 0;
+}
+.audit-campo-nombre {
+  color: var(--text-muted, #888);
+  font-weight: 500;
+}
+.audit-campo-cambiado {
+  background: rgba(255, 193, 7, 0.08); 
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+.audit-valor-antes {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+.audit-flecha {
+  margin: 0 6px;
+  opacity: 0.5;
+}
+.audit-valor-despues {
+  font-weight: 600;
+}
+.audit-sin-cambios {
+  font-size: 13px;
+  opacity: 0.6;
+  font-style: italic;
+}

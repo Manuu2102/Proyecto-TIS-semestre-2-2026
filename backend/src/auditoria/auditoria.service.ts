@@ -42,7 +42,6 @@ export class AuditoriaService {
       this.prisma.auditoria.count({ where }),
     ]);
 
-    // Junta los UUIDs únicos de usuarios que aparecen en estos registros
     const usuarioIds = [
       ...new Set(registros.map((r) => r.usuario_id).filter((id): id is string => !!id)),
     ];
