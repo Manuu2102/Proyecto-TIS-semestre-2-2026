@@ -90,8 +90,7 @@ function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "US";
 }
 
-// Lee la sesión de forma síncrona; se usa como valor inicial de useState
-// (nunca dentro de un efecto), para evitar setState-en-efecto.
+
 function readSession(): { nombre: string; rol: string } | null {
   if (typeof window === "undefined") return null;
   const activa = sessionStorage.getItem("sesionActiva");
@@ -125,18 +124,18 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
   }, [session, pathname, router, allowedPaths]);
 
   async function logout() {
-  setLoggingOut(true);
-  setMobile(false);
+    setLoggingOut(true);
+    setMobile(false);
 
-  try {
-    const { error } = await supabase.auth.signOut();
-    if (error) console.error("Error al cerrar sesión:", error.message);
-  } finally {
-    sessionStorage.clear(); // o removeItem de cada clave, como ya haces
-    router.replace("/login");
-    router.refresh(); // limpia el caché de Server Components
+    try {
+      const { error } = await supabase.auth.signOut();
+      if (error) console.error("Error al cerrar sesión:", error.message);
+    } finally {
+      sessionStorage.clear(); 
+      router.replace("/login");
+      router.refresh(); 
+    }
   }
-}
 
   if (loggingOut) {
     return <div className="auth-loading">Cerrando sesión…</div>;

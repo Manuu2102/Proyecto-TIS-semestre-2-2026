@@ -89,6 +89,58 @@ function formatFecha(iso: string) {
   };
 }
 
+function formatValor(v: unknown) {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+function DatosSimples({ datos }: { datos: Record<string, unknown> }) {
+  return (
+    <div className="audit-campos">
+      {Object.entries(datos).map(([campo, valor]) => (
+        <div className="audit-campo" key={campo}>
+          <span className="audit-campo-nombre">{campo}</span>
+          <span className="audit-campo-valor">{formatValor(valor)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DatosDiff({
+  antes,
+  despues,
+}: {
+  antes: Record<string, unknown>;
+  despues: Record<string, unknown>;
+}) {
+  const campos = [...new Set([...Object.keys(antes), ...Object.keys(despues)])];
+  const cambiados = campos.filter(
+    (c) => JSON.stringify(antes[c]) !== JSON.stringify(despues[c])
+  );
+
+  if (cambiados.length === 0) {
+    return <p className="audit-sin-cambios">Sin cambios detectados en los campos.</p>;
+  }
+
+  return (
+    <div className="audit-campos">
+      {cambiados.map((campo) => (
+        <div className="audit-campo audit-campo-cambiado" key={campo}>
+          <span className="audit-campo-nombre">{campo}</span>
+          <span className="audit-campo-diff">
+            <span className="audit-valor-antes">{formatValor(antes[campo])}</span>
+            <span className="audit-flecha">→</span>
+            <span className="audit-valor-despues">{formatValor(despues[campo])}</span>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function SeguridadPage() {
   const [role, setRole] = useState("Administrador");
   const [matrix, setMatrix] = useState(initial);
@@ -267,22 +319,21 @@ export default function SeguridadPage() {
                           {dia} · {hora}
                         </small>
 
-                        {r.accion === "UPDATE" && (
+                        {r.accion === "UPDATE" && r.datos_anteriores && r.datos_nuevos && (
                           <div className="audit-cambios">
-                            <p><b>Antes:</b> {JSON.stringify(r.datos_anteriores)}</p>
-                            <p><b>Después:</b> {JSON.stringify(r.datos_nuevos)}</p>
+                            <DatosDiff antes={r.datos_anteriores} despues={r.datos_nuevos} />
                           </div>
                         )}
 
-                        {r.accion === "INSERT" && (
+                        {r.accion === "INSERT" && r.datos_nuevos && (
                           <div className="audit-cambios">
-                            <p><b>Datos:</b> {JSON.stringify(r.datos_nuevos)}</p>
+                            <DatosSimples datos={r.datos_nuevos} />
                           </div>
                         )}
 
-                        {r.accion === "DELETE" && (
+                        {r.accion === "DELETE" && r.datos_anteriores && (
                           <div className="audit-cambios">
-                            <p><b>Eliminado:</b> {JSON.stringify(r.datos_anteriores)}</p>
+                            <DatosSimples datos={r.datos_anteriores} />
                           </div>
                         )}
                       </div>
