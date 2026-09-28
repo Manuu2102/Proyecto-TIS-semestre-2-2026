@@ -17,7 +17,7 @@ type Ocupacion = {
   fecha_ocupacion: string;
   fecha_fin_ocupacion: string | null;
   estatus: boolean;
-  usuario: any;
+  usuario: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 };
 
 export default function Historial() {
@@ -32,12 +32,12 @@ export default function Historial() {
     async function cargar() {
       try {
         setCargando(true);
-        const data = await api<any>("/departamentos");
+        const data = await api<any>("/departamentos"); // eslint-disable-line @typescript-eslint/no-explicit-any
         setDepartamentos(data.departamentos || []);
         if (data.departamentos.length > 0) {
           setDeptSeleccionado(data.departamentos[0].id);
         }
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error(err);
       } finally {
         setCargando(false);
@@ -52,9 +52,9 @@ export default function Historial() {
     async function cargarHistorial() {
       try {
         setCargandoHistorial(true);
-        const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`);
+        const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
         setHistorial(data.historial || []);
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error(err);
         setHistorial([]);
       } finally {

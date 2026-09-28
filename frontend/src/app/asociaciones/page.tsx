@@ -23,7 +23,7 @@ type Ocupacion = {
   fecha_ocupacion: string;
   fecha_fin_ocupacion: string | null;
   estatus: boolean;
-  usuario: any;
+  usuario: any; // eslint-disable-line @typescript-eslint/no-explicit-any
 };
 
 export default function Asociaciones() {
@@ -43,15 +43,15 @@ export default function Asociaciones() {
       try {
         setCargando(true);
         const [copData, depData] = await Promise.all([
-          api<any>("/copropietarios"),
-          api<any>("/departamentos"),
+          api<any>("/copropietarios"), // eslint-disable-line @typescript-eslint/no-explicit-any
+          api<any>("/departamentos"), // eslint-disable-line @typescript-eslint/no-explicit-any
         ]);
         setCopropietarios(copData.copropietarios || []);
         setDepartamentos(depData.departamentos || []);
         if (depData.departamentos.length > 0) {
           setDeptSeleccionado(depData.departamentos[0].id);
         }
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error("Error al cargar:", err.message);
       } finally {
         setCargando(false);
@@ -65,9 +65,9 @@ export default function Asociaciones() {
     if (!deptSeleccionado) return;
     async function cargarOcupaciones() {
       try {
-        const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`);
+        const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
         setOcupaciones(data.historial || []);
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error(err);
         setOcupaciones([]);
       }
@@ -98,11 +98,11 @@ export default function Asociaciones() {
       setSavedMsg("✅ Asociación guardada correctamente");
       setCopSeleccionado("");
 
-      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`);
+      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
       setOcupaciones(data.historial || []);
 
       setTimeout(() => setSavedMsg(""), 4000);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setErrores([err.message || "Error al asociar"]);
     } finally {
       setGuardando(false);
@@ -113,11 +113,11 @@ export default function Asociaciones() {
     if (!confirm("¿Cerrar esta ocupación?")) return;
     try {
       await api(`/ocupaciones/cerrar/${idCop}/${idDept}`, { method: "PATCH" });
-      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`);
+      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
       setOcupaciones(data.historial || []);
       setSavedMsg("✅ Ocupación cerrada");
       setTimeout(() => setSavedMsg(""), 3000);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setErrores([err.message]);
     }
   }

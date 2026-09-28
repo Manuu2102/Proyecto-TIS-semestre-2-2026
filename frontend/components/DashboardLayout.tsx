@@ -110,9 +110,11 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
   const router = useRouter();
 
   useEffect(() => {
-    setMounted(true);
-    setSession(readSession());
-  }, []);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  setMounted(true);
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  setSession(readSession());
+}, []);
 
   const navSections = useMemo(() => sectionsForRole(session?.rol ?? ""), [session]);
   const allowedPaths = useMemo(

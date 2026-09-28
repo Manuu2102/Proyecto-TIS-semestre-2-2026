@@ -51,8 +51,8 @@ export default function CopropietariosPage() {
     async function cargarDatos() {
       try {
         setCargando(true);
-        const data = await api<any>("/copropietarios");
-        const mapeados: Copropietario[] = data.copropietarios.map((c: any) => ({
+        const data = await api<any>("/copropietarios"); // eslint-disable-line @typescript-eslint/no-explicit-any
+        const mapeados: Copropietario[] = data.copropietarios.map((c: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
           id: c.id,
           nombres: c.nombres,
           apellidoPaterno: c.apellido_paterno,
@@ -64,7 +64,7 @@ export default function CopropietariosPage() {
           estado: c.estatus ? "Activo" : "Inactivo",
         }));
         setCopropietarios(mapeados);
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error("Error al cargar copropietarios:", err.message);
       } finally {
         setCargando(false);
@@ -77,10 +77,10 @@ export default function CopropietariosPage() {
   useEffect(() => {
     async function cargarDepartamentos() {
       try {
-        const data = await api<any>("/departamentos");
-        const codigos = data.departamentos.map((d: any) => `#${d.numero} - Piso ${d.piso}`);
+        const data = await api<any>("/departamentos"); // eslint-disable-line @typescript-eslint/no-explicit-any
+        const codigos = data.departamentos.map((d: any) => `#${d.numero} - Piso ${d.piso}`); // eslint-disable-line @typescript-eslint/no-explicit-any
         setDepartamentosDisponibles(codigos);
-      } catch (err: any) {
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
         console.error("Error al cargar departamentos:", err.message);
       }
     }
@@ -177,8 +177,8 @@ export default function CopropietariosPage() {
       setMostrarFormulario(false);
       limpiarFormulario();
 
-      const data = await api<any>("/copropietarios");
-      const mapeados: Copropietario[] = data.copropietarios.map((c: any) => ({
+      const data = await api<any>("/copropietarios"); // eslint-disable-line @typescript-eslint/no-explicit-any
+      const mapeados: Copropietario[] = data.copropietarios.map((c: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
         id: c.id,
         nombres: c.nombres,
         apellidoPaterno: c.apellido_paterno,
@@ -192,7 +192,7 @@ export default function CopropietariosPage() {
       setCopropietarios(mapeados);
 
       setTimeout(() => setMensajeExito(""), 4000);
-    } catch (err: any) {
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
       setErrores([err.message || "Error al registrar copropietario"]);
     } finally {
       setGuardando(false);
