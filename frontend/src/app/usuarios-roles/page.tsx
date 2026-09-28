@@ -15,7 +15,7 @@ type UserRecord = {
   estatus: boolean;
 };
 
-const API_URL = "http://localhost:3001";
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 function getToken() {
   return sessionStorage.getItem("token");

@@ -1,6 +1,6 @@
 "use client";
 
-import { ChangeEvent, useMemo, useState } from "react";
+import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "../../../components/DashboardLayout";
@@ -139,7 +139,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [session] = useState<DashboardSession | null>(() => readDashboardSession());
 
-  useMemo(() => {
+  useEffect(() => {
     if (!session) router.replace("/login");
   }, [session, router]);
 
