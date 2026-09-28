@@ -85,12 +85,12 @@ async assignRole(adminId: string, idUsuario: string, idRol: number) {
   if (yaAsignado) throw new ConflictException('El usuario ya tiene ese rol asignado');
 
   const resultado = await this.prisma.conUsuario(adminId, async (tx) => {
-    // Borra todos los roles anteriores de este usuario
+    // tiene que ser un update, esta mal
     await tx.rol_usuario.deleteMany({
       where: { id_usuario: idUsuario },
     });
 
-    // Asigna el nuevo rol
+    // tiene que ser un update, esta mal
     return tx.rol_usuario.create({
       data: { id_rol: idRol, id_usuario: idUsuario },
     });

@@ -15,6 +15,7 @@ import { ActualizarDepartamentoDto } from './dto/actualizar-departamento.dto.js'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 
 @Controller('departamentos')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -23,8 +24,8 @@ export class DepartamentosController {
 
   @Post()
   @Roles('ADMINISTRADOR')
-  crear(@Body() dto: CrearDepartamentoDto) {
-    return this.departamentosService.crear(dto);
+  crear(@Body() dto: CrearDepartamentoDto, @CurrentUser('id') adminId: string,) {
+    return this.departamentosService.crear(dto, adminId);
   }
 
   @Get()
@@ -44,13 +45,14 @@ export class DepartamentosController {
   actualizar(
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: ActualizarDepartamentoDto,
+    @CurrentUser('id') adminId: string,
   ) {
-    return this.departamentosService.actualizar(BigInt(id), dto);
+    return this.departamentosService.actualizar(BigInt(id), dto, adminId);
   }
 
   @Delete(':id')
   @Roles('ADMINISTRADOR')
-  eliminar(@Param('id', ParseIntPipe) id: number) {
-    return this.departamentosService.eliminar(BigInt(id));
+  eliminar(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') adminId: string,) {
+    return this.departamentosService.eliminar(BigInt(id), adminId);
   }
 }

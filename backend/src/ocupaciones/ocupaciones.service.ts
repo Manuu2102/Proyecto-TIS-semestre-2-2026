@@ -10,8 +10,7 @@ import { CrearOcupacionDto } from './dto/crear-ocupacion.dto.js';
 export class OcupacionesService {
   constructor(private prisma: PrismaService) {}
 
-  async crear(data: CrearOcupacionDto) {
-    // id_copropietario ahora es UUID (String)
+  async crear(data: CrearOcupacionDto, adminId: string) {
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: data.id_copropietario },
     });
@@ -43,21 +42,25 @@ export class OcupacionesService {
       );
     }
 
-    const ocupacion = await this.prisma.departamento_usuario.create({
-      data: {
-        id_copropietario: data.id_copropietario,
-        id_departamento: BigInt(data.id_departamento),
-        fecha_ocupacion: new Date(data.fecha_ocupacion),
-        fecha_fin_ocupacion: data.fecha_fin_ocupacion
-          ? new Date(data.fecha_fin_ocupacion)
-          : null,
-        estatus: true,
-      },
-    });
+    const ocupacion = await this.prisma.conUsuario(adminId, async (tx) => {
+      const nuevaOcupacion = await tx.departamento_usuario.create({
+        data: {
+          id_copropietario: data.id_copropietario,
+          id_departamento: BigInt(data.id_departamento),
+          fecha_ocupacion: new Date(data.fecha_ocupacion),
+          fecha_fin_ocupacion: data.fecha_fin_ocupacion
+            ? new Date(data.fecha_fin_ocupacion)
+            : null,
+          estatus: true,
+        },
+      });
 
-    await this.prisma.departamento.update({
-      where: { id: BigInt(data.id_departamento) },
-      data: { libre: false },
+      await tx.departamento.update({
+        where: { id: BigInt(data.id_departamento) },
+        data: { libre: false },
+      });
+
+      return nuevaOcupacion;
     });
 
     return {
@@ -106,7 +109,7 @@ export class OcupacionesService {
     };
   }
 
-  async cerrar(id_copropietario: string, id_departamento: bigint) {
+  async cerrar(id_copropietario: string, id_departamento: bigint, adminId: string) {
     const ocupacion = await this.prisma.departamento_usuario.findFirst({
       where: {
         id_copropietario,
@@ -121,29 +124,31 @@ export class OcupacionesService {
       );
     }
 
-    await this.prisma.departamento_usuario.update({
-      where: {
-        id_departamento_id_copropietario: {
-          id_departamento,
-          id_copropietario,
+    await this.prisma.conUsuario(adminId, async (tx) => {
+      await tx.departamento_usuario.update({
+        where: {
+          id_departamento_id_copropietario: {
+            id_departamento,
+            id_copropietario,
+          },
         },
-      },
-      data: {
-        estatus: false,
-        fecha_fin_ocupacion: new Date(),
-      },
-    });
-
-    const otrasOcupaciones = await this.prisma.departamento_usuario.count({
-      where: { id_departamento, estatus: true },
-    });
-
-    if (otrasOcupaciones === 0) {
-      await this.prisma.departamento.update({
-        where: { id: id_departamento },
-        data: { libre: true },
+        data: {
+          estatus: false,
+          fecha_fin_ocupacion: new Date(),
+        },
       });
-    }
+
+      const otrasOcupaciones = await tx.departamento_usuario.count({
+        where: { id_departamento, estatus: true },
+      });
+
+      if (otrasOcupaciones === 0) {
+        await tx.departamento.update({
+          where: { id: id_departamento },
+          data: { libre: true },
+        });
+      }
+    });
 
     return { message: 'Ocupación cerrada correctamente' };
   }

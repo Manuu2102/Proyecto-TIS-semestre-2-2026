@@ -13,6 +13,7 @@ import { CrearOcupacionDto } from './dto/crear-ocupacion.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 
 @Controller('ocupaciones')
 @UseGuards(JwtAuthGuard, RolesGuard)
@@ -21,8 +22,8 @@ export class OcupacionesController {
 
   @Post()
   @Roles('ADMINISTRADOR')
-  crear(@Body() dto: CrearOcupacionDto) {
-    return this.ocupacionesService.crear(dto);
+  crear(@Body() dto: CrearOcupacionDto, @CurrentUser('id') adminId: string,) {
+    return this.ocupacionesService.crear(dto, adminId);
   }
 
   @Get('departamento/:id')
@@ -36,10 +37,12 @@ export class OcupacionesController {
   cerrar(
     @Param('idCopropietario') idCopropietario: string,
     @Param('idDepartamento', ParseIntPipe) idDepartamento: number,
+    @CurrentUser('id') adminId: string,
   ) {
     return this.ocupacionesService.cerrar(
       idCopropietario,
       BigInt(idDepartamento),
+      adminId,
     );
   }
 }

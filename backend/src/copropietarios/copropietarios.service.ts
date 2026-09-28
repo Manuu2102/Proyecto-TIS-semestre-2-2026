@@ -16,7 +16,7 @@ export class CopropietariosService {
     private supabase: SupabaseService,
   ) {}
 
-  async crear(data: CrearCopropietarioDto) {
+  async crear(data: CrearCopropietarioDto, adminId: string) {
     // 1. Verificar que el CI no exista
     const existeCi = await this.prisma.usuario.findUnique({
       where: { ci: BigInt(data.ci) },
@@ -55,11 +55,12 @@ export class CopropietariosService {
       );
     }
 
+    const userId = authData.user.id;
     // 5. Crear usuario en la BD + asignar rol (transacción manual)
     try {
-      const copropietario = await this.prisma.usuario.create({
+      const copropietario = await this.prisma.conUsuario(adminId, (tx) => tx.usuario.create({
         data: {
-          id: authData.user.id,
+          id: userId,
           ci: BigInt(data.ci),
           nombres: data.nombres,
           apellido_paterno: data.apellido_paterno,
@@ -83,7 +84,7 @@ export class CopropietariosService {
             },
           },
         },
-      });
+      }),);
 
       return {
         message: 'Copropietario registrado correctamente',
