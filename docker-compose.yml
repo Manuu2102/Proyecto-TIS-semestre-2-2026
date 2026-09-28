@@ -6,6 +6,8 @@ services:
     container_name: tis-backend-staging
     env_file:
       - ./backend/.env
+    environment:
+      CORS_ORIGIN: ${CORS_ORIGIN}
     ports:
       - "3001:3001"
     restart: unless-stopped
@@ -15,7 +17,7 @@ services:
       context: .
       dockerfile: docker/frontend/Dockerfile
       args:
-        NEXT_PUBLIC_API_URL: http://localhost:3001
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL}
         NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     container_name: tis-frontend-staging

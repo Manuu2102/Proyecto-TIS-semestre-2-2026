@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
+      NEXT_PUBLIC_API_URL: http://20.80.34.77:3001
+      CORS_ORIGIN: http://20.80.34.77:3000
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
