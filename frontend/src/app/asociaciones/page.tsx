@@ -1,55 +1,137 @@
 "use client";
-import { useState } from "react";
+
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { UsersIcon, BuildingIcon, TrashIcon } from "../../../components/Icons";
+import { api } from "../../../lib/api";
 
-const PEOPLE = ["María Fernanda Rojas", "Carlos Andrés Pérez", "Sofía Valentina Cruz"];
-const TENANTS = ["Ana Lucía Vargas", "Diego Mauricio Salazar"];
-const SIN_INQUILINO = "Sin inquilino";
-
-type Asociacion = { propietario: string; inquilino: string };
-
-// Simula lo que vendrá de /ocupaciones en el backend: una asociación distinta por depto.
-const initialAsociaciones: Record<string, Asociacion> = {
-  "A-101": { propietario: "María Fernanda Rojas", inquilino: "Ana Lucía Vargas" },
-  "A-202": { propietario: "Carlos Andrés Pérez", inquilino: SIN_INQUILINO },
-  "B-301": { propietario: "Sofía Valentina Cruz", inquilino: "Diego Mauricio Salazar" },
-  "B-402": { propietario: PEOPLE[0], inquilino: SIN_INQUILINO },
+type Copropietario = {
+  id: string;
+  nombres: string;
+  apellido_paterno: string;
 };
 
-const DEPARTAMENTOS = Object.keys(initialAsociaciones);
+type Departamento = {
+  id: number;
+  numero: number;
+  piso: number;
+};
+
+type Ocupacion = {
+  id_copropietario: string;
+  id_departamento: string;
+  fecha_ocupacion: string;
+  fecha_fin_ocupacion: string | null;
+  estatus: boolean;
+  usuario: any; // eslint-disable-line @typescript-eslint/no-explicit-any
+};
 
 export default function Asociaciones() {
-  const [asociaciones, setAsociaciones] = useState(initialAsociaciones);
-  const [dept, setDept] = useState(DEPARTAMENTOS[0]);
-  const [draftOwner, setDraftOwner] = useState(initialAsociaciones[DEPARTAMENTOS[0]].propietario);
-  const [draftTenant, setDraftTenant] = useState(initialAsociaciones[DEPARTAMENTOS[0]].inquilino);
+  const [copropietarios, setCopropietarios] = useState<Copropietario[]>([]);
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
+  const [deptSeleccionado, setDeptSeleccionado] = useState<number | null>(null);
+  const [copSeleccionado, setCopSeleccionado] = useState<string>("");
+  const [ocupaciones, setOcupaciones] = useState<Ocupacion[]>([]);
   const [savedMsg, setSavedMsg] = useState("");
+  const [errores, setErrores] = useState<string[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
 
-  function selectDept(nuevo: string) {
-    setDept(nuevo);
-    setDraftOwner(asociaciones[nuevo].propietario);
-    setDraftTenant(asociaciones[nuevo].inquilino);
+  // Cargar copropietarios + departamentos
+  useEffect(() => {
+    async function cargar() {
+      try {
+        setCargando(true);
+        const [copData, depData] = await Promise.all([
+          api<any>("/copropietarios"), // eslint-disable-line @typescript-eslint/no-explicit-any
+          api<any>("/departamentos"), // eslint-disable-line @typescript-eslint/no-explicit-any
+        ]);
+        setCopropietarios(copData.copropietarios || []);
+        setDepartamentos(depData.departamentos || []);
+        if (depData.departamentos.length > 0) {
+          setDeptSeleccionado(depData.departamentos[0].id);
+        }
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        console.error("Error al cargar:", err.message);
+      } finally {
+        setCargando(false);
+      }
+    }
+    cargar();
+  }, []);
+
+  // Cargar ocupaciones del depto seleccionado
+  useEffect(() => {
+    if (!deptSeleccionado) return;
+    async function cargarOcupaciones() {
+      try {
+        const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+        setOcupaciones(data.historial || []);
+      } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+        console.error(err);
+        setOcupaciones([]);
+      }
+    }
+    cargarOcupaciones();
+  }, [deptSeleccionado]);
+
+  async function guardar() {
+    setErrores([]);
     setSavedMsg("");
+
+    if (!deptSeleccionado || !copSeleccionado) {
+      setErrores(["Selecciona un departamento y un copropietario."]);
+      return;
+    }
+
+    setGuardando(true);
+    try {
+      await api("/ocupaciones", {
+        method: "POST",
+        body: JSON.stringify({
+          id_copropietario: copSeleccionado,
+          id_departamento: deptSeleccionado,
+          fecha_ocupacion: new Date().toISOString().split("T")[0],
+        }),
+      });
+
+      setSavedMsg("✅ Asociación guardada correctamente");
+      setCopSeleccionado("");
+
+      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+      setOcupaciones(data.historial || []);
+
+      setTimeout(() => setSavedMsg(""), 4000);
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      setErrores([err.message || "Error al asociar"]);
+    } finally {
+      setGuardando(false);
+    }
   }
 
-  function guardar() {
-    setAsociaciones((prev) => ({
-      ...prev,
-      [dept]: { propietario: draftOwner, inquilino: draftTenant },
-    }));
-    setSavedMsg(`Asociación de ${dept} guardada correctamente.`);
+  async function cerrar(idCop: string, idDept: string) {
+    if (!confirm("¿Cerrar esta ocupación?")) return;
+    try {
+      await api(`/ocupaciones/cerrar/${idCop}/${idDept}`, { method: "PATCH" });
+      const data = await api<any>(`/ocupaciones/departamento/${deptSeleccionado}`); // eslint-disable-line @typescript-eslint/no-explicit-any
+      setOcupaciones(data.historial || []);
+      setSavedMsg("✅ Ocupación cerrada");
+      setTimeout(() => setSavedMsg(""), 3000);
+    } catch (err: any) { // eslint-disable-line @typescript-eslint/no-explicit-any
+      setErrores([err.message]);
+    }
   }
 
-  function quitarInquilino(deptCode: string) {
-    setAsociaciones((prev) => ({
-      ...prev,
-      [deptCode]: { ...prev[deptCode], inquilino: SIN_INQUILINO },
-    }));
-    if (deptCode === dept) setDraftTenant(SIN_INQUILINO);
-  }
+  const deptActual = departamentos.find((d) => d.id === deptSeleccionado);
+  const ocupacionActual = ocupaciones.find((o) => o.estatus);
 
-  const actual = asociaciones[dept];
+  if (cargando) {
+    return (
+      <DashboardLayout active="asociaciones">
+        <div className="page-header"><h1>Cargando...</h1></div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout active="asociaciones">
@@ -60,6 +142,13 @@ export default function Asociaciones() {
           <p>Relaciona propietarios e inquilinos existentes con cada departamento.</p>
         </div>
       </div>
+
+      {savedMsg && <div className="alert alert-success">{savedMsg}</div>}
+      {errores.length > 0 && (
+        <div className="alert alert-error">
+          {errores.map((e, i) => <div key={i}>{e}</div>)}
+        </div>
+      )}
 
       <section className="association-layout">
         <div className="panel association-form">
@@ -72,57 +161,56 @@ export default function Asociaciones() {
           <div className="modal-form">
             <label className="field">
               <span>Departamento</span>
-              <select value={dept} onChange={(e) => selectDept(e.target.value)}>
-                {DEPARTAMENTOS.map((x) => (
-                  <option key={x}>{x}</option>
+              <select
+                value={deptSeleccionado ?? ""}
+                onChange={(e) => setDeptSeleccionado(Number(e.target.value))}
+              >
+                {departamentos.length === 0 && <option value="">Sin departamentos</option>}
+                {departamentos.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    #{d.numero} - Piso {d.piso}
+                  </option>
                 ))}
               </select>
             </label>
 
             <label className="field">
-              <span>Propietario</span>
-              <select value={draftOwner} onChange={(e) => setDraftOwner(e.target.value)}>
-                {PEOPLE.map((x) => (
-                  <option key={x}>{x}</option>
+              <span>Copropietario</span>
+              <select
+                value={copSeleccionado}
+                onChange={(e) => setCopSeleccionado(e.target.value)}
+              >
+                <option value="">Seleccionar copropietario</option>
+                {copropietarios.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombres} {c.apellido_paterno}
+                  </option>
                 ))}
               </select>
             </label>
 
-            <label className="field">
-              <span>Inquilino</span>
-              <select value={draftTenant} onChange={(e) => setDraftTenant(e.target.value)}>
-                {TENANTS.map((x) => (
-                  <option key={x}>{x}</option>
-                ))}
-                <option>{SIN_INQUILINO}</option>
-              </select>
-            </label>
-
-            <button className="btn btn-primary" onClick={guardar}>
-              Guardar asociación
+            <button className="btn btn-primary" onClick={guardar} disabled={guardando}>
+              {guardando ? "Guardando..." : "Guardar asociación"}
             </button>
-
-            {savedMsg && <div className="alert alert-success">{savedMsg}</div>}
           </div>
         </div>
 
         <div className="association-preview">
           <div className="association-node">
             <BuildingIcon size={24} />
-            <strong>{dept}</strong>
+            <strong>{deptActual ? `#${deptActual.numero}` : "—"}</strong>
             <span>Departamento</span>
           </div>
           <div className="connector">↕</div>
           <div className="association-people">
             <div>
               <UsersIcon size={18} />
-              <b>{actual.propietario}</b>
-              <span>Propietario</span>
-            </div>
-            <div>
-              <UsersIcon size={18} />
-              <b>{actual.inquilino}</b>
-              <span>Inquilino</span>
+              <b>
+                {ocupacionActual
+                  ? `${ocupacionActual.usuario?.nombres || ""} ${ocupacionActual.usuario?.apellido_paterno || ""}`
+                  : "Sin ocupante"}
+              </b>
+              <span>Ocupante actual</span>
             </div>
           </div>
         </div>
@@ -131,49 +219,55 @@ export default function Asociaciones() {
       <section className="panel" style={{ marginTop: 20 }}>
         <div className="panel-toolbar">
           <div>
-            <h3>Asociaciones existentes</h3>
-            <p>Estado actual de todos los departamentos ya asignados.</p>
+            <h3>Historial de este departamento</h3>
+            <p>Todas las ocupaciones registradas.</p>
           </div>
         </div>
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Departamento</th>
-                <th>Propietario</th>
-                <th>Inquilino</th>
+                <th>Ocupante</th>
+                <th>Fecha inicio</th>
+                <th>Fecha fin</th>
+                <th>Estado</th>
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {DEPARTAMENTOS.map((d) => {
-                const a = asociaciones[d];
-                const tieneInquilino = a.inquilino !== SIN_INQUILINO;
-                return (
-                  <tr key={d}>
-                    <td><span className="tag">{d}</span></td>
-                    <td>{a.propietario}</td>
+              {ocupaciones.length === 0 ? (
+                <tr><td colSpan={5}>Sin ocupaciones registradas</td></tr>
+              ) : (
+                ocupaciones.map((o, i) => (
+                  <tr key={i}>
+                    <td>{o.usuario?.nombres} {o.usuario?.apellido_paterno}</td>
+                    <td>{new Date(o.fecha_ocupacion).toLocaleDateString()}</td>
                     <td>
-                      {tieneInquilino ? (
-                        a.inquilino
+                      {o.fecha_fin_ocupacion
+                        ? new Date(o.fecha_fin_ocupacion).toLocaleDateString()
+                        : "—"}
+                    </td>
+                    <td>
+                      {o.estatus ? (
+                        <span className="status status-success"><span />Activo</span>
                       ) : (
-                        <span style={{ color: "#9A918B" }}>Sin inquilino</span>
+                        <span className="status">Cerrado</span>
                       )}
                     </td>
                     <td>
-                      {tieneInquilino && (
+                      {o.estatus && (
                         <button
                           className="icon-button"
-                          title="Quitar inquilino"
-                          onClick={() => quitarInquilino(d)}
+                          title="Cerrar ocupación"
+                          onClick={() => cerrar(o.id_copropietario, o.id_departamento)}
                         >
                           <TrashIcon size={16} />
                         </button>
                       )}
                     </td>
                   </tr>
-                );
-              })}
+                ))
+              )}
             </tbody>
           </table>
         </div>
