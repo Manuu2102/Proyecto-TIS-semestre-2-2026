@@ -1,4 +1,4 @@
-const API = "http://localhost:3001";
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = sessionStorage.getItem("token");

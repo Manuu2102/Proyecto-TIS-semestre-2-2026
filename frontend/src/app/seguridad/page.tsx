@@ -161,6 +161,8 @@ export default function SeguridadPage() {
     });
   };
 
+  const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+
   useEffect(() => {
     async function cargarAuditoria() {
       setLoading(true);
@@ -175,7 +177,7 @@ export default function SeguridadPage() {
 
       try {
         const response = await fetch(
-          `http://localhost:3001/auditoria?page=${page}&limit=20`,
+          `${API_URL}/auditoria?page=${page}&limit=20`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
