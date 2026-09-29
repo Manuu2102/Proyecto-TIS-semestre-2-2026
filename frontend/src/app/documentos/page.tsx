@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -10,89 +10,103 @@ import {
   TrashIcon,
   EyeIcon,
 } from "../../../components/Icons";
+import { api } from "../../../lib/api";
 
 type Doc = {
-  id: number;
+  id: string;
   nombre: string;
   categoria: string;
   fecha: string;
   tamano: string;
   restringido: boolean;
-  archivo?: File;
-  url?: string;
-  tipo?: string;
+  mime_type: string;
 };
 
-const cats = [
-  "Actas",
-  "Reglamentos",
-  "Contratos",
-  "Facturas",
-  "Fotografías",
-  "Cotizaciones",
-];
-
-const initial: Doc[] = [
-  {
-    id: 1,
-    nombre: "Acta de Asamblea General 2026.pdf",
-    categoria: "Actas",
-    fecha: "02/09/2026",
-    tamano: "2.4 MB",
-    restringido: false,
-  },
-  {
-    id: 2,
-    nombre: "Reglamento de Copropiedad.pdf",
-    categoria: "Reglamentos",
-    fecha: "15/08/2026",
-    tamano: "1.1 MB",
-    restringido: false,
-  },
-  {
-    id: 3,
-    nombre: "Contrato mantenimiento ascensores.pdf",
-    categoria: "Contratos",
-    fecha: "28/07/2026",
-    tamano: "3.8 MB",
-    restringido: true,
-  },
-  {
-    id: 4,
-    nombre: "Factura servicios comunes.pdf",
-    categoria: "Facturas",
-    fecha: "01/09/2026",
-    tamano: "680 KB",
-    restringido: false,
-  },
-];
+type TipoDocumento = {
+  id: string;
+  nombre: string;
+};
 
 export default function DocumentosPage() {
-  const [items, setItems] = useState<Doc[]>(initial);
+  const [items, setItems] = useState<Doc[]>([]);
+  const [tipos, setTipos] = useState<TipoDocumento[]>([]);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState("Todas");
   const [open, setOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-
+  const [descripcion, setDescripcion] = useState("");
+  const [idTipo, setIdTipo] = useState("");
+  const [restringido, setRestringido] = useState(false);
   const [previewDoc, setPreviewDoc] = useState<Doc | null>(null);
+  const [cargando, setCargando] = useState(true);
+  const [guardando, setGuardando] = useState(false);
+  const [mensajeExito, setMensajeExito] = useState("");
+  const [errores, setErrores] = useState<string[]>([]);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ========================================================
+  // CARGAR DOCUMENTOS
+  // ========================================================
+  useEffect(() => {
+    async function cargar() {
+      try {
+        setCargando(true);
+        const data = await api<any>("/documentos");
+        const mapeados: Doc[] = (data.documentos || []).map((d: any) => ({
+          id: d.id,
+          nombre: d.nombre_original || d.descripcion,
+          categoria: d.tipo_documento?.nombre || "Sin categoría",
+          fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
+          tamano: formatFileSize(Number(d.peso_bytes)),
+          restringido: d.restringido ?? false,
+          mime_type: d.mime_type || "",
+        }));
+        setItems(mapeados);
+      } catch (err: any) {
+        console.error("Error al cargar documentos:", err.message);
+      } finally {
+        setCargando(false);
+      }
+    }
+    cargar();
+  }, []);
+
+  // ========================================================
+  // CARGAR TIPOS DE DOCUMENTO
+  // ========================================================
+  useEffect(() => {
+    async function cargarTipos() {
+      try {
+        const data = await api<any>("/documentos/tipos");
+        setTipos(data.tipos || []);
+        if (data.tipos && data.tipos.length > 0) {
+          setIdTipo(data.tipos[0].id);
+        }
+      } catch (err: any) {
+        console.error("Error al cargar tipos:", err.message);
+      }
+    }
+    cargarTipos();
+  }, []);
+
+  // ========================================================
+  // FILTROS
+  // ========================================================
   const filtered = useMemo(
     () =>
       items.filter(
         (x) =>
           (cat === "Todas" || x.categoria === cat) &&
-          `${x.nombre} ${x.categoria}`
-            .toLowerCase()
-            .includes(q.toLowerCase())
+          `${x.nombre} ${x.categoria}`.toLowerCase().includes(q.toLowerCase())
       ),
     [items, q, cat]
   );
 
-  function handleFileChange(
-    e: React.ChangeEvent<HTMLInputElement>
-  ) {
+  // ========================================================
+  // HANDLE FILE CHANGE
+  // ========================================================
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] || null;
 
     if (!file) {
@@ -100,178 +114,243 @@ export default function DocumentosPage() {
       return;
     }
 
-    const extension = file.name
-      .toLowerCase()
-      .split(".")
-      .pop();
+    const extension = file.name.toLowerCase().split(".").pop();
 
-    if (
-      !["pdf", "jpg", "jpeg", "png", "docx"].includes(
-        extension || ""
-      )
-    ) {
-      alert(
-        "Formato no permitido. Selecciona un archivo PDF, DOCX, JPG o PNG."
-      );
-
+    if (!["pdf", "jpg", "jpeg", "png", "docx"].includes(extension || "")) {
+      setErrores([
+        "Formato no permitido. Selecciona un archivo PDF, DOCX, JPG o PNG.",
+      ]);
       e.target.value = "";
       setSelectedFile(null);
       return;
     }
 
     if (file.size > 10 * 1024 * 1024) {
-      alert("El archivo no puede superar los 10 MB.");
-
+      setErrores(["El archivo no puede superar los 10 MB."]);
       e.target.value = "";
       setSelectedFile(null);
       return;
     }
 
+    setErrores([]);
     setSelectedFile(file);
   }
 
-  function upload(e: React.FormEvent<HTMLFormElement>) {
+  // ========================================================
+  // SUBIR DOCUMENTO
+  // ========================================================
+  async function upload(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!selectedFile) return;
-
-    const extension = selectedFile.name
-      .toLowerCase()
-      .split(".")
-      .pop();
-
-    if (
-      !["pdf", "jpg", "jpeg", "png", "docx"].includes(
-        extension || ""
-      )
-    ) {
+    if (!selectedFile) {
+      setErrores(["Debes seleccionar un archivo."]);
       return;
     }
 
-    const form = new FormData(e.currentTarget);
-
-    const fileUrl = URL.createObjectURL(selectedFile);
-
-    const nuevoDocumento: Doc = {
-      id: Date.now(),
-      nombre: selectedFile.name,
-      categoria: String(form.get("categoria")),
-      fecha: "06/09/2026",
-      tamano: formatFileSize(selectedFile.size),
-      restringido: form.get("restringido") === "on",
-      archivo: selectedFile,
-      url: fileUrl,
-      tipo: selectedFile.type,
-    };
-
-    setItems([nuevoDocumento, ...items]);
-
-    setSelectedFile(null);
-
-    if (fileInputRef.current) {
-      fileInputRef.current.value = "";
+    if (!descripcion.trim()) {
+      setErrores(["La descripción es obligatoria."]);
+      return;
     }
 
-    setOpen(false);
+    if (!idTipo) {
+      setErrores(["Debes seleccionar una categoría."]);
+      return;
+    }
+
+    setErrores([]);
+    setGuardando(true);
+
+    try {
+      const formData = new FormData();
+formData.append("archivo", selectedFile);
+formData.append("descripcion", descripcion.trim());
+formData.append("id_tipo", String(Number(idTipo)));
+formData.append("restringido", restringido ? "true" : "false");
+
+      const token = sessionStorage.getItem("token");
+      const API = "http://localhost:3001";
+
+      const response = await fetch(`${API}/documentos`, {
+        method: "POST",
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.message || `Error ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      // ✅ MENSAJE DE CONFIRMACIÓN (ARREGLA HU-42 CA-5)
+      setMensajeExito(data.message || "✅ Documento subido correctamente");
+      setTimeout(() => setMensajeExito(""), 4000);
+
+      // Limpiar formulario
+      setSelectedFile(null);
+      setDescripcion("");
+      setRestringido(false);
+      setOpen(false);
+
+      if (fileInputRef.current) {
+        fileInputRef.current.value = "";
+      }
+
+      // Recargar lista
+      const dataLista = await api<any>("/documentos");
+      const mapeados: Doc[] = (dataLista.documentos || []).map((d: any) => ({
+        id: d.id,
+        nombre: d.nombre_original || d.descripcion,
+        categoria: d.tipo_documento?.nombre || "Sin categoría",
+        fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
+        tamano: formatFileSize(Number(d.peso_bytes)),
+        restringido: d.restringido ?? false,
+        mime_type: d.mime_type || "",
+      }));
+      setItems(mapeados);
+    } catch (err: any) {
+      setErrores([err.message || "Error al subir documento"]);
+    } finally {
+      setGuardando(false);
+    }
   }
 
+  // ========================================================
+  // CERRAR MODAL
+  // ========================================================
   function closeModal() {
     setOpen(false);
     setSelectedFile(null);
+    setDescripcion("");
+    setRestringido(false);
+    setErrores([]);
 
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
   }
 
-  function visualizarDocumento(doc: Doc) {
-    if (!doc.url) {
-      alert(
-        "Este documento pertenece a los archivos de ejemplo y todavía no tiene un archivo disponible para visualizar."
-      );
-      return;
-    }
+  // ========================================================
+  // DESCARGAR DOCUMENTO
+  // ========================================================
+  async function descargarDocumento(doc: Doc) {
+    try {
+      const token = sessionStorage.getItem("token");
+      const API = "http://localhost:3001";
 
-    setPreviewDoc(doc);
+      const response = await fetch(`${API}/documentos/${doc.id}/descargar`, {
+        headers: {
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("No se pudo descargar el documento");
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = doc.nombre;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setErrores([err.message]);
+      setTimeout(() => setErrores([]), 4000);
+    }
   }
 
-  function descargarDocumento(doc: Doc) {
-    if (!doc.url) {
-      alert(
-        "Este documento pertenece a los archivos de ejemplo y no tiene un archivo disponible para descargar."
-      );
-      return;
-    }
-
-    const link = document.createElement("a");
-
-    link.href = doc.url;
-    link.download = doc.nombre;
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  // ========================================================
+  // VISUALIZAR DOCUMENTO
+  // ========================================================
+  function visualizarDocumento(doc: Doc) {
+    setPreviewDoc(doc);
   }
 
   function cerrarVistaPrevia() {
     setPreviewDoc(null);
   }
 
-  function eliminarDocumento(doc: Doc) {
-    if (
-      confirm(
-        "¿Confirmas eliminar este documento?"
-      )
-    ) {
-      if (doc.url) {
-        URL.revokeObjectURL(doc.url);
-      }
+  // ========================================================
+  // ELIMINAR DOCUMENTO
+  // ========================================================
+  async function eliminarDocumento(doc: Doc) {
+    if (!confirm("¿Confirmas eliminar este documento?")) {
+      return;
+    }
 
-      setItems(
-        items.filter((i) => i.id !== doc.id)
-      );
+    try {
+      await api(`/documentos/${doc.id}`, { method: "DELETE" });
+
+      // ✅ MENSAJE DE CONFIRMACIÓN (ARREgla HU-46 CA-4)
+      setMensajeExito("✅ Documento eliminado correctamente");
+      setTimeout(() => setMensajeExito(""), 4000);
+
+      // Recargar lista
+      const data = await api<any>("/documentos");
+      const mapeados: Doc[] = (data.documentos || []).map((d: any) => ({
+        id: d.id,
+        nombre: d.nombre_original || d.descripcion,
+        categoria: d.tipo_documento?.nombre || "Sin categoría",
+        fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
+        tamano: formatFileSize(Number(d.peso_bytes)),
+        restringido: d.restringido ?? false,
+        mime_type: d.mime_type || "",
+      }));
+      setItems(mapeados);
+    } catch (err: any) {
+      setErrores([err.message]);
+      setTimeout(() => setErrores([]), 4000);
     }
   }
 
+  // ========================================================
+  // RENDER
+  // ========================================================
   return (
     <DashboardLayout active="documentos">
       <div className="page-header">
         <div>
           <h1>Gestión documental</h1>
-
           <p>
-            Centraliza, clasifica, consulta y controla el
-            acceso a los documentos del edificio.
+            Centraliza, clasifica, consulta y controla el acceso a los
+            documentos del edificio.
           </p>
         </div>
 
-        <button
-          className="btn btn-primary"
-          onClick={() => setOpen(true)}
-        >
+        <button className="btn btn-primary" onClick={() => setOpen(true)}>
           <PlusIcon size={17} />
           Subir documento
         </button>
       </div>
 
+      {mensajeExito && (
+        <div className="alert alert-success" style={{ marginBottom: "16px" }}>
+          {mensajeExito}
+        </div>
+      )}
+
+      {errores.length > 0 && (
+        <div className="alert alert-error" style={{ marginBottom: "16px" }}>
+          {errores.map((e, i) => (
+            <div key={i}>{e}</div>
+          ))}
+        </div>
+      )}
+
       <div className="metric-row">
-        <Metric
-          t="Documentos"
-          n={items.length}
-        />
-
-        <Metric
-          t="Categorías"
-          n={cats.length}
-        />
-
+        <Metric t="Documentos" n={items.length} />
+        <Metric t="Categorías" n={tipos.length} />
         <Metric
           t="Restringidos"
-          n={
-            items.filter(
-              (x) => x.restringido
-            ).length
-          }
+          n={items.filter((x) => x.restringido).length}
         />
       </div>
 
@@ -279,21 +358,16 @@ export default function DocumentosPage() {
         <div className="panel-toolbar">
           <div>
             <h3>Repositorio del edificio</h3>
-
             <p>
-              Formatos permitidos: PDF, DOCX, JPG y PNG ·
-              máximo 10 MB
+              Formatos permitidos: PDF, DOCX, JPG y PNG · máximo 10 MB
             </p>
           </div>
 
           <div className="search-box">
             <SearchIcon size={17} />
-
             <input
               value={q}
-              onChange={(e) =>
-                setQ(e.target.value)
-              }
+              onChange={(e) => setQ(e.target.value)}
               placeholder="Buscar documento..."
             />
           </div>
@@ -301,119 +375,90 @@ export default function DocumentosPage() {
 
         <div className="doc-filters">
           <button
-            className={
-              cat === "Todas"
-                ? "filter-chip active"
-                : "filter-chip"
-            }
-            onClick={() =>
-              setCat("Todas")
-            }
+            className={cat === "Todas" ? "filter-chip active" : "filter-chip"}
+            onClick={() => setCat("Todas")}
           >
             Todos
           </button>
 
-          {cats.map((c) => (
+          {tipos.map((t) => (
             <button
-              key={c}
-              className={
-                cat === c
-                  ? "filter-chip active"
-                  : "filter-chip"
-              }
-              onClick={() =>
-                setCat(c)
-              }
+              key={t.id}
+              className={cat === t.nombre ? "filter-chip active" : "filter-chip"}
+              onClick={() => setCat(t.nombre)}
             >
-              {c}
+              {t.nombre}
             </button>
           ))}
         </div>
 
-        <div className="document-grid">
-          {filtered.map((x) => (
-            <article
-              className="document-card"
-              key={x.id}
-            >
-              <div className="doc-icon">
-                <FileIcon size={24} />
-              </div>
-
-              <div className="doc-body">
-                <div className="doc-top">
-                  <span className="tag">
-                    {x.categoria}
-                  </span>
-
-                  {x.restringido && (
-                    <span className="status status-attention">
-                      <span />
-                      Restringido
-                    </span>
-                  )}
+        {cargando ? (
+          <div className="empty-state">Cargando documentos...</div>
+        ) : (
+          <div className="document-grid">
+            {filtered.map((x) => (
+              <article className="document-card" key={x.id}>
+                <div className="doc-icon">
+                  <FileIcon size={24} />
                 </div>
 
-                <h4>{x.nombre}</h4>
+                <div className="doc-body">
+                  <div className="doc-top">
+                    <span className="tag">{x.categoria}</span>
+                    {x.restringido && (
+                      <span className="status status-attention">
+                        <span />
+                        Restringido
+                      </span>
+                    )}
+                  </div>
 
-                <p>
-                  {x.fecha} · {x.tamano}
-                </p>
-              </div>
+                  <h4>{x.nombre}</h4>
+                  <p>
+                    {x.fecha} · {x.tamano}
+                  </p>
+                </div>
 
-              <div className="doc-actions">
-                <button
-                  className="icon-action"
-                  title="Visualizar documento"
-                  onClick={() =>
-                    visualizarDocumento(x)
-                  }
-                >
-                  <EyeIcon size={16} />
-                </button>
+                <div className="doc-actions">
+                  <button
+                    className="icon-action"
+                    title="Visualizar documento"
+                    onClick={() => visualizarDocumento(x)}
+                  >
+                    <EyeIcon size={16} />
+                  </button>
 
-                <button
-                  className="icon-action"
-                  title="Descargar documento"
-                  onClick={() =>
-                    descargarDocumento(x)
-                  }
-                >
-                  ↓
-                </button>
+                  <button
+                    className="icon-action"
+                    title="Descargar documento"
+                    onClick={() => descargarDocumento(x)}
+                  >
+                    ↓
+                  </button>
 
-                <button
-                  className="icon-action danger"
-                  title="Eliminar"
-                  onClick={() =>
-                    eliminarDocumento(x)
-                  }
-                >
-                  <TrashIcon size={16} />
-                </button>
-              </div>
-            </article>
-          ))}
-        </div>
+                  <button
+                    className="icon-action danger"
+                    title="Eliminar"
+                    onClick={() => eliminarDocumento(x)}
+                  >
+                    <TrashIcon size={16} />
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
 
-        {filtered.length === 0 && (
+        {!cargando && filtered.length === 0 && (
           <div className="empty-state">
-            No existen documentos que coincidan
-            con la búsqueda.
+            No existen documentos que coincidan con la búsqueda.
           </div>
         )}
       </section>
 
       {/* MODAL SUBIR DOCUMENTO */}
-      <Modal
-        open={open}
-        title="Subir documento"
-        onClose={closeModal}
-      >
-        <form
-          className="modal-form"
-          onSubmit={upload}
-        >
+      <Modal open={open} title="Subir documento" onClose={closeModal}>
+        <form className="modal-form" onSubmit={upload}>
           <div className="form-grid">
             <div className="field">
               <span>Archivo</span>
@@ -424,67 +469,70 @@ export default function DocumentosPage() {
                 name="file"
                 accept=".pdf,.docx,.jpg,.jpeg,.png"
                 onChange={handleFileChange}
-                style={{
-                  display: "none",
-                }}
+                style={{ display: "none" }}
               />
 
               <button
                 type="button"
                 className="btn btn-secondary"
-                onClick={() =>
-                  fileInputRef.current?.click()
-                }
+                onClick={() => fileInputRef.current?.click()}
               >
                 <FileIcon size={17} />
                 Seleccionar archivo
               </button>
 
               {selectedFile && (
-                <small
-                  style={{
-                    display: "block",
-                    marginTop: "8px",
-                  }}
-                >
-                  Archivo seleccionado:{" "}
-                  <strong>
-                    {selectedFile.name}
-                  </strong>
+                <small style={{ display: "block", marginTop: "8px" }}>
+                  Archivo seleccionado: <strong>{selectedFile.name}</strong>
                 </small>
               )}
             </div>
 
-            <Select
-              label="Categoría"
-              name="categoria"
-            />
+            <label className="field">
+              <span>Descripción</span>
+              <input
+                type="text"
+                value={descripcion}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder="Ej. Acta de Asamblea General 2026"
+              />
+            </label>
+
+            <label className="field">
+              <span>Categoría</span>
+              <select
+                value={idTipo}
+                onChange={(e) => setIdTipo(e.target.value)}
+              >
+                {tipos.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
 
             <label className="check-label">
               <input
-                name="restringido"
                 type="checkbox"
+                checked={restringido}
+                onChange={(e) => setRestringido(e.target.checked)}
               />
-
               Documento restringido
             </label>
           </div>
 
           <div className="modal-actions">
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={closeModal}
-            >
+            <button type="button" className="btn btn-secondary" onClick={closeModal}>
               Cancelar
             </button>
 
             <button
               className="btn btn-primary"
               type="submit"
-              disabled={!selectedFile}
+              disabled={!selectedFile || guardando}
             >
-              Guardar documento
+              {guardando ? "Guardando..." : "Guardar documento"}
             </button>
           </div>
         </form>
@@ -493,18 +541,11 @@ export default function DocumentosPage() {
       {/* MODAL VISTA PREVIA */}
       <Modal
         open={!!previewDoc}
-        title={
-          previewDoc?.nombre ||
-          "Vista previa"
-        }
+        title={previewDoc?.nombre || "Vista previa"}
         onClose={cerrarVistaPrevia}
       >
         {previewDoc && (
-          <div
-            style={{
-              width: "100%",
-            }}
-          >
+          <div style={{ width: "100%" }}>
             <div
               style={{
                 display: "flex",
@@ -515,90 +556,15 @@ export default function DocumentosPage() {
             >
               <button
                 className="btn btn-primary"
-                onClick={() =>
-                  descargarDocumento(
-                    previewDoc
-                  )
-                }
+                onClick={() => descargarDocumento(previewDoc)}
               >
                 ↓ Descargar
               </button>
             </div>
 
-            {previewDoc.tipo ===
-              "application/pdf" && (
-              <iframe
-                src={previewDoc.url}
-                title={previewDoc.nombre}
-                style={{
-                  width: "100%",
-                  height: "600px",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                }}
-              />
-            )}
-
-            {previewDoc.tipo?.startsWith(
-              "image/"
-            ) && (
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  width: "100%",
-                  maxHeight: "600px",
-                  overflow: "auto",
-                }}
-              >
-                <img
-                  src={previewDoc.url}
-                  alt={previewDoc.nombre}
-                  style={{
-                    maxWidth: "100%",
-                    maxHeight: "600px",
-                    objectFit: "contain",
-                    borderRadius: "8px",
-                  }}
-                />
-              </div>
-            )}
-
-            {previewDoc.tipo ===
-              "application/vnd.openxmlformats-officedocument.wordprocessingml.document" && (
-              <div
-                style={{
-                  padding: "30px",
-                  textAlign: "center",
-                  border: "1px solid #ddd",
-                  borderRadius: "8px",
-                }}
-              >
-                <FileIcon size={40} />
-
-                <h3>
-                  Vista previa no disponible
-                </h3>
-
-                <p>
-                  Los archivos DOCX no pueden
-                  visualizarse directamente en
-                  el navegador.
-                </p>
-
-                <button
-                  className="btn btn-primary"
-                  onClick={() =>
-                    descargarDocumento(
-                      previewDoc
-                    )
-                  }
-                >
-                  ↓ Descargar documento
-                </button>
-              </div>
-            )}
+            <p style={{ fontSize: "12px", color: "#666", textAlign: "center" }}>
+              Vista previa disponible solo después de descargar el documento.
+            </p>
           </div>
         )}
       </Modal>
@@ -606,13 +572,7 @@ export default function DocumentosPage() {
   );
 }
 
-function Metric({
-  t,
-  n,
-}: {
-  t: string;
-  n: number;
-}) {
+function Metric({ t, n }: { t: string; n: number }) {
   return (
     <div className="metric-card">
       <div className="metric-icon">
@@ -627,47 +587,11 @@ function Metric({
   );
 }
 
-function Select({
-  label,
-  name,
-}: {
-  label: string;
-  name: string;
-}) {
-  return (
-    <label className="field">
-      <span>{label}</span>
-
-      <select name={name}>
-        {cats.map((c) => (
-          <option key={c}>
-            {c}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function formatFileSize(bytes: number) {
-  if (bytes === 0) {
-    return "0 Bytes";
-  }
+  if (bytes === 0) return "0 Bytes";
 
-  const units = [
-    "Bytes",
-    "KB",
-    "MB",
-    "GB",
-  ];
+  const units = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(1024));
 
-  const i = Math.floor(
-    Math.log(bytes) / Math.log(1024)
-  );
-
-  return `${(
-    bytes / Math.pow(1024, i)
-  ).toFixed(i === 0 ? 0 : 1)} ${
-    units[i]
-  }`;
+  return `${(bytes / Math.pow(1024, i)).toFixed(i === 0 ? 0 : 1)} ${units[i]}`;
 }
