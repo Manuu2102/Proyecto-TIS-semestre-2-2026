@@ -12,6 +12,9 @@ import {
 } from "../../../components/Icons";
 import { api } from "../../../lib/api";
 
+// ========================================================
+// TIPOS
+// ========================================================
 type Doc = {
   id: string;
   nombre: string;
@@ -25,6 +28,35 @@ type Doc = {
 type TipoDocumento = {
   id: string;
   nombre: string;
+};
+
+// Respuesta cruda del backend para un documento
+type DocumentoAPI = {
+  id: string;
+  nombre_original?: string;
+  descripcion: string;
+  fecha_subida: string;
+  peso_bytes: number | string;
+  restringido?: boolean;
+  mime_type?: string;
+  tipo_documento?: {
+    nombre: string;
+  };
+};
+
+// Respuesta de GET /documentos
+type DocumentosResponse = {
+  documentos?: DocumentoAPI[];
+};
+
+// Respuesta de GET /documentos/tipos
+type TiposResponse = {
+  tipos?: TipoDocumento[];
+};
+
+// Respuesta de POST /documentos
+type UploadResponse = {
+  message?: string;
 };
 
 export default function DocumentosPage() {
@@ -45,6 +77,19 @@ export default function DocumentosPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper para mapear la respuesta del backend a nuestro tipo Doc
+  function mapearDocumentos(data: DocumentosResponse): Doc[] {
+    return (data.documentos || []).map((d) => ({
+      id: d.id,
+      nombre: d.nombre_original || d.descripcion,
+      categoria: d.tipo_documento?.nombre || "Sin categoría",
+      fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
+      tamano: formatFileSize(Number(d.peso_bytes)),
+      restringido: d.restringido ?? false,
+      mime_type: d.mime_type || "",
+    }));
+  }
+
   // ========================================================
   // CARGAR DOCUMENTOS
   // ========================================================
@@ -52,19 +97,11 @@ export default function DocumentosPage() {
     async function cargar() {
       try {
         setCargando(true);
-        const data = await api<any>("/documentos");
-        const mapeados: Doc[] = (data.documentos || []).map((d: any) => ({
-          id: d.id,
-          nombre: d.nombre_original || d.descripcion,
-          categoria: d.tipo_documento?.nombre || "Sin categoría",
-          fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
-          tamano: formatFileSize(Number(d.peso_bytes)),
-          restringido: d.restringido ?? false,
-          mime_type: d.mime_type || "",
-        }));
-        setItems(mapeados);
-      } catch (err: any) {
-        console.error("Error al cargar documentos:", err.message);
+        const data = await api<DocumentosResponse>("/documentos");
+        setItems(mapearDocumentos(data));
+      } catch (err) {
+        const mensaje = err instanceof Error ? err.message : "Error desconocido";
+        console.error("Error al cargar documentos:", mensaje);
       } finally {
         setCargando(false);
       }
@@ -78,13 +115,14 @@ export default function DocumentosPage() {
   useEffect(() => {
     async function cargarTipos() {
       try {
-        const data = await api<any>("/documentos/tipos");
+        const data = await api<TiposResponse>("/documentos/tipos");
         setTipos(data.tipos || []);
         if (data.tipos && data.tipos.length > 0) {
           setIdTipo(data.tipos[0].id);
         }
-      } catch (err: any) {
-        console.error("Error al cargar tipos:", err.message);
+      } catch (err) {
+        const mensaje = err instanceof Error ? err.message : "Error desconocido";
+        console.error("Error al cargar tipos:", mensaje);
       }
     }
     cargarTipos();
@@ -162,10 +200,10 @@ export default function DocumentosPage() {
 
     try {
       const formData = new FormData();
-formData.append("archivo", selectedFile);
-formData.append("descripcion", descripcion.trim());
-formData.append("id_tipo", String(Number(idTipo)));
-formData.append("restringido", restringido ? "true" : "false");
+      formData.append("archivo", selectedFile);
+      formData.append("descripcion", descripcion.trim());
+      formData.append("id_tipo", String(Number(idTipo)));
+      formData.append("restringido", restringido ? "true" : "false");
 
       const token = sessionStorage.getItem("token");
       const API = "http://localhost:3001";
@@ -179,11 +217,13 @@ formData.append("restringido", restringido ? "true" : "false");
       });
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
+        const err: { message?: string } = await response
+          .json()
+          .catch(() => ({}));
         throw new Error(err.message || `Error ${response.status}`);
       }
 
-      const data = await response.json();
+      const data: UploadResponse = await response.json();
 
       // ✅ MENSAJE DE CONFIRMACIÓN (ARREGLA HU-42 CA-5)
       setMensajeExito(data.message || "✅ Documento subido correctamente");
@@ -200,19 +240,11 @@ formData.append("restringido", restringido ? "true" : "false");
       }
 
       // Recargar lista
-      const dataLista = await api<any>("/documentos");
-      const mapeados: Doc[] = (dataLista.documentos || []).map((d: any) => ({
-        id: d.id,
-        nombre: d.nombre_original || d.descripcion,
-        categoria: d.tipo_documento?.nombre || "Sin categoría",
-        fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
-        tamano: formatFileSize(Number(d.peso_bytes)),
-        restringido: d.restringido ?? false,
-        mime_type: d.mime_type || "",
-      }));
-      setItems(mapeados);
-    } catch (err: any) {
-      setErrores([err.message || "Error al subir documento"]);
+      const dataLista = await api<DocumentosResponse>("/documentos");
+      setItems(mapearDocumentos(dataLista));
+    } catch (err) {
+      const mensaje = err instanceof Error ? err.message : "Error al subir documento";
+      setErrores([mensaje]);
     } finally {
       setGuardando(false);
     }
@@ -261,8 +293,9 @@ formData.append("restringido", restringido ? "true" : "false");
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
-    } catch (err: any) {
-      setErrores([err.message]);
+    } catch (err) {
+      const mensaje = err instanceof Error ? err.message : "Error al descargar";
+      setErrores([mensaje]);
       setTimeout(() => setErrores([]), 4000);
     }
   }
@@ -289,24 +322,16 @@ formData.append("restringido", restringido ? "true" : "false");
     try {
       await api(`/documentos/${doc.id}`, { method: "DELETE" });
 
-      // ✅ MENSAJE DE CONFIRMACIÓN (ARREgla HU-46 CA-4)
+      // ✅ MENSAJE DE CONFIRMACIÓN (ARREGLA HU-46 CA-4)
       setMensajeExito("✅ Documento eliminado correctamente");
       setTimeout(() => setMensajeExito(""), 4000);
 
       // Recargar lista
-      const data = await api<any>("/documentos");
-      const mapeados: Doc[] = (data.documentos || []).map((d: any) => ({
-        id: d.id,
-        nombre: d.nombre_original || d.descripcion,
-        categoria: d.tipo_documento?.nombre || "Sin categoría",
-        fecha: new Date(d.fecha_subida).toLocaleDateString("es-BO"),
-        tamano: formatFileSize(Number(d.peso_bytes)),
-        restringido: d.restringido ?? false,
-        mime_type: d.mime_type || "",
-      }));
-      setItems(mapeados);
-    } catch (err: any) {
-      setErrores([err.message]);
+      const data = await api<DocumentosResponse>("/documentos");
+      setItems(mapearDocumentos(data));
+    } catch (err) {
+      const mensaje = err instanceof Error ? err.message : "Error al eliminar";
+      setErrores([mensaje]);
       setTimeout(() => setErrores([]), 4000);
     }
   }
