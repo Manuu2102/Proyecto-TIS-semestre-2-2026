@@ -103,18 +103,10 @@ function readSession(): { nombre: string; rol: string } | null {
 
 export function DashboardLayout({ children, active }: { children: React.ReactNode; active: string }) {
   const [mobile, setMobile] = useState(false);
-  const [mounted, setMounted] = useState(false);
-  const [session, setSession] = useState<{ nombre: string; rol: string } | null>(null);
+  const [session] = useState<{ nombre: string; rol: string } | null>(() => readSession());
   const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
-
-  useEffect(() => {
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  setMounted(true);
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  setSession(readSession());
-}, []);
 
   const navSections = useMemo(() => sectionsForRole(session?.rol ?? ""), [session]);
   const allowedPaths = useMemo(
@@ -123,15 +115,13 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
   );
 
   useEffect(() => {
-    if (!mounted) return;
     if (!session) router.replace("/login");
-  }, [mounted, session, router]);
+  }, [session, router]);
 
   useEffect(() => {
-    if (!mounted) return;
     if (!session || pathname === "/dashboard" || pathname === "/login") return;
     if (!allowedPaths.has(pathname)) router.replace("/dashboard");
-  }, [mounted, session, pathname, router, allowedPaths]);
+  }, [session, pathname, router, allowedPaths]);
 
   async function logout() {
     setLoggingOut(true);
@@ -149,10 +139,6 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
 
   if (loggingOut) {
     return <div className="auth-loading">Cerrando sesión…</div>;
-  }
-
-  if (!mounted) {
-    return <div className="auth-loading">Cargando…</div>;
   }
 
   const currentTitle = titles[active] || "Dashboard";
