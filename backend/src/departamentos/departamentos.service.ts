@@ -11,7 +11,7 @@ import { ActualizarDepartamentoDto } from './dto/actualizar-departamento.dto.js'
 export class DepartamentosService {
   constructor(private prisma: PrismaService) {}
 
-  async crear(data: CrearDepartamentoDto) {
+  async crear(data: CrearDepartamentoDto, adminId: string) {
     const existe = await this.prisma.departamento.findFirst({
       where: { numero: data.numero, piso: data.piso },
     });
@@ -22,7 +22,7 @@ export class DepartamentosService {
       );
     }
 
-    const departamento = await this.prisma.departamento.create({
+    const departamento = await this.prisma.conUsuario(adminId, (tx) => tx.departamento.create({ 
       data: {
         numero: data.numero,
         piso: data.piso,
@@ -35,7 +35,7 @@ export class DepartamentosService {
         descripcion: data.descripcion,
         libre: data.libre,
       },
-    });
+    }));
 
     return {
       message: 'Departamento creado correctamente',
@@ -73,7 +73,7 @@ export class DepartamentosService {
     return this.formatearDepartamentoConRelaciones(departamento);
   }
 
-  async actualizar(id: bigint, data: ActualizarDepartamentoDto) {
+  async actualizar(id: bigint, data: ActualizarDepartamentoDto, adminId: string) {
     const existe = await this.prisma.departamento.findUnique({
       where: { id },
     });
@@ -82,10 +82,10 @@ export class DepartamentosService {
       throw new NotFoundException(`Departamento con id ${id} no encontrado`);
     }
 
-    const departamento = await this.prisma.departamento.update({
+    const departamento = await await this.prisma.conUsuario(adminId, (tx) => tx.departamento.update({ 
       where: { id },
       data,
-    });
+    }));
 
     return {
       message: 'Departamento actualizado correctamente',
@@ -93,10 +93,10 @@ export class DepartamentosService {
     };
   }
 
-  async eliminar(id: bigint) {
-    const existe = await this.prisma.departamento.findUnique({
+  async eliminar(id: bigint, adminId: string) {
+    const existe = await await this.prisma.conUsuario(adminId, (tx) => tx.departamento.findUnique({            
       where: { id },
-    });
+    }));
 
     if (!existe) {
       throw new NotFoundException(`Departamento con id ${id} no encontrado`);

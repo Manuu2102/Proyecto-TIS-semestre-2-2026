@@ -52,23 +52,25 @@ export class DocumentosService {
       );
     }
 
-    const documento = await this.prisma.documento.create({
-      data: {
-        id_tipo: BigInt(data.id_tipo),
-        descripcion: data.descripcion,
-        nombre_original: archivo.originalname,
-        contenido: Buffer.from(archivo.buffer),
-        peso_bytes: BigInt(archivo.size),
-        mime_type: archivo.mimetype,
-        restringido: data.restringido ?? false,
-        estatus: true,
-        fecha_subida: new Date(),
-        id_usuario_subio: idUsuario,
-      },
-      include: {
-        tipo_documento: { select: { nombre: true } },
-      },
-    });
+    const documento = await this.prisma.conUsuario(idUsuario, (tx) =>
+      tx.documento.create({
+        data: {
+          id_tipo: BigInt(data.id_tipo),
+          descripcion: data.descripcion,
+          nombre_original: archivo.originalname,
+          contenido: Buffer.from(archivo.buffer),
+          peso_bytes: BigInt(archivo.size),
+          mime_type: archivo.mimetype,
+          restringido: data.restringido ?? false,
+          estatus: true,
+          fecha_subida: new Date(),
+          id_usuario_subio: idUsuario,
+        },
+        include: {
+          tipo_documento: { select: { nombre: true } },
+        },
+      }),
+    );
 
     return {
       message: 'Documento subido correctamente',
@@ -198,10 +200,12 @@ export class DocumentosService {
       throw new NotFoundException(`Documento con id ${id} no encontrado`);
     }
 
-    await this.prisma.documento.update({
-      where: { id },
-      data: { estatus: false },
-    });
+    await this.prisma.conUsuario(idUsuario, (tx) =>
+      tx.documento.update({
+        where: { id },
+        data: { estatus: false },
+      }),
+    );
 
     return { message: 'Documento eliminado correctamente' };
   }
