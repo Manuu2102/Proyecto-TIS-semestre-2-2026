@@ -29,11 +29,30 @@ jobs:
       - name: Construir imágenes de staging
         run: docker compose build
 
+      - name: Desplegar en Azure
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.AZURE_HOST }}
+          username: ${{ secrets.AZURE_USERNAME }}
+          key: ${{ secrets.AZURE_SSH_KEY }}
+          script: |
+            cd /home/tisadmin/apps/Proyecto-TIS-semestre-2-2026
+
+            echo "Actualizando código..."
+            git fetch origin develop
+            git reset --hard origin/develop
+
+            echo "Construyendo y levantando staging..."
+            docker compose up -d --build
+
+            echo "Estado de los contenedores:"
+            docker compose ps
+
       - name: Mostrar estado del despliegue
         run: |
           echo "======================================"
           echo "CD - STAGING"
           echo "======================================"
           echo "Docker Compose validado correctamente."
-          echo "Las imágenes de frontend y backend fueron construidas."
-          echo "Despliegue al servidor pendiente de infraestructura."
+          echo "Imágenes construidas."
+          echo "Staging actualizado en Azure."
