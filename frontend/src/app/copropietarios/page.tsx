@@ -50,6 +50,7 @@ export default function CopropietariosPage() {
   const [editando, setEditando] = useState<number | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
+  const [mensajeExito, setMensajeExito] = useState("");
 
   const [form, setForm] = useState({
     nombres: "",
@@ -84,7 +85,7 @@ export default function CopropietariosPage() {
     cargar();
   }, []);
 
-  // Cargar departamentos disponibles (desde el backend real)
+  // Cargar departamentos disponibles
   useEffect(() => {
     const cargarDepartamentos = async () => {
       try {
@@ -201,6 +202,8 @@ export default function CopropietariosPage() {
       return;
     }
 
+    const nombreCompleto = `${form.nombres} ${form.apellidoPaterno}`.trim();
+
     try {
       // MODO EDICIÓN → PATCH
       if (editando !== null) {
@@ -235,7 +238,9 @@ export default function CopropietariosPage() {
         const lista = await refresh.json();
         setCopropietarios(lista.copropietarios.map(adaptar));
 
+        setMensajeExito(`Cambios de "${nombreCompleto}" guardados correctamente.`);
         cancelar();
+        setTimeout(() => setMensajeExito(""), 4000);
         return;
       }
 
@@ -271,7 +276,9 @@ export default function CopropietariosPage() {
       const lista = await refresh.json();
       setCopropietarios(lista.copropietarios.map(adaptar));
 
+      setMensajeExito(`Copropietario "${nombreCompleto}" registrado correctamente.`);
       cancelar();
+      setTimeout(() => setMensajeExito(""), 4000);
     } catch (e) {
       setErrores([`Error: ${(e as Error).message}`]);
     }
@@ -334,6 +341,15 @@ export default function CopropietariosPage() {
               Registrar copropietario
             </button>
           </header>
+
+          {mensajeExito && (
+            <div className="mb-4 flex items-center gap-2 rounded-[9px] border border-[#c7e2c1] bg-[#f0f9ec] px-4 py-3 text-[10px] font-medium text-[#3f7a35]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {mensajeExito}
+            </div>
+          )}
 
           <section className="mb-5 grid grid-cols-3 gap-4">
             <MetricCard icon={<UsersIcon />} title="Total copropietarios" value={total.toString()} />

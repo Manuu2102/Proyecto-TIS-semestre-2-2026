@@ -8,6 +8,7 @@ type EstadoDepartamento = "Ocupado" | "Disponible";
 type Departamento = {
   id: string;
   codigo: string;
+  numero: number;
   piso: number;
   habitaciones: number;
   banos: number;
@@ -58,6 +59,7 @@ const adaptar = (d: any): Departamento => {
   return {
     id: d.id,
     codigo: codigo || `N° ${d.numero}`,
+    numero: d.numero,
     piso: d.piso,
     habitaciones: d.habitaciones,
     banos: d.banos,
@@ -83,6 +85,7 @@ export default function DepartamentosPage() {
   const [editandoDepartamento, setEditandoDepartamento] = useState<Departamento | null>(null);
   const [editandoTipo, setEditandoTipo] = useState<TipoDepartamento | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
+  const [mensajeExito, setMensajeExito] = useState("");
 
   const [formDepartamento, setFormDepartamento] = useState({
     codigo: "",
@@ -191,12 +194,25 @@ export default function DepartamentosPage() {
 
   const validar = (): string[] => {
     const problemas: string[] = [];
+
     if (!formDepartamento.codigo.trim()) problemas.push("El código es obligatorio.");
     if (!formDepartamento.piso) problemas.push("El piso es obligatorio.");
     if (!formDepartamento.habitaciones) problemas.push("Las habitaciones son obligatorias.");
     if (!formDepartamento.banos) problemas.push("Los baños son obligatorios.");
     if (!formDepartamento.superficie) problemas.push("La superficie es obligatoria.");
     if (!formDepartamento.precio) problemas.push("El precio es obligatorio.");
+
+    // Verificar que el código no esté duplicado
+    const codigoLimpio = formDepartamento.codigo.trim().toUpperCase();
+    if (codigoLimpio) {
+      const duplicado = departamentos.some(
+        (d) => d.codigo.toUpperCase() === codigoLimpio && d.id !== editandoDepartamento?.id
+      );
+      if (duplicado) {
+        problemas.push(`Ya existe un departamento con el código ${codigoLimpio}.`);
+      }
+    }
+
     return problemas;
   };
 
@@ -256,8 +272,14 @@ export default function DepartamentosPage() {
       const lista = await refresh.json();
       setDepartamentos(lista.departamentos.map(adaptar));
 
+      setMensajeExito(
+        esEdicion
+          ? `Departamento "${codigoLimpio}" actualizado correctamente.`
+          : `Departamento "${codigoLimpio}" registrado correctamente.`
+      );
       setModalDepartamento(false);
       setEditandoDepartamento(null);
+      setTimeout(() => setMensajeExito(""), 4000);
     } catch (e) {
       setErrores([`Error: ${(e as Error).message}`]);
     }
@@ -378,6 +400,16 @@ export default function DepartamentosPage() {
               {tab === "unidades" ? "Registrar departamento" : "Registrar tipo"}
             </button>
           </div>
+
+          {/* MENSAJE DE ÉXITO */}
+          {mensajeExito && (
+            <div className="mb-4 flex items-center gap-2 rounded-[9px] border border-[#c7e2c1] bg-[#f0f9ec] px-4 py-3 text-[10px] font-medium text-[#3f7a35]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {mensajeExito}
+            </div>
+          )}
 
           {/* ESTADÍSTICAS */}
           <div className="mb-6 grid grid-cols-4 gap-4">
