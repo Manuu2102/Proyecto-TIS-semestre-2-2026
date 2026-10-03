@@ -22,20 +22,22 @@ export class DepartamentosService {
       );
     }
 
-    const departamento = await this.prisma.conUsuario(adminId, (tx) => tx.departamento.create({ 
-      data: {
-        numero: data.numero,
-        piso: data.piso,
-        habitaciones: data.habitaciones,
-        banos: data.banos,
-        superficie_m2: data.superficie_m2,
-        precio: data.precio,
-        estatus: true,
-        amueblado: data.amueblado,
-        descripcion: data.descripcion,
-        libre: data.libre,
-      },
-    }));
+    const departamento = await this.prisma.conUsuario(adminId, (tx) =>
+      tx.departamento.create({
+        data: {
+          numero: data.numero,
+          piso: data.piso,
+          habitaciones: data.habitaciones,
+          banos: data.banos,
+          superficie_m2: data.superficie_m2,
+          precio: data.precio,
+          estatus: true,
+          amueblado: data.amueblado,
+          descripcion: data.descripcion,
+          libre: data.libre,
+        },
+      }),
+    );
 
     return {
       message: 'Departamento creado correctamente',
@@ -73,7 +75,11 @@ export class DepartamentosService {
     return this.formatearDepartamentoConRelaciones(departamento);
   }
 
-  async actualizar(id: bigint, data: ActualizarDepartamentoDto, adminId: string) {
+  async actualizar(
+    id: bigint,
+    data: ActualizarDepartamentoDto,
+    adminId: string,
+  ) {
     const existe = await this.prisma.departamento.findUnique({
       where: { id },
     });
@@ -82,10 +88,12 @@ export class DepartamentosService {
       throw new NotFoundException(`Departamento con id ${id} no encontrado`);
     }
 
-    const departamento = await await this.prisma.conUsuario(adminId, (tx) => tx.departamento.update({ 
-      where: { id },
-      data,
-    }));
+    const departamento = await this.prisma.conUsuario(adminId, (tx) =>
+      tx.departamento.update({
+        where: { id },
+        data,
+      }),
+    );
 
     return {
       message: 'Departamento actualizado correctamente',
@@ -94,18 +102,20 @@ export class DepartamentosService {
   }
 
   async eliminar(id: bigint, adminId: string) {
-    const existe = await await this.prisma.conUsuario(adminId, (tx) => tx.departamento.findUnique({            
-      where: { id },
-    }));
+    const existe = await this.prisma.conUsuario(adminId, (tx) =>
+      tx.departamento.findUnique({ where: { id } }),
+    );
 
     if (!existe) {
       throw new NotFoundException(`Departamento con id ${id} no encontrado`);
     }
 
-    await this.prisma.departamento.update({
-      where: { id },
-      data: { estatus: false, libre: false },
-    });
+    await this.prisma.conUsuario(adminId, (tx) =>
+      tx.departamento.update({
+        where: { id },
+        data: { estatus: false, libre: false },
+      }),
+    );
 
     return { message: 'Departamento desactivado correctamente' };
   }
