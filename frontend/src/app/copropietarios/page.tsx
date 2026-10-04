@@ -19,6 +19,36 @@ type Copropietario = {
   fecha_de_nacimiento: string;
 };
 
+type CopropietarioAPI = {
+  id: number;
+  nombres: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  email: string;
+  ci: string;
+  telefono?: string;
+  departamento?: string;
+  estatus?: boolean;
+  sexo?: string;
+  fecha_de_nacimiento?: string | Date;
+};
+
+type DepartamentoAPI = {
+  descripcion?: string;
+};
+
+type CopropietariosResponse = {
+  copropietarios: CopropietarioAPI[];
+};
+
+type DepartamentosResponse = {
+  departamentos: DepartamentoAPI[];
+};
+
+type ApiErrorResponse = {
+  message?: string | string[];
+};
+
 const CI_REGEX = /^[0-9]{5,10}$/;
 const TELEFONO_REGEX = /^[0-9]{7,15}$/;
 const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -26,7 +56,7 @@ const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const getToken = () => sessionStorage.getItem("token") ?? "";
 
-const adaptar = (u: any): Copropietario => ({
+const adaptar = (u: CopropietarioAPI): Copropietario => ({
   id: u.id,
   nombres: u.nombres,
   apellidoPaterno: u.apellido_paterno ?? "",
@@ -74,7 +104,7 @@ export default function CopropietariosPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data: CopropietariosResponse = await res.json();
         setCopropietarios(data.copropietarios.map(adaptar));
       } catch (e) {
         console.error("Error cargando copropietarios:", e);
@@ -93,14 +123,14 @@ export default function CopropietariosPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data: DepartamentosResponse = await res.json();
         const codigos = data.departamentos
-          .map((d: any) => {
-            const desc: string = d.descripcion ?? "";
+          .map((d) => {
+            const desc = d.descripcion ?? "";
             const match = desc.match(/^\[([^\]]+)\]/);
             return match ? match[1] : "";
           })
-          .filter((c: string) => c.length > 0);
+          .filter((c) => c.length > 0);
         setDepartamentosDisponibles(codigos);
       } catch (e) {
         console.error("Error cargando departamentos:", e);
@@ -225,17 +255,17 @@ export default function CopropietariosPage() {
           }),
         });
 
-        const data = await res.json();
+        const data: ApiErrorResponse = await res.json();
 
         if (!res.ok) {
-          setErrores(Array.isArray(data.message) ? data.message : [data.message]);
+          setErrores(Array.isArray(data.message) ? data.message : [data.message ?? "Error"]);
           return;
         }
 
         const refresh = await fetch(`${API_URL}/copropietarios`, {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
-        const lista = await refresh.json();
+        const lista: CopropietariosResponse = await refresh.json();
         setCopropietarios(lista.copropietarios.map(adaptar));
 
         setMensajeExito(`Cambios de "${nombreCompleto}" guardados correctamente.`);
@@ -263,17 +293,17 @@ export default function CopropietariosPage() {
         }),
       });
 
-      const data = await res.json();
+      const data: ApiErrorResponse = await res.json();
 
       if (!res.ok) {
-        setErrores(Array.isArray(data.message) ? data.message : [data.message]);
+        setErrores(Array.isArray(data.message) ? data.message : [data.message ?? "Error"]);
         return;
       }
 
       const refresh = await fetch(`${API_URL}/copropietarios`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const lista = await refresh.json();
+      const lista: CopropietariosResponse = await refresh.json();
       setCopropietarios(lista.copropietarios.map(adaptar));
 
       setMensajeExito(`Copropietario "${nombreCompleto}" registrado correctamente.`);

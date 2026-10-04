@@ -16,6 +16,36 @@ type DepartamentoOption = {
   codigo: string;  // "A-101" para mostrar
 };
 
+type DepartamentoAPI = {
+  id: string | number;
+  descripcion?: string;
+  numero?: string | number;
+  piso?: string | number;
+};
+
+type UsuarioHistorial = {
+  nombres?: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  rol_usuario?: Array<{ rol?: { nombre_rol?: string } }>;
+};
+
+type HistorialItemAPI = {
+  estatus: boolean;
+  fecha_ocupacion: string;
+  fecha_fin_ocupacion?: string | null;
+  usuario?: UsuarioHistorial;
+};
+
+type DepartamentosResponse = {
+  departamentos: DepartamentoAPI[];
+};
+
+type HistorialResponse = {
+  historial?: HistorialItemAPI[];
+  message?: string;
+};
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const getToken = () => sessionStorage.getItem("token") ?? "";
 
@@ -60,17 +90,17 @@ export default function Historial() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data: DepartamentosResponse = await res.json();
 
         const opts: DepartamentoOption[] = data.departamentos
-          .map((d: any) => {
+          .map((d) => {
             const codigo = parseCodigo(d.descripcion ?? "");
             return {
               id: String(d.id),
-              codigo: codigo || `N° ${d.numero} · Piso ${d.piso}`,
+              codigo: codigo || `N° ${d.numero ?? ""} · Piso ${d.piso ?? ""}`,
             };
           })
-          .filter((o: DepartamentoOption) => o.codigo.length > 0);
+          .filter((o) => o.codigo.length > 0);
 
         setDepartamentos(opts);
         if (opts.length > 0) {
@@ -100,7 +130,7 @@ export default function Historial() {
         );
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data: HistorialResponse = await res.json();
 
         // Si no hay historial, el backend devuelve { message, historial: [] }
         const items = data.historial ?? [];
@@ -112,7 +142,7 @@ export default function Historial() {
         }
 
         // Adaptar al formato del front
-        const adaptados: Ocupante[] = items.map((h: any) => {
+        const adaptados: Ocupante[] = items.map((h) => {
           const esActual = h.estatus === true;
           const nombre = `${h.usuario?.nombres ?? ""} ${h.usuario?.apellido_paterno ?? ""} ${h.usuario?.apellido_materno ?? ""}`.trim();
           const rol = h.usuario?.rol_usuario?.[0]?.rol?.nombre_rol ?? "Ocupante";
@@ -122,7 +152,7 @@ export default function Historial() {
             rol,
             periodo: formatearPeriodo(
               h.fecha_ocupacion,
-              h.fecha_fin_ocupacion,
+              h.fecha_fin_ocupacion ?? null,
               esActual
             ),
             actual: esActual,

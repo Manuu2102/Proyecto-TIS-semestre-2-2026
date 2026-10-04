@@ -22,6 +22,27 @@ type Departamento = {
   ocupante?: string;
 };
 
+type DepartamentoAPI = {
+  id: string;
+  descripcion?: string;
+  numero: number;
+  piso: number;
+  habitaciones: number;
+  banos: number;
+  superficie_m2: number;
+  precio: string | number;
+  amueblado: boolean;
+  libre: boolean;
+};
+
+type DepartamentosResponse = {
+  departamentos: DepartamentoAPI[];
+};
+
+type ApiErrorResponse = {
+  message?: string | string[];
+};
+
 type TipoDepartamento = {
   id: number;
   nombre: string;
@@ -54,7 +75,7 @@ const extraerNumero = (codigo: string) => {
   return match ? Number(match[1]) : 0;
 };
 
-const adaptar = (d: any): Departamento => {
+const adaptar = (d: DepartamentoAPI): Departamento => {
   const { codigo, descripcion } = parseDescripcion(d.descripcion ?? "");
   return {
     id: d.id,
@@ -119,7 +140,7 @@ export default function DepartamentosPage() {
           headers: { Authorization: `Bearer ${getToken()}` },
         });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        const data: DepartamentosResponse = await res.json();
         setDepartamentos(data.departamentos.map(adaptar));
       } catch (e) {
         console.error("Error cargando departamentos:", e);
@@ -259,17 +280,17 @@ export default function DepartamentosPage() {
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
+      const data: ApiErrorResponse = await res.json();
 
       if (!res.ok) {
-        setErrores(Array.isArray(data.message) ? data.message : [data.message]);
+        setErrores(Array.isArray(data.message) ? data.message : [data.message ?? "Error"]);
         return;
       }
 
       const refresh = await fetch(`${API_URL}/departamentos`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const lista = await refresh.json();
+      const lista: DepartamentosResponse = await refresh.json();
       setDepartamentos(lista.departamentos.map(adaptar));
 
       setMensajeExito(
@@ -295,15 +316,19 @@ export default function DepartamentosPage() {
       });
 
       if (!res.ok) {
-        const data = await res.json();
-        alert(Array.isArray(data.message) ? data.message.join("\n") : data.message);
+        const data: ApiErrorResponse = await res.json();
+        alert(
+          Array.isArray(data.message)
+            ? data.message.join("\n")
+            : data.message ?? "Error desconocido"
+        );
         return;
       }
 
       const refresh = await fetch(`${API_URL}/departamentos`, {
         headers: { Authorization: `Bearer ${getToken()}` },
       });
-      const lista = await refresh.json();
+      const lista: DepartamentosResponse = await refresh.json();
       setDepartamentos(lista.departamentos.map(adaptar));
     } catch (e) {
       alert(`Error: ${(e as Error).message}`);
