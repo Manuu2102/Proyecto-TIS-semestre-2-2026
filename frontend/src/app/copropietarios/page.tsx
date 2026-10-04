@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 
 type Estado = "Activo" | "Inactivo";
@@ -15,37 +15,72 @@ type Copropietario = {
   telefono: string;
   departamento: string;
   estado: Estado;
+  sexo: string;
+  fecha_de_nacimiento: string;
 };
 
-// Simula la lista real de departamentos del edificio (esto vendrá del backend
-// cuando exista el endpoint de /departamentos; por ahora se fija aquí para
-// que el admin NO pueda escribir un departamento que no existe).
-const DEPARTAMENTOS_DISPONIBLES = [
-  "A-101", "A-102", "A-105", "A-106",
-  "A-201", "A-202",
-  "B-201", "B-202",
-  "B-301", "B-302",
-];
+type CopropietarioAPI = {
+  id: number;
+  nombres: string;
+  apellido_paterno?: string;
+  apellido_materno?: string;
+  email: string;
+  ci: string;
+  telefono?: string;
+  departamento?: string;
+  estatus?: boolean;
+  sexo?: string;
+  fecha_de_nacimiento?: string | Date;
+};
 
-const datosIniciales: Copropietario[] = [
-  { id: 1, nombres: "María Fernanda", apellidoPaterno: "Rojas", apellidoMaterno: "Salazar", correo: "maria.rojas@email.com", ci: "4587210", telefono: "72145678", departamento: "A-101", estado: "Activo" },
-  { id: 2, nombres: "Carlos Andrés", apellidoPaterno: "Pérez", apellidoMaterno: "Mamani", correo: "carlos.perez@email.com", ci: "5129034", telefono: "73422011", departamento: "A-202", estado: "Activo" },
-  { id: 3, nombres: "Sofía Valentina", apellidoPaterno: "Cruz", apellidoMaterno: "Fernández", correo: "sofia.cruz@email.com", ci: "6342189", telefono: "70388122", departamento: "B-301", estado: "Activo" },
-  { id: 4, nombres: "Melody", apellidoPaterno: "Gutiérrez", apellidoMaterno: "Rivera", correo: "melody.gutierrez@email.com", ci: "7189234", telefono: "70122344", departamento: "A-105", estado: "Activo" },
-  { id: 5, nombres: "Rodrigo", apellidoPaterno: "Quispe", apellidoMaterno: "Choque", correo: "rodrigo.quispe@email.com", ci: "7198452", telefono: "69733122", departamento: "A-106", estado: "Activo" },
-  { id: 6, nombres: "Alejandra", apellidoPaterno: "Guzmán", apellidoMaterno: "Ortiz", correo: "alejandra.guzman@email.com", ci: "6234812", telefono: "70388122", departamento: "B-202", estado: "Activo" },
-];
+type DepartamentoAPI = {
+  descripcion?: string;
+};
+
+type CopropietariosResponse = {
+  copropietarios: CopropietarioAPI[];
+};
+
+type DepartamentosResponse = {
+  departamentos: DepartamentoAPI[];
+};
+
+type ApiErrorResponse = {
+  message?: string | string[];
+};
 
 const CI_REGEX = /^[0-9]{5,10}$/;
 const TELEFONO_REGEX = /^[0-9]{7,15}$/;
 const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const getToken = () => sessionStorage.getItem("token") ?? "";
+
+const adaptar = (u: CopropietarioAPI): Copropietario => ({
+  id: u.id,
+  nombres: u.nombres,
+  apellidoPaterno: u.apellido_paterno ?? "",
+  apellidoMaterno: u.apellido_materno ?? "",
+  correo: u.email,
+  ci: u.ci,
+  telefono: u.telefono ?? "",
+  departamento: u.departamento ?? "",
+  estado: u.estatus ? "Activo" : "Inactivo",
+  sexo: u.sexo ?? "",
+  fecha_de_nacimiento: u.fecha_de_nacimiento
+    ? String(u.fecha_de_nacimiento).slice(0, 10)
+    : "",
+});
+
 export default function CopropietariosPage() {
-  const [copropietarios, setCopropietarios] = useState<Copropietario[]>(datosIniciales);
+  const [copropietarios, setCopropietarios] = useState<Copropietario[]>([]);
+  const [departamentosDisponibles, setDepartamentosDisponibles] = useState<string[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
   const [editando, setEditando] = useState<number | null>(null);
   const [errores, setErrores] = useState<string[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [mensajeExito, setMensajeExito] = useState("");
 
   const [form, setForm] = useState({
     nombres: "",
@@ -56,7 +91,53 @@ export default function CopropietariosPage() {
     telefono: "",
     departamento: "",
     estado: "Activo" as Estado,
+    sexo: "" as "" | "M" | "F",
+    fecha_de_nacimiento: "",
   });
+
+  // Cargar copropietarios al montar
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        setCargando(true);
+        const res = await fetch(`${API_URL}/copropietarios`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: CopropietariosResponse = await res.json();
+        setCopropietarios(data.copropietarios.map(adaptar));
+      } catch (e) {
+        console.error("Error cargando copropietarios:", e);
+      } finally {
+        setCargando(false);
+      }
+    };
+    cargar();
+  }, []);
+
+  // Cargar departamentos disponibles
+  useEffect(() => {
+    const cargarDepartamentos = async () => {
+      try {
+        const res = await fetch(`${API_URL}/departamentos`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data: DepartamentosResponse = await res.json();
+        const codigos = data.departamentos
+          .map((d) => {
+            const desc = d.descripcion ?? "";
+            const match = desc.match(/^\[([^\]]+)\]/);
+            return match ? match[1] : "";
+          })
+          .filter((c) => c.length > 0);
+        setDepartamentosDisponibles(codigos);
+      } catch (e) {
+        console.error("Error cargando departamentos:", e);
+      }
+    };
+    cargarDepartamentos();
+  }, []);
 
   const total = copropietarios.length;
   const activos = copropietarios.filter((item) => item.estado === "Activo").length;
@@ -81,6 +162,7 @@ export default function CopropietariosPage() {
     setForm({
       nombres: "", apellidoPaterno: "", apellidoMaterno: "",
       ci: "", correo: "", telefono: "", departamento: "", estado: "Activo",
+      sexo: "", fecha_de_nacimiento: "",
     });
     setEditando(null);
     setErrores([]);
@@ -125,36 +207,111 @@ export default function CopropietariosPage() {
       problemas.push("El teléfono debe tener solo números (7 a 15 dígitos).");
     }
 
+    if (!form.sexo) {
+      problemas.push("Debes seleccionar el sexo.");
+    }
+
+    if (!form.fecha_de_nacimiento) {
+      problemas.push("La fecha de nacimiento es obligatoria.");
+    } else {
+      const fecha = new Date(form.fecha_de_nacimiento);
+      const hoy = new Date();
+      const edad = hoy.getFullYear() - fecha.getFullYear();
+      if (edad < 0 || edad > 120) {
+        problemas.push("La fecha de nacimiento no es válida.");
+      }
+    }
+
     return problemas;
   };
 
-  const guardar = () => {
+  const guardar = async () => {
     const problemas = validar();
     if (problemas.length > 0) {
       setErrores(problemas);
       return;
     }
 
-    const datos = {
-      nombres: form.nombres.trim(),
-      apellidoPaterno: form.apellidoPaterno.trim(),
-      apellidoMaterno: form.apellidoMaterno.trim(),
-      correo: form.correo.trim(),
-      ci: form.ci.trim(),
-      telefono: form.telefono.trim(),
-      departamento: form.departamento,
-      estado: form.estado,
-    };
+    const nombreCompleto = `${form.nombres} ${form.apellidoPaterno}`.trim();
 
-    if (editando !== null) {
-      setCopropietarios((lista) =>
-        lista.map((item) => (item.id === editando ? { ...item, ...datos } : item))
-      );
-    } else {
-      setCopropietarios((lista) => [...lista, { id: Date.now(), ...datos }]);
+    try {
+      // MODO EDICIÓN → PATCH
+      if (editando !== null) {
+        const res = await fetch(`${API_URL}/copropietarios/${editando}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getToken()}`,
+          },
+          body: JSON.stringify({
+            ci: form.ci.trim(),
+            nombres: form.nombres.trim(),
+            apellido_paterno: form.apellidoPaterno.trim(),
+            apellido_materno: form.apellidoMaterno.trim() || undefined,
+            email: form.correo.trim(),
+            telefono: form.telefono.trim(),
+            sexo: form.sexo,
+            fecha_de_nacimiento: form.fecha_de_nacimiento,
+          }),
+        });
+
+        const data: ApiErrorResponse = await res.json();
+
+        if (!res.ok) {
+          setErrores(Array.isArray(data.message) ? data.message : [data.message ?? "Error"]);
+          return;
+        }
+
+        const refresh = await fetch(`${API_URL}/copropietarios`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const lista: CopropietariosResponse = await refresh.json();
+        setCopropietarios(lista.copropietarios.map(adaptar));
+
+        setMensajeExito(`Cambios de "${nombreCompleto}" guardados correctamente.`);
+        cancelar();
+        setTimeout(() => setMensajeExito(""), 4000);
+        return;
+      }
+
+      // MODO CREAR → POST
+      const res = await fetch(`${API_URL}/copropietarios`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({
+          ci: form.ci.trim(),
+          nombres: form.nombres.trim(),
+          apellido_paterno: form.apellidoPaterno.trim(),
+          apellido_materno: form.apellidoMaterno.trim() || undefined,
+          email: form.correo.trim(),
+          telefono: form.telefono.trim(),
+          sexo: form.sexo,
+          fecha_de_nacimiento: form.fecha_de_nacimiento,
+        }),
+      });
+
+      const data: ApiErrorResponse = await res.json();
+
+      if (!res.ok) {
+        setErrores(Array.isArray(data.message) ? data.message : [data.message ?? "Error"]);
+        return;
+      }
+
+      const refresh = await fetch(`${API_URL}/copropietarios`, {
+        headers: { Authorization: `Bearer ${getToken()}` },
+      });
+      const lista: CopropietariosResponse = await refresh.json();
+      setCopropietarios(lista.copropietarios.map(adaptar));
+
+      setMensajeExito(`Copropietario "${nombreCompleto}" registrado correctamente.`);
+      cancelar();
+      setTimeout(() => setMensajeExito(""), 4000);
+    } catch (e) {
+      setErrores([`Error: ${(e as Error).message}`]);
     }
-
-    cancelar();
   };
 
   const editar = (item: Copropietario) => {
@@ -167,6 +324,8 @@ export default function CopropietariosPage() {
       telefono: item.telefono,
       departamento: item.departamento,
       estado: item.estado,
+      sexo: (item.sexo as "" | "M" | "F") || "",
+      fecha_de_nacimiento: item.fecha_de_nacimiento || "",
     });
     setEditando(item.id);
     setErrores([]);
@@ -213,6 +372,15 @@ export default function CopropietariosPage() {
             </button>
           </header>
 
+          {mensajeExito && (
+            <div className="mb-4 flex items-center gap-2 rounded-[9px] border border-[#c7e2c1] bg-[#f0f9ec] px-4 py-3 text-[10px] font-medium text-[#3f7a35]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+              {mensajeExito}
+            </div>
+          )}
+
           <section className="mb-5 grid grid-cols-3 gap-4">
             <MetricCard icon={<UsersIcon />} title="Total copropietarios" value={total.toString()} />
             <MetricCard icon={<CheckIcon />} title="Activos" value={activos.toString()} />
@@ -250,7 +418,14 @@ export default function CopropietariosPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filtrados.map((item) => (
+                  {cargando && (
+                    <tr>
+                      <td colSpan={6} className="py-10 text-center text-[10px] text-[#8d8680]">
+                        Cargando copropietarios...
+                      </td>
+                    </tr>
+                  )}
+                  {!cargando && filtrados.map((item) => (
                     <tr key={item.id} className="border-t border-[#eee9e4] hover:bg-[#fdfbf9]">
                       <td className="px-5 py-[13px]">
                         <div className="flex items-center gap-3">
@@ -287,7 +462,7 @@ export default function CopropietariosPage() {
               </table>
             </div>
 
-            {filtrados.length === 0 && (
+            {!cargando && filtrados.length === 0 && (
               <div className="flex flex-col items-center justify-center py-14">
                 <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#fff0eb] text-[#c83232]"><SearchEmptyIcon /></div>
                 <p className="text-[10px] font-semibold text-[#514b47]">No se encontraron resultados</p>
@@ -302,8 +477,8 @@ export default function CopropietariosPage() {
         <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4">
           <div className="absolute inset-0 backdrop-blur-[1px]" onClick={cancelar} />
 
-          <div className="relative z-10 w-full max-w-[570px] overflow-hidden rounded-[18px] bg-white shadow-[0_20px_55px_rgba(0,0,0,0.20)]">
-            <div className="h-[3px] bg-[#c83232]" />
+          <div className="relative z-10 w-full max-w-[570px] rounded-[18px] bg-white shadow-[0_20px_55px_rgba(0,0,0,0.20)]">
+            <div className="h-[3px] rounded-t-[18px] bg-[#c83232]" />
 
             <div className="flex items-start justify-between px-8 pb-5 pt-6">
               <div className="flex items-start gap-3">
@@ -340,6 +515,31 @@ export default function CopropietariosPage() {
                   <Input label="Apellido paterno" required placeholder="Ej. Rojas" value={form.apellidoPaterno} onChange={(value) => setForm({ ...form, apellidoPaterno: value })} />
                   <Input label="Apellido materno" placeholder="Ej. Salazar (opcional)" value={form.apellidoMaterno} onChange={(value) => setForm({ ...form, apellidoMaterno: value })} />
                   <Input label="Número de CI" required placeholder="Solo números, ej. 4587210" value={form.ci} onChange={(value) => setForm({ ...form, ci: value.replace(/\D/g, "") })} />
+
+                  <div>
+                    <label className="mb-1.5 block text-[8px] font-semibold text-[#5a534d]">
+                      Sexo<span className="ml-1 text-[#c83232]">*</span>
+                    </label>
+                    <select
+                      value={form.sexo}
+                      onChange={(e) => setForm({ ...form, sexo: e.target.value as "" | "M" | "F" })}
+                      className="h-[42px] w-full rounded-[9px] border border-[#ddd5ce] bg-white px-3 text-[9px] text-[#49433f] outline-none focus:border-[#c83232] focus:ring-[3px] focus:ring-[#c83232]/10"
+                    >
+                      <option value="">Selecciona</option>
+                      <option value="M">Masculino</option>
+                      <option value="F">Femenino</option>
+                    </select>
+                  </div>
+
+                  <Input
+                    label="Fecha de nacimiento"
+                    required
+                    type="date"
+                    placeholder=""
+                    value={form.fecha_de_nacimiento}
+                    onChange={(value) => setForm({ ...form, fecha_de_nacimiento: value })}
+                  />
+
                   <Input label="Correo electrónico" required placeholder="Ej. maria@email.com" type="email" value={form.correo} onChange={(value) => setForm({ ...form, correo: value })} />
                   <Input label="Número de teléfono" required placeholder="Solo números, ej. 69848860" value={form.telefono} onChange={(value) => setForm({ ...form, telefono: value.replace(/\D/g, "") })} />
                 </div>
@@ -363,8 +563,12 @@ export default function CopropietariosPage() {
                       onChange={(e) => setForm({ ...form, departamento: e.target.value })}
                       className="h-[42px] w-full rounded-[9px] border border-[#ddd5ce] bg-white px-3 text-[9px] text-[#49433f] outline-none focus:border-[#c83232] focus:ring-[3px] focus:ring-[#c83232]/10"
                     >
-                      <option value="">Selecciona un departamento</option>
-                      {DEPARTAMENTOS_DISPONIBLES.map((dep) => (
+                      <option value="">
+                        {departamentosDisponibles.length === 0
+                          ? "No hay departamentos registrados"
+                          : "Selecciona un departamento"}
+                      </option>
+                      {departamentosDisponibles.map((dep) => (
                         <option key={dep} value={dep}>{dep}</option>
                       ))}
                     </select>
@@ -375,24 +579,24 @@ export default function CopropietariosPage() {
                 </div>
 
                 <div className="mt-3">
-                  <label className="mb-1.5 block text-[8px] font-semibold text-[#59524d]">Estado<span className="ml-1 text-[#c83232]">*</span></label>
-                  <div className="flex gap-2">
-                    <EstadoButton activo={form.estado === "Activo"} texto="Activo" onClick={() => setForm({ ...form, estado: "Activo" })} />
-                    <EstadoButton activo={form.estado === "Inactivo"} texto="Inactivo" onClick={() => setForm({ ...form, estado: "Inactivo" })} />
+                  <label className="mb-1.5 block text-[8px] font-semibold text-[#59524d]">
+                    Estado<span className="ml-1 text-[#c83232]">*</span>
+                  </label>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex gap-2">
+                      <EstadoButton activo={form.estado === "Activo"} texto="Activo" onClick={() => setForm({ ...form, estado: "Activo" })} />
+                      <EstadoButton activo={form.estado === "Inactivo"} texto="Inactivo" onClick={() => setForm({ ...form, estado: "Inactivo" })} />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={guardar}
+                      className="h-[36px] shrink-0 rounded-[7px] bg-[#c83232] px-5 text-[9px] font-semibold text-white shadow-[0_4px_10px_rgba(200,50,50,0.16)] transition hover:bg-[#b72d2d]"
+                    >
+                      {editando ? "Guardar cambios" : "Registrar copropietario"}
+                    </button>
                   </div>
                 </div>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-t border-[#eee8e3] px-8 py-4">
-              <p className="text-[8px] text-[#9b928b]">
-                Los campos marcados con <span className="font-semibold text-[#c83232]">*</span> son obligatorios.
-              </p>
-              <div className="flex items-center gap-2">
-                <button type="button" onClick={cancelar} className="h-[36px] rounded-[7px] border border-[#ded6cf] bg-white px-5 text-[9px] font-medium text-[#716963] transition hover:bg-[#f7f3f0]">Cancelar</button>
-                <button type="button" onClick={guardar} className="h-[36px] rounded-[7px] bg-[#c83232] px-5 text-[9px] font-semibold text-white shadow-[0_4px_10px_rgba(200,50,50,0.16)] transition hover:bg-[#b72d2d]">
-                  {editando ? "Guardar cambios" : "Registrar copropietario"}
-                </button>
               </div>
             </div>
           </div>

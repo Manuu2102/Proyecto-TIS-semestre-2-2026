@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { CrearCopropietarioDto } from './dto/crear-copropietarios.dto.js';
+import { ActualizarCopropietarioDto } from './dto/actualizar-copropietarios.dto.js';
 
 @Injectable()
 export class CopropietariosService {
@@ -17,7 +18,6 @@ export class CopropietariosService {
   ) {}
 
   async crear(data: CrearCopropietarioDto, adminId: string) {
-    // 1. Verificar que el CI no exista
     const existeCi = await this.prisma.usuario.findUnique({
       where: { ci: BigInt(data.ci) },
     });
@@ -25,7 +25,6 @@ export class CopropietariosService {
       throw new ConflictException('El CI ya está registrado');
     }
 
-    // 2. Verificar que el email no exista
     const existeEmail = await this.prisma.usuario.findUnique({
       where: { email: data.email },
     });
@@ -33,7 +32,6 @@ export class CopropietariosService {
       throw new ConflictException('El email ya está registrado');
     }
 
-    // 3. Verificar que el rol COPROPIETARIO exista
     const rol = await this.prisma.rol.findUnique({
       where: { id: this.ID_ROL_COPROPIETARIO },
     });
@@ -43,48 +41,50 @@ export class CopropietariosService {
       );
     }
 
-    // 4. Crear usuario en Supabase Auth
     const { data: authData, error } = await this.supabase.client.auth.signUp({
       email: data.email,
-      password: data.password,
+      password: data.password ?? data.ci,
     });
 
     if (error || !authData.user) {
       throw new ConflictException(
-        error?.message ?? 'No se pudo registrar el copropietario en Supabase Auth',
+        error?.message ??
+          'No se pudo registrar el copropietario en Supabase Auth',
       );
     }
 
     const userId = authData.user.id;
-    // 5. Crear usuario en la BD + asignar rol (transacción manual)
+
     try {
-      const copropietario = await this.prisma.conUsuario(adminId, (tx) => tx.usuario.create({
-        data: {
-          id: userId,
-          ci: BigInt(data.ci),
-          nombres: data.nombres,
-          apellido_paterno: data.apellido_paterno,
-          apellido_materno: data.apellido_materno,
-          sexo: data.sexo,
-          fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
-          email: data.email,
-          estatus: true,
-          fecha_de_registro: new Date(),
-          telefono: data.telefono,
-          rol_usuario: {
-            create: {
-              id_rol: this.ID_ROL_COPROPIETARIO,
+      const copropietario = await this.prisma.conUsuario(adminId, (tx) =>
+        tx.usuario.create({
+          data: {
+            id: userId,
+            ci: BigInt(data.ci),
+            nombres: data.nombres,
+            apellido_paterno: data.apellido_paterno,
+            apellido_materno: data.apellido_materno,
+            sexo: data.sexo,
+            fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
+            email: data.email,
+            estatus: true,
+            fecha_de_registro: new Date(),
+            telefono: data.telefono,
+            rol_usuario: {
+              create: {
+                id_rol: this.ID_ROL_COPROPIETARIO,
+              },
             },
           },
-        },
-        include: {
-          rol_usuario: {
-            include: {
-              rol: { select: { nombre_rol: true } },
+          include: {
+            rol_usuario: {
+              include: {
+                rol: { select: { nombre_rol: true } },
+              },
             },
           },
-        },
-      }),);
+        }),
+      );
 
       return {
         message: 'Copropietario registrado correctamente',
@@ -95,10 +95,86 @@ export class CopropietariosService {
         },
       };
     } catch (dbError) {
-      // Si falla la creación en BD, eliminamos el usuario de Supabase Auth
       await this.supabase.adminClient.auth.admin.deleteUser(authData.user.id);
       throw dbError;
     }
+  }
+
+  async actualizar(
+    id: string,
+    data: ActualizarCopropietarioDto,
+    adminId: string,
+  ) {
+    // 1. Verificar que exista
+    const existe = await this.prisma.usuario.findUnique({ where: { id } });
+    if (!existe) {
+      throw new NotFoundException(`Copropietario con id ${id} no encontrado`);
+    }
+
+    // 2. Verificar CI duplicado (si lo están cambiando)
+    if (data.ci && BigInt(data.ci) !== existe.ci) {
+      const ciDuplicado = await this.prisma.usuario.findUnique({
+        where: { ci: BigInt(data.ci) },
+      });
+      if (ciDuplicado) {
+        throw new ConflictException('El CI ya está registrado');
+      }
+    }
+
+    // 3. Verificar email duplicado (si lo están cambiando)
+    if (data.email && data.email !== existe.email) {
+      const emailDuplicado = await this.prisma.usuario.findUnique({
+        where: { email: data.email },
+      });
+      if (emailDuplicado) {
+        throw new ConflictException('El email ya está registrado');
+      }
+    }
+
+    // 4. Si cambia el email, actualizar también en Supabase Auth
+    if (data.email && data.email !== existe.email) {
+      const { error } =
+        await this.supabase.adminClient.auth.admin.updateUserById(id, {
+          email: data.email,
+        });
+      if (error) {
+        throw new ConflictException(
+          `No se pudo actualizar el email en Supabase Auth: ${error.message}`,
+        );
+      }
+    }
+
+    // 5. Actualizar en la BD con RLS
+    const actualizado = await this.prisma.conUsuario(adminId, (tx) =>
+      tx.usuario.update({
+        where: { id },
+        data: {
+          ...(data.ci && { ci: BigInt(data.ci) }),
+          ...(data.nombres && { nombres: data.nombres }),
+          ...(data.apellido_paterno && {
+            apellido_paterno: data.apellido_paterno,
+          }),
+          ...(data.apellido_materno !== undefined && {
+            apellido_materno: data.apellido_materno,
+          }),
+          ...(data.sexo && { sexo: data.sexo }),
+          ...(data.fecha_de_nacimiento && {
+            fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
+          }),
+          ...(data.email && { email: data.email }),
+          ...(data.telefono && { telefono: data.telefono }),
+          ...(data.estatus !== undefined && { estatus: data.estatus }),
+        },
+      }),
+    );
+
+    return {
+      message: 'Copropietario actualizado correctamente',
+      copropietario: {
+        ...actualizado,
+        ci: actualizado.ci.toString(),
+      },
+    };
   }
 
   async listar() {
