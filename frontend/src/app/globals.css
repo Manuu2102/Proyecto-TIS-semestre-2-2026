@@ -209,7 +209,8 @@ td small { display:block; color:#9A918B; font-size:10px; }
   flex: 1;
   min-height: 0;
   padding: 11px 11px 7px;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
 }

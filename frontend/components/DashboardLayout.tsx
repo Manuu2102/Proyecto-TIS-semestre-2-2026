@@ -28,7 +28,13 @@ const adminSections: NavigationSection[] = [
     { key: "asociaciones", label: "Asociaciones", href: "/asociaciones", icon: UsersIcon },
     { key: "ocupantes", label: "Historial de ocupantes", href: "/historial-ocupantes", icon: HomeIcon },
   ] },
-  { title: "Finanzas", items: [{ key: "finanzas", label: "Expensas y finanzas", href: "/finanzas", icon: WalletIcon }] },
+  { title: "Finanzas", items: [
+    { key: "finanzas", label: "Resumen financiero", href: "/finanzas", icon: WalletIcon },
+    { key: "expensas", label: "Expensas", href: "/expensas", icon: WalletIcon },
+    { key: "pagos", label: "Pagos y mora", href: "/pagos", icon: WalletIcon },
+    { key: "estado-cuenta", label: "Estado de cuenta", href: "/estado-cuenta", icon: WalletIcon },
+    { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
+  ] },
   { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [
