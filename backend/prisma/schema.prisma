@@ -709,29 +709,23 @@ model estado_deuda {
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model expensa {
-  nombre             String               @db.VarChar(100)
+  nombre             String               @unique @db.VarChar(100)
   fecha_creada       DateTime             @default(dbgenerated("CURRENT_DATE")) @db.Date
   monto_total        Decimal              @db.Decimal(12, 2)
   pagos_anticipados  Boolean              @default(false)
   id                 BigInt               @id(map: "pk_expensa") @default(autoincrement())
-  periodo            DateTime             @db.Date
-  fecha_vencimiento  DateTime             @db.Date
-  mora_tipo          tipo_mora            @default(fijo)
   mora_valor         Decimal              @default(0) @db.Decimal(12, 2)
   expensa_componente expensa_componente[]
   pago_expensa       pago_expensa[]
 
-  @@unique([nombre, periodo])
   @@schema("public")
 }
 
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model expensa_componente {
   id         BigInt           @id @default(autoincrement())
   id_expensa BigInt
   criterio   criterio_reparto
-  porcentaje Decimal          @db.Decimal(5, 2)
   expensa    expensa          @relation(fields: [id_expensa], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@unique([id_expensa, criterio])
@@ -779,7 +773,7 @@ model pago_expensa {
   id_expensa           BigInt
   monto                Decimal                @db.Decimal(12, 2)
   id_estado            BigInt
-  fecha_vencimiento    DateTime?              @db.Date
+  fecha_vencimiento    DateTime               @db.Date
   monto_mora           Decimal                @default(0) @db.Decimal(12, 2)
   factura_pago_expensa factura_pago_expensa[]
   departamento         departamento           @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_departamento")
@@ -787,6 +781,7 @@ model pago_expensa {
   expensa              expensa                @relation(fields: [id_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pago_expensa_expensa")
   pago_expensa_detalle pago_expensa_detalle[]
 
+  @@unique([id_departamento, id_expensa, fecha_vencimiento], map: "pago_expensa_depto_expensa_venc_key")
   @@schema("public")
 }
 

@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
@@ -27,6 +27,7 @@ import { ExpensasModule } from './expensas/expensas.module.js';
     AuditoriaModule,
     DocumentosModule,
     ExpensasModule,
+    ScheduleModule.forRoot(),
   ],
 
   controllers: [AppController],

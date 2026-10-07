@@ -2,11 +2,14 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PrismaService } from '../prisma/prisma.service.js'; // ver punto 3
+// Deja tus imports que ya te funcionan (PrismaService y cliente generado)
+import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma, criterio_reparto } from '../generated/prisma/client.js';
 import { CreateExpensaDto } from './dto/create-expensa.dto.js';
+import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 
 type DetalleCalculado = {
   criterio: criterio_reparto;
@@ -24,6 +27,7 @@ type RepartoDepto = {
 
 const money = (cents: number) => (cents / 100).toFixed(2);
 
+// Los BigInt de Prisma no se pueden convertir a JSON directamente
 const serialize = <T>(data: T): T =>
   JSON.parse(
     JSON.stringify(data, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
@@ -34,6 +38,16 @@ const primerDiaDelMes = (fecha: string) => {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 };
 
+const mesActual = () => primerDiaDelMes(new Date().toISOString());
+
+// La deuda de un mes vence el día 1 del mes siguiente.
+const calcularVencimiento = (mes: Date) =>
+  new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + 1, 1));
+
+/**
+ * Reparte `totalCents` proporcionalmente a `weights` sin perder centavos:
+ * método del mayor resto. La suma del resultado es exactamente `totalCents`.
+ */
 function distribute(totalCents: number, weights: number[]): number[] {
   const sum = weights.reduce((a, b) => a + b, 0);
   const base = weights.map((w) => Math.floor((totalCents * w) / sum));
@@ -49,24 +63,9 @@ function distribute(totalCents: number, weights: number[]): number[] {
 
 @Injectable()
 export class ExpensasService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(ExpensasService.name);
 
-  private validar(dto: CreateExpensaDto) {
-    const bps = dto.componentes.map((c) => Math.round(c.porcentaje * 100));
-    if (bps.reduce((a, b) => a + b, 0) !== 10000) {
-      throw new BadRequestException('Los porcentajes de los componentes deben sumar 100');
-    }
-    const criterios = dto.componentes.map((c) => c.criterio);
-    if (new Set(criterios).size !== criterios.length) {
-      throw new BadRequestException('No se puede repetir un criterio en la misma expensa');
-    }
-    if (new Date(dto.fecha_vencimiento) < primerDiaDelMes(dto.periodo)) {
-      throw new BadRequestException('La fecha de vencimiento no puede ser anterior al período');
-    }
-    if (dto.mora_tipo === 'porcentaje' && (dto.mora_valor ?? 0) > 100) {
-      throw new BadRequestException('La mora en porcentaje no puede superar 100');
-    }
-  }
+  constructor(private readonly prisma: PrismaService) {}
 
   private unidades(
     criterio: criterio_reparto,
@@ -93,9 +92,12 @@ export class ExpensasService {
     }
   }
 
-  async calcular(dto: CreateExpensaDto) {
-    this.validar(dto);
-
+  /**
+   * Calcula cuánto le toca a cada departamento, sin guardar nada.
+   * El monto total se divide en partes iguales entre los criterios,
+   * y cada parte se reparte según las unidades de cada departamento.
+   */
+  private async calcular(montoTotal: number, criterios: criterio_reparto[]) {
     const departamentos = await this.prisma.departamento.findMany({
       where: { estatus: true },
       select: {
@@ -115,9 +117,11 @@ export class ExpensasService {
       throw new BadRequestException('No hay departamentos activos para repartir la expensa');
     }
 
-    const totalCents = Math.round(dto.monto_total * 100);
-    const bps = dto.componentes.map((c) => Math.round(c.porcentaje * 100));
-    const centsPorComponente = distribute(totalCents, bps);
+    const totalCents = Math.round(montoTotal * 100);
+    const centsPorCriterio = distribute(
+      totalCents,
+      criterios.map(() => 1),
+    );
 
     const reparto: RepartoDepto[] = departamentos.map((d) => ({
       id_departamento: d.id,
@@ -127,16 +131,16 @@ export class ExpensasService {
       detalle: [],
     }));
 
-    dto.componentes.forEach((comp, ci) => {
-      const unidades = departamentos.map((d) => this.unidades(comp.criterio, d));
+    criterios.forEach((criterio, ci) => {
+      const unidades = departamentos.map((d) => this.unidades(criterio, d));
       if (unidades.reduce((a, b) => a + b, 0) === 0) {
         throw new BadRequestException(
-          `Ningún departamento tiene unidades para el criterio "${comp.criterio}"`,
+          `Ningún departamento tiene unidades para el criterio "${criterio}"`,
         );
       }
-      const montos = distribute(centsPorComponente[ci], unidades);
+      const montos = distribute(centsPorCriterio[ci], unidades);
       reparto.forEach((r, i) => {
-        r.detalle.push({ criterio: comp.criterio, unidades: unidades[i], cents: montos[i] });
+        r.detalle.push({ criterio, unidades: unidades[i], cents: montos[i] });
         r.cents += montos[i];
       });
     });
@@ -144,10 +148,55 @@ export class ExpensasService {
     return { totalCents, reparto };
   }
 
+  private async estadoPendiente() {
+    const pendiente = await this.prisma.estado_deuda.findFirst({
+      where: { nombre: 'pendiente' },
+    });
+    if (!pendiente) {
+      throw new BadRequestException('Falta el estado "pendiente" en la tabla estado_deuda');
+    }
+    return pendiente;
+  }
+
+  /** Inserta una deuda por departamento y su detalle. Va dentro de una transacción. */
+  private async insertarDeudas(
+    tx: Prisma.TransactionClient,
+    idExpensa: bigint,
+    reparto: RepartoDepto[],
+    vencimiento: Date,
+    idEstado: bigint,
+  ) {
+    // createManyAndReturn requiere Prisma 5.14 o superior
+    const pagos = await tx.pago_expensa.createManyAndReturn({
+      data: reparto.map((r) => ({
+        id_departamento: r.id_departamento,
+        id_expensa: idExpensa,
+        monto: money(r.cents),
+        id_estado: idEstado,
+        fecha_vencimiento: vencimiento,
+      })),
+      select: { id: true, id_departamento: true },
+    });
+
+    const porDepto = new Map(reparto.map((r) => [r.id_departamento, r]));
+    await tx.pago_expensa_detalle.createMany({
+      data: pagos.flatMap((p) =>
+        porDepto.get(p.id_departamento)!.detalle.map((d) => ({
+          id_pago_expensa: p.id,
+          criterio: d.criterio,
+          unidades: d.unidades.toFixed(2),
+          monto: money(d.cents),
+        })),
+      ),
+    });
+  }
+
+  /** Muestra el reparto de una expensa nueva para el mes actual, sin guardar nada. */
   async previsualizar(dto: CreateExpensaDto) {
-    const { totalCents, reparto } = await this.calcular(dto);
+    const { totalCents, reparto } = await this.calcular(dto.monto_total, dto.criterios);
     return {
       monto_total: money(totalCents),
+      fecha_vencimiento: calcularVencimiento(mesActual()),
       departamentos: reparto.map((r) => ({
         id_departamento: r.id_departamento.toString(),
         piso: r.piso,
@@ -162,18 +211,11 @@ export class ExpensasService {
     };
   }
 
+  /** Crea la expensa con sus criterios y genera las deudas del mes actual. */
   async create(dto: CreateExpensaDto) {
-    const { totalCents, reparto } = await this.calcular(dto);
-
-    const pendiente = await this.prisma.estado_deuda.findFirst({
-      where: { nombre: 'pendiente' },
-    });
-    if (!pendiente) {
-      throw new BadRequestException('Falta el estado "pendiente" en la tabla estado_deuda');
-    }
-
-    const periodo = primerDiaDelMes(dto.periodo);
-    const vencimiento = new Date(dto.fecha_vencimiento);
+    const { totalCents, reparto } = await this.calcular(dto.monto_total, dto.criterios);
+    const pendiente = await this.estadoPendiente();
+    const vencimiento = calcularVencimiento(mesActual());
 
     try {
       const expensaId = await this.prisma.$transaction(
@@ -181,45 +223,15 @@ export class ExpensasService {
           const expensa = await tx.expensa.create({
             data: {
               nombre: dto.nombre,
-              periodo,
-              fecha_vencimiento: vencimiento,
               monto_total: money(totalCents),
               pagos_anticipados: dto.pagos_anticipados ?? false,
-              mora_tipo: dto.mora_tipo ?? 'fijo',
               mora_valor: (dto.mora_valor ?? 0).toFixed(2),
               expensa_componente: {
-                create: dto.componentes.map((c) => ({
-                  criterio: c.criterio,
-                  porcentaje: c.porcentaje.toFixed(2),
-                })),
+                create: dto.criterios.map((criterio) => ({ criterio })),
               },
             },
           });
-
-          // Una deuda por departamento (requiere Prisma 5.14 o superior)
-          const pagos = await tx.pago_expensa.createManyAndReturn({
-            data: reparto.map((r) => ({
-              id_departamento: r.id_departamento,
-              id_expensa: expensa.id,
-              monto: money(r.cents),
-              id_estado: pendiente.id,
-              fecha_vencimiento: vencimiento,
-            })),
-            select: { id: true, id_departamento: true },
-          });
-
-          const porDepto = new Map(reparto.map((r) => [r.id_departamento, r]));
-          await tx.pago_expensa_detalle.createMany({
-            data: pagos.flatMap((p) =>
-              porDepto.get(p.id_departamento)!.detalle.map((d) => ({
-                id_pago_expensa: p.id,
-                criterio: d.criterio,
-                unidades: d.unidades.toFixed(2),
-                monto: money(d.cents),
-              })),
-            ),
-          });
-
+          await this.insertarDeudas(tx, expensa.id, reparto, vencimiento, pendiente.id);
           return expensa.id;
         },
         { timeout: 30000 },
@@ -228,10 +240,112 @@ export class ExpensasService {
       return this.findOne(Number(expensaId));
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Ya existe una expensa con ese nombre en ese período');
+        throw new ConflictException('Ya existe una expensa con ese nombre');
       }
       throw e;
     }
+  }
+
+  /**
+   * Genera las deudas de un mes para una expensa que ya existe.
+   * - Sin `mes`, usa el mes actual.
+   * - El mes siguiente solo se permite si la expensa tiene pagos anticipados.
+   */
+  async generarDeudas(id: number | bigint, dto: GenerarDeudasDto) {
+    const expensa = await this.prisma.expensa.findUnique({
+      where: { id: BigInt(id) },
+      include: { expensa_componente: true },
+    });
+    if (!expensa) throw new NotFoundException('Expensa no encontrada');
+
+    const mes = dto.mes ? primerDiaDelMes(dto.mes) : mesActual();
+    const actual = mesActual();
+    const siguiente = calcularVencimiento(actual);
+    if (mes > siguiente) {
+      throw new BadRequestException(
+        'Solo se pueden generar deudas del mes actual o, con pagos anticipados, del siguiente',
+      );
+    }
+    if (mes > actual && !expensa.pagos_anticipados) {
+      throw new BadRequestException(
+        'Esta expensa no permite pagos anticipados: no se pueden generar deudas del mes siguiente',
+      );
+    }
+
+    const vencimiento = calcularVencimiento(mes);
+    const yaGeneradas = await this.prisma.pago_expensa.count({
+      where: { id_expensa: expensa.id, fecha_vencimiento: vencimiento },
+    });
+    if (yaGeneradas > 0) {
+      throw new ConflictException('Ya se generaron las deudas de ese mes para esta expensa');
+    }
+
+    const criterios = expensa.expensa_componente.map((c) => c.criterio);
+    if (criterios.length === 0) {
+      throw new BadRequestException('La expensa no tiene criterios de reparto');
+    }
+
+    const { reparto } = await this.calcular(expensa.monto_total.toNumber(), criterios);
+    const pendiente = await this.estadoPendiente();
+
+    try {
+      await this.prisma.$transaction(
+        (tx) => this.insertarDeudas(tx, expensa.id, reparto, vencimiento, pendiente.id),
+        { timeout: 30000 },
+      );
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Ya se generaron las deudas de ese mes para esta expensa');
+      }
+      throw e;
+    }
+
+    return serialize({
+      id_expensa: expensa.id,
+      mes,
+      fecha_vencimiento: vencimiento,
+      deudas_generadas: reparto.length,
+    });
+  }
+
+  /**
+   * Genera las deudas del mes actual para todas las expensas y, si la expensa
+   * tiene pagos anticipados, también las del mes siguiente.
+   * Es idempotente: lo que ya existe se omite, así que se puede correr varias veces.
+   */
+  async generarDeudasMensuales() {
+    const expensas = await this.prisma.expensa.findMany({
+      select: { id: true, nombre: true, pagos_anticipados: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const actual = mesActual();
+    const siguiente = calcularVencimiento(actual);
+    const resultado = { generadas: 0, omitidas: 0, errores: 0 };
+
+    for (const expensa of expensas) {
+      const meses = expensa.pagos_anticipados ? [actual, siguiente] : [actual];
+
+      for (const mes of meses) {
+        try {
+          await this.generarDeudas(expensa.id, { mes: mes.toISOString() });
+          resultado.generadas++;
+        } catch (e) {
+          if (e instanceof ConflictException) {
+            resultado.omitidas++; // ya estaban generadas
+          } else {
+            resultado.errores++;
+            this.logger.error(
+              `Expensa "${expensa.nombre}" (${mes.toISOString().slice(0, 7)}): ${
+                e instanceof Error ? e.message : e
+              }`,
+            );
+          }
+        }
+      }
+    }
+
+    return resultado;
   }
 
   async findOne(id: number) {
@@ -240,7 +354,7 @@ export class ExpensasService {
       include: {
         expensa_componente: true,
         pago_expensa: {
-          orderBy: { id_departamento: 'asc' },
+          orderBy: [{ fecha_vencimiento: 'desc' }, { id_departamento: 'asc' }],
           include: {
             departamento: { select: { piso: true, numero: true } },
             pago_expensa_detalle: true,
