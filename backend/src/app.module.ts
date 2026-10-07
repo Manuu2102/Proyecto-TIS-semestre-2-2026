@@ -11,6 +11,7 @@ import { DepartamentosModule } from './departamentos/departamentos.module.js';
 import { OcupacionesModule } from './ocupaciones/ocupaciones.module.js';
 import { CopropietariosModule } from './copropietarios/copropietarios.module.js';
 import { DocumentosModule } from './Documentos/documentos.module.js';
+import { ExpensasModule } from './expensas/expensas.module.js';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { DocumentosModule } from './Documentos/documentos.module.js';
     CopropietariosModule,
     AuditoriaModule,
     DocumentosModule,
+    ExpensasModule,
   ],
 
   controllers: [AppController],
