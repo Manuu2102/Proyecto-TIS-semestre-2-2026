@@ -606,6 +606,7 @@ model baulera {
   @@schema("public")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model departamento {
   id                   BigInt                 @id @default(autoincrement())
@@ -619,10 +620,11 @@ model departamento {
   amueblado            Boolean
   libre                Boolean
   precio               Decimal                @db.Decimal(12, 2)
+  cantidad_habitantes  Int                    @default(0)
   departamento_baulera departamento_baulera[]
   departamento_parqueo departamento_parqueo[]
   departamento_usuario departamento_usuario[]
-  expensa              expensa[]
+  pago_expensa         pago_expensa[]
 
   @@schema("public")
 }
@@ -665,19 +667,19 @@ model departamento_usuario {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model documento {
-  id                BigInt         @id @default(autoincrement())
-  id_tipo           BigInt
-  descripcion       String         @db.VarChar(255)
-  nombre_original   String         @db.VarChar(255)
-  contenido         Bytes
-  peso_bytes        BigInt
-  mime_type         String         @db.VarChar(100)
-  restringido       Boolean        @default(false)
-  estatus           Boolean        @default(true)
-  fecha_subida      DateTime       @default(now()) @db.Timestamp(6)
-  id_usuario_subio  String         @db.Uuid
-  tipo_documento    tipo_documento @relation(fields: [id_tipo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "documento_id_tipo_foreign")
-  usuario           usuario        @relation(fields: [id_usuario_subio], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "documento_id_usuario_subio_foreign")
+  id               BigInt         @id @default(autoincrement())
+  id_tipo          BigInt
+  descripcion      String         @db.VarChar(255)
+  contenido        Bytes
+  estatus          Boolean        @default(true)
+  fecha_subida     DateTime       @default(now()) @db.Timestamp(6)
+  id_usuario_subio String         @db.Uuid
+  mime_type        String         @db.VarChar(100)
+  nombre_original  String         @db.VarChar(255)
+  peso_bytes       BigInt
+  restringido      Boolean        @default(false)
+  tipo_documento   tipo_documento @relation(fields: [id_tipo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "documento_id_tipo_foreign")
+  usuario          usuario        @relation(fields: [id_usuario_subio], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "documento_id_usuario_subio_foreign")
 
   @@schema("public")
 }
@@ -696,15 +698,56 @@ model edificio {
   @@schema("public")
 }
 
+model estado_deuda {
+  id           BigInt         @id(map: "pk_estado_expensa") @default(autoincrement())
+  nombre       String?        @db.VarChar(100)
+  pago_expensa pago_expensa[]
+
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model expensa {
-  id              BigInt         @id @default(autoincrement())
-  id_departamento BigInt
-  nombre          String         @db.VarChar(100)
-  periodo         DateTime       @db.Date
-  monto           Decimal        @db.Decimal(12, 2)
-  departamento    departamento   @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "expensa_id_departamento_foreign")
-  pago_expensa    pago_expensa[]
+  nombre             String               @db.VarChar(100)
+  fecha_creada       DateTime             @default(dbgenerated("CURRENT_DATE")) @db.Date
+  monto_total        Decimal              @db.Decimal(12, 2)
+  pagos_anticipados  Boolean              @default(false)
+  id                 BigInt               @id(map: "pk_expensa") @default(autoincrement())
+  periodo            DateTime             @db.Date
+  fecha_vencimiento  DateTime             @db.Date
+  mora_tipo          tipo_mora            @default(fijo)
+  mora_valor         Decimal              @default(0) @db.Decimal(12, 2)
+  expensa_componente expensa_componente[]
+  pago_expensa       pago_expensa[]
+
+  @@unique([nombre, periodo])
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model expensa_componente {
+  id         BigInt           @id @default(autoincrement())
+  id_expensa BigInt
+  criterio   criterio_reparto
+  porcentaje Decimal          @db.Decimal(5, 2)
+  expensa    expensa          @relation(fields: [id_expensa], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([id_expensa, criterio])
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model factura_pago_expensa {
+  id_usuario      String       @db.Uuid
+  id_pago_expensa BigInt
+  fecha_pago      DateTime     @db.Date
+  fecha_cubierta  DateTime     @db.Date
+  id              BigInt       @id @default(autoincrement())
+  monto           Decimal      @db.Decimal(12, 2)
+  pago_expensa    pago_expensa @relation(fields: [id_pago_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_factura_pago_expensa_pago_expensa")
+  usuario         usuario      @relation(fields: [id_usuario], references: [id], onUpdate: NoAction, map: "pago_expensa_id_usuario_foreign")
 
   @@schema("public")
 }
@@ -730,17 +773,33 @@ model historial_personal {
   @@schema("public")
 }
 
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pago_expensa {
-  id_usuario      String   @db.Uuid
-  id_expensa      BigInt
-  fecha_pago      DateTime @db.Date
-  pago_anticipado Boolean
-  fecha_cubierta  DateTime @db.Date
-  expensa         expensa  @relation(fields: [id_expensa], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_expensa_id_expensa_foreign")
-  usuario         usuario  @relation(fields: [id_usuario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_expensa_id_usuario_foreign")
+  id                   BigInt                 @id(map: "pk_departamento_expensa") @default(autoincrement())
+  id_departamento      BigInt
+  id_expensa           BigInt
+  monto                Decimal                @db.Decimal(12, 2)
+  id_estado            BigInt
+  fecha_vencimiento    DateTime?              @db.Date
+  monto_mora           Decimal                @default(0) @db.Decimal(12, 2)
+  factura_pago_expensa factura_pago_expensa[]
+  departamento         departamento           @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_departamento")
+  estado_deuda         estado_deuda           @relation(fields: [id_estado], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_estado_expensa")
+  expensa              expensa                @relation(fields: [id_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pago_expensa_expensa")
+  pago_expensa_detalle pago_expensa_detalle[]
 
-  @@id([id_usuario, id_expensa])
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pago_expensa_detalle {
+  id              BigInt           @id @default(autoincrement())
+  id_pago_expensa BigInt
+  criterio        criterio_reparto
+  unidades        Decimal          @db.Decimal(10, 2)
+  monto           Decimal          @db.Decimal(12, 2)
+  pago_expensa    pago_expensa     @relation(fields: [id_pago_expensa], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@unique([id_pago_expensa, criterio])
   @@schema("public")
 }
 
@@ -853,9 +912,9 @@ model usuario {
   created_at           DateTime               @default(now()) @db.Timestamp(6)
   updated_at           DateTime               @default(now()) @db.Timestamp(6)
   departamento_usuario departamento_usuario[]
-  pago_expensa         pago_expensa[]
-  rol_usuario          rol_usuario[]
   documento            documento[]
+  factura_pago_expensa factura_pago_expensa[]
+  rol_usuario          rol_usuario[]
   users                users                  @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@schema("public")
@@ -930,4 +989,22 @@ enum one_time_token_type {
   phone_change_token
 
   @@schema("auth")
+}
+
+enum criterio_reparto {
+  igual
+  habitantes
+  banos
+  parqueos
+  bauleras
+  superficie
+
+  @@schema("public")
+}
+
+enum tipo_mora {
+  fijo
+  porcentaje
+
+  @@schema("public")
 }
