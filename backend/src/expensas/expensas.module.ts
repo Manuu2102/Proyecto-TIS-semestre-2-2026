@@ -1,12 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ExpensasController } from './expensas.controller.js';
-import { ExpensasCron } from './expensas.cron.js';
 import { ExpensasService } from './expensas.service.js';
+import { MoraService } from './mora.service.js';
+import { MoraCron } from './mora.cron.js';
 
-// Si tu PrismaModule no es global, impórtalo aquí:
-// imports: [PrismaModule],
 @Module({
   controllers: [ExpensasController],
-  providers: [ExpensasService, ExpensasCron],
+  providers: [ExpensasService, MoraService, MoraCron],
 })
 export class ExpensasModule {}
