@@ -1,44 +1,154 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import { PlusIcon, FileIcon, WalletIcon, CheckIcon } from "../../../components/Icons";
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const getToken = () => sessionStorage.getItem("token") ?? "";
+
 type Tipo = "Ingreso" | "Gasto";
 
-const CATEGORIAS_INGRESO = ["Donación", "Multa", "Alquiler de áreas comunes", "Otro ingreso"];
-const CATEGORIAS_GASTO = ["Mantenimiento", "Servicios básicos", "Limpieza", "Seguridad", "Otro gasto"];
+type CategoriaAPI = {
+  id: string;
+  nombre: string;
+  tipo: "ingreso" | "gasto";
+  activa: boolean;
+};
+
+type IngresoAPI = {
+  id: string;
+  fecha: string;
+  monto: string;
+  id_categoria: string;
+  descripcion: string | null;
+  metodo: string;
+  anulado: boolean;
+  comprobante_nombre: string | null;
+  categoria?: { id: number; nombre: string; tipo: string };
+};
+
+type GastoAPI = {
+  id: string;
+  fecha: string;
+  monto: string;
+  id_categoria: string;
+  proveedor: string | null;
+  descripcion: string | null;
+  metodo: string;
+  anulado: boolean;
+  comprobante_nombre: string | null;
+  categoria?: { id: number; nombre: string; tipo: string };
+};
 
 type Movimiento = {
-  id: number;
+  id: string;
   tipo: Tipo;
   categoria: string;
   monto: number;
   descripcion: string;
   fecha: string;
-  comprobante: string | null; // nombre del archivo adjunto
+  comprobante: string | null;
 };
 
-const initialMovimientos: Movimiento[] = [
-  { id: 1, tipo: "Gasto", categoria: "Mantenimiento", monto: 450, descripcion: "Reparación de bomba de agua", fecha: "2026-09-10", comprobante: "factura_bomba.pdf" },
-  { id: 2, tipo: "Ingreso", categoria: "Alquiler de áreas comunes", monto: 300, descripcion: "Alquiler salón de eventos", fecha: "2026-09-14", comprobante: null },
-  { id: 3, tipo: "Gasto", categoria: "Servicios básicos", monto: 620, descripcion: "Electricidad áreas comunes", fecha: "2026-09-18", comprobante: "recibo_luz.jpg" },
-];
+const formatearFecha = (fecha: string) => {
+  try {
+    return new Date(fecha).toISOString().slice(0, 10);
+  } catch {
+    return fecha;
+  }
+};
 
 export default function IngresosEgresosPage() {
-  const [movimientos, setMovimientos] = useState(initialMovimientos);
+  const [ingresos, setIngresos] = useState<IngresoAPI[]>([]);
+  const [gastos, setGastos] = useState<GastoAPI[]>([]);
+  const [categorias, setCategorias] = useState<CategoriaAPI[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState("");
+
   const [filtroTipo, setFiltroTipo] = useState<"Todos" | Tipo>("Todos");
   const [busqueda, setBusqueda] = useState("");
 
   const [modalOpen, setModalOpen] = useState(false);
   const [tipo, setTipo] = useState<Tipo>("Ingreso");
-  const [categoria, setCategoria] = useState(CATEGORIAS_INGRESO[0]);
+  const [idCategoria, setIdCategoria] = useState("");
   const [monto, setMonto] = useState("");
   const [descripcion, setDescripcion] = useState("");
+  const [proveedor, setProveedor] = useState("");
+  const [metodo, setMetodo] = useState<"efectivo" | "transferencia" | "deposito">("efectivo");
   const [comprobante, setComprobante] = useState<File | null>(null);
   const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
 
-  const categoriasDisponibles = tipo === "Ingreso" ? CATEGORIAS_INGRESO : CATEGORIAS_GASTO;
+  const categoriasFiltradas = useMemo(
+    () => categorias.filter((c) => c.activa && c.tipo === tipo.toLowerCase()),
+    [categorias, tipo]
+  );
+
+  // Cargar datos al montar
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        setCargando(true);
+        setErrorCarga("");
+
+        const [resIng, resGas, resCat] = await Promise.all([
+          fetch(`${API_URL}/ingresos`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }),
+          fetch(`${API_URL}/gastos`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }),
+          fetch(`${API_URL}/categorias`, {
+            headers: { Authorization: `Bearer ${getToken()}` },
+          }),
+        ]);
+
+        if (!resIng.ok || !resGas.ok || !resCat.ok) {
+          throw new Error("Error cargando datos");
+        }
+
+        const dataIng = await resIng.json();
+        const dataGas = await resGas.json();
+        const dataCat = await resCat.json();
+
+        setIngresos(dataIng.ingresos ?? []);
+        setGastos(dataGas.gastos ?? []);
+        setCategorias(dataCat.categorias ?? []);
+      } catch (e) {
+        console.error("Error cargando movimientos:", e);
+        setErrorCarga("No se pudieron cargar los movimientos. Revisa la consola.");
+      } finally {
+        setCargando(false);
+      }
+    };
+    void cargar();
+  }, []);
+
+  // Combinar ingresos y gastos en una lista unificada
+  const movimientos: Movimiento[] = useMemo(() => {
+    const movIng: Movimiento[] = ingresos.map((i) => ({
+      id: `i-${i.id}`,
+      tipo: "Ingreso",
+      categoria: i.categoria?.nombre ?? "Sin categoría",
+      monto: Number(i.monto),
+      descripcion: i.descripcion ?? "",
+      fecha: formatearFecha(i.fecha),
+      comprobante: i.comprobante_nombre,
+    }));
+
+    const movGas: Movimiento[] = gastos.map((g) => ({
+      id: `g-${g.id}`,
+      tipo: "Gasto",
+      categoria: g.categoria?.nombre ?? "Sin categoría",
+      monto: Number(g.monto),
+      descripcion: g.descripcion ?? "",
+      fecha: formatearFecha(g.fecha),
+      comprobante: g.comprobante_nombre,
+    }));
+
+    return [...movIng, ...movGas].sort((a, b) => b.fecha.localeCompare(a.fecha));
+  }, [ingresos, gastos]);
 
   const filtrados = useMemo(() => {
     return movimientos.filter(
@@ -48,16 +158,22 @@ export default function IngresosEgresosPage() {
     );
   }, [movimientos, filtroTipo, busqueda]);
 
-  const totalIngresos = movimientos.filter((m) => m.tipo === "Ingreso").reduce((s, m) => s + m.monto, 0);
-  const totalGastos = movimientos.filter((m) => m.tipo === "Gasto").reduce((s, m) => s + m.monto, 0);
+  const totalIngresos = ingresos
+    .filter((i) => !i.anulado)
+    .reduce((s, i) => s + Number(i.monto), 0);
+  const totalGastos = gastos
+    .filter((g) => !g.anulado)
+    .reduce((s, g) => s + Number(g.monto), 0);
 
   function abrirModal(t: Tipo) {
     setTipo(t);
-    setCategoria(t === "Ingreso" ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0]);
     setMonto("");
     setDescripcion("");
+    setProveedor("");
+    setMetodo("efectivo");
     setComprobante(null);
     setError("");
+    setIdCategoria("");
     setModalOpen(true);
   }
 
@@ -82,29 +198,77 @@ export default function IngresosEgresosPage() {
     setComprobante(file);
   }
 
-  function guardarMovimiento() {
+  async function guardarMovimiento() {
+    setError("");
+
     const montoNum = Number(monto);
     if (!monto || isNaN(montoNum) || montoNum <= 0) {
       setError("Ingresa un monto válido, mayor a 0.");
       return;
     }
-    if (!descripcion.trim()) {
-      setError("La descripción es obligatoria.");
+    if (!idCategoria) {
+      setError("Selecciona una categoría.");
       return;
     }
-    setMovimientos((prev) => [
-      {
-        id: Date.now(),
-        tipo,
-        categoria,
-        monto: montoNum,
-        descripcion: descripcion.trim(),
-        fecha: new Date().toISOString().slice(0, 10),
-        comprobante: comprobante ? comprobante.name : null,
-      },
-      ...prev,
-    ]);
-    setModalOpen(false);
+    if (tipo === "Gasto" && !descripcion.trim() && !proveedor.trim()) {
+      setError("Ingresa una descripción o un proveedor.");
+      return;
+    }
+
+    try {
+      setGuardando(true);
+
+      const formData = new FormData();
+      formData.append("fecha", new Date().toISOString().slice(0, 10));
+      formData.append("monto", montoNum.toFixed(2));
+      formData.append("id_categoria", idCategoria);
+      if (descripcion.trim()) formData.append("descripcion", descripcion.trim());
+      formData.append("metodo", metodo);
+      if (tipo === "Gasto" && proveedor.trim()) {
+        formData.append("proveedor", proveedor.trim());
+      }
+      if (comprobante) {
+        formData.append("comprobante", comprobante);
+      }
+
+      const endpoint = tipo === "Ingreso" ? "/ingresos" : "/gastos";
+      const res = await fetch(`${API_URL}${endpoint}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${getToken()}` },
+        body: formData,
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        const msg = Array.isArray(data.message)
+          ? data.message.join("\n")
+          : data.message ?? "Error al guardar";
+        setError(msg);
+        return;
+      }
+
+      // Recargar solo el tipo que se acaba de crear
+      if (tipo === "Ingreso") {
+        const r = await fetch(`${API_URL}/ingresos`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const d = await r.json();
+        setIngresos(d.ingresos ?? []);
+      } else {
+        const r = await fetch(`${API_URL}/gastos`, {
+          headers: { Authorization: `Bearer ${getToken()}` },
+        });
+        const d = await r.json();
+        setGastos(d.gastos ?? []);
+      }
+
+      setModalOpen(false);
+    } catch (e) {
+      setError(`Error: ${(e as Error).message}`);
+    } finally {
+      setGuardando(false);
+    }
   }
 
   return (
@@ -124,6 +288,12 @@ export default function IngresosEgresosPage() {
           </button>
         </div>
       </div>
+
+      {errorCarga && (
+        <div className="alert alert-error" style={{ marginBottom: 12 }}>
+          {errorCarga}
+        </div>
+      )}
 
       <div className="metric-row">
         <div className="metric-card">
@@ -160,7 +330,9 @@ export default function IngresosEgresosPage() {
           </div>
         </div>
 
-        {filtrados.length === 0 ? (
+        {cargando ? (
+          <div className="empty-state">Cargando movimientos…</div>
+        ) : filtrados.length === 0 ? (
           <div className="empty-state">No se encontraron movimientos con esos filtros.</div>
         ) : (
           <div className="table-wrap">
@@ -209,26 +381,46 @@ export default function IngresosEgresosPage() {
         <div className="modal-form">
           <label className="field">
             <span>Tipo de movimiento</span>
-            <select value={tipo} onChange={(e) => { const t = e.target.value as Tipo; setTipo(t); setCategoria(t === "Ingreso" ? CATEGORIAS_INGRESO[0] : CATEGORIAS_GASTO[0]); }}>
+            <select value={tipo} onChange={(e) => { const t = e.target.value as Tipo; setTipo(t); setIdCategoria(""); }}>
               <option value="Ingreso">Ingreso extraordinario</option>
               <option value="Gasto">Gasto</option>
             </select>
           </label>
           <label className="field">
             <span>Categoría</span>
-            <select value={categoria} onChange={(e) => setCategoria(e.target.value)}>
-              {categoriasDisponibles.map((c) => (
-                <option key={c}>{c}</option>
+            <select value={idCategoria} onChange={(e) => setIdCategoria(e.target.value)}>
+              <option value="">Selecciona una categoría</option>
+              {categoriasFiltradas.map((c) => (
+                <option key={c.id} value={c.id}>{c.nombre}</option>
               ))}
             </select>
+            {categoriasFiltradas.length === 0 && (
+              <small style={{ color: "#9a918b" }}>
+                No hay categorías activas de tipo {tipo.toLowerCase()}.
+              </small>
+            )}
           </label>
           <label className="field">
             <span>Monto (Bs.)</span>
             <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" />
           </label>
+          {tipo === "Gasto" && (
+            <label className="field">
+              <span>Proveedor (opcional)</span>
+              <input value={proveedor} onChange={(e) => setProveedor(e.target.value)} placeholder="Ej. Ferretería XYZ" />
+            </label>
+          )}
           <label className="field">
             <span>Descripción</span>
             <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej. Reparación de bomba de agua" />
+          </label>
+          <label className="field">
+            <span>Método de pago</span>
+            <select value={metodo} onChange={(e) => setMetodo(e.target.value as "efectivo" | "transferencia" | "deposito")}>
+              <option value="efectivo">Efectivo</option>
+              <option value="transferencia">Transferencia</option>
+              <option value="deposito">Depósito</option>
+            </select>
           </label>
           <label className="field">
             <span>Comprobante (opcional)</span>
@@ -236,8 +428,8 @@ export default function IngresosEgresosPage() {
             {comprobante && <small>{comprobante.name}</small>}
           </label>
           {error && <div className="alert alert-error">{error}</div>}
-          <button className="btn btn-primary" onClick={guardarMovimiento}>
-            Registrar {tipo.toLowerCase()}
+          <button className="btn btn-primary" onClick={guardarMovimiento} disabled={guardando}>
+            {guardando ? "Guardando…" : `Registrar ${tipo.toLowerCase()}`}
           </button>
         </div>
       </Modal>

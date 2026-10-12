@@ -12,6 +12,10 @@ import { OcupacionesModule } from './ocupaciones/ocupaciones.module.js';
 import { CopropietariosModule } from './copropietarios/copropietarios.module.js';
 import { DocumentosModule } from './Documentos/documentos.module.js';
 import { ExpensasModule } from './expensas/expensas.module.js';
+import { CategoriasModule } from './categorias/categorias.module.js';
+import { IngresosModule } from './ingresos/ingresos.module.js';
+import { GastosModule } from './gastos/gastos.module.js';
+import { CuentasBancariasModule } from './cuentas-bancarias/cuentas-bancarias.module.js';
 
 @Module({
   imports: [
@@ -27,6 +31,10 @@ import { ExpensasModule } from './expensas/expensas.module.js';
     AuditoriaModule,
     DocumentosModule,
     ExpensasModule,
+    CategoriasModule,
+    IngresosModule,
+    GastosModule,
+    CuentasBancariasModule,
     ScheduleModule.forRoot(),
   ],
 

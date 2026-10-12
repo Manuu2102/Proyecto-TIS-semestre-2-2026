@@ -883,6 +883,100 @@ model tipo_documento {
 }
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model categoria_movimiento {
+  id          BigInt   @id @default(autoincrement())
+  nombre      String   @db.VarChar(100)
+  tipo        String   @db.VarChar(20)   // 'ingreso' | 'gasto'
+  descripcion String?  @db.VarChar(255)
+  activa      Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+  updated_at  DateTime @default(now()) @db.Timestamp(6)
+
+  ingreso ingreso[]
+  gasto   gasto[]
+
+  @@unique([nombre, tipo], map: "uk_categoria_nombre_tipo")
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model cuenta_bancaria {
+  id              BigInt   @id @default(autoincrement())
+  nombre          String   @db.VarChar(100)
+  banco           String   @db.VarChar(100)
+  numero_cuenta   String   @db.VarChar(50)
+  tipo_cuenta     String   @db.VarChar(20)   // 'ahorro' | 'corriente'
+  saldo           Decimal  @default(0) @db.Decimal(12, 2)
+  activa          Boolean  @default(true)
+  created_at      DateTime @default(now()) @db.Timestamp(6)
+  updated_at      DateTime @default(now()) @db.Timestamp(6)
+
+  ingreso ingreso[]
+  gasto   gasto[]
+
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model ingreso {
+  id                    BigInt   @id @default(autoincrement())
+  fecha                 DateTime @db.Date
+  monto                 Decimal  @db.Decimal(12, 2)
+  id_categoria          BigInt
+  descripcion           String?  @db.VarChar(255)
+  metodo                String   @db.VarChar(20)
+  id_cuenta             BigInt?
+  anulado               Boolean  @default(false)
+  motivo_anulacion      String?  @db.VarChar(255)
+  comprobante_nombre    String?  @db.VarChar(255)
+  comprobante_contenido Bytes?
+  comprobante_mime      String?  @db.VarChar(100)
+  comprobante_peso      BigInt?
+  id_usuario            String   @db.Uuid
+  created_at            DateTime @default(now()) @db.Timestamp(6)
+  updated_at            DateTime @default(now()) @db.Timestamp(6)
+
+  categoria       categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_categoria")
+  usuario         usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_usuario")
+  cuenta_bancaria cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_cuenta")
+
+  @@index([fecha])
+  @@index([id_categoria])
+  @@index([id_usuario])
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model gasto {
+  id                    BigInt   @id @default(autoincrement())
+  fecha                 DateTime @db.Date
+  monto                 Decimal  @db.Decimal(12, 2)
+  id_categoria          BigInt
+  proveedor             String?  @db.VarChar(255)
+  descripcion           String?  @db.VarChar(255)
+  metodo                String   @db.VarChar(20)
+  id_cuenta             BigInt?
+  anulado               Boolean  @default(false)
+  motivo_anulacion      String?  @db.VarChar(255)
+  comprobante_nombre    String?  @db.VarChar(255)
+  comprobante_contenido Bytes?
+  comprobante_mime      String?  @db.VarChar(100)
+  comprobante_peso      BigInt?
+  id_usuario            String   @db.Uuid
+  created_at            DateTime @default(now()) @db.Timestamp(6)
+  updated_at            DateTime @default(now()) @db.Timestamp(6)
+
+  categoria       categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_categoria")
+  usuario         usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_usuario")
+  cuenta_bancaria cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_cuenta")
+
+  @@index([fecha])
+  @@index([id_categoria])
+  @@index([id_usuario])
+  @@schema("public")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model tipo_pago {
   id            BigInt          @id @default(autoincrement())
   nombre        String          @db.VarChar(100)
@@ -910,6 +1004,8 @@ model usuario {
   documento            documento[]
   factura_pago_expensa factura_pago_expensa[]
   rol_usuario          rol_usuario[]
+  ingreso ingreso[]
+  gasto   gasto[]
   users                users                  @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
   @@schema("public")
