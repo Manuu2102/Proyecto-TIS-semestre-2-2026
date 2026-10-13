@@ -79,6 +79,15 @@ export class DocumentosService {
   }
 
   async listar(filtros: ConsultarDocumentosDto, idUsuario: string) {
+    // 1. Averiguar roles del usuario
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: idUsuario },
+      include: { rol_usuario: { include: { rol: true } } },
+    });
+    const roles = usuario?.rol_usuario.map((ru) => ru.rol.nombre_rol) ?? [];
+    const esAdmin = roles.includes('ADMINISTRADOR');
+
+    // 2. Construir filtro base
     const where: any = { estatus: true };
 
     if (filtros.id_tipo) {
@@ -94,6 +103,16 @@ export class DocumentosService {
 
     if (filtros.restringido !== undefined) {
       where.restringido = filtros.restringido;
+    }
+
+    // 3. Si NO es admin, solo puede ver:
+    //    - documentos NO restringidos
+    //    - O documentos restringidos que él mismo subió
+    if (!esAdmin) {
+      where.OR = [
+        { restringido: false },
+        { restringido: true, id_usuario_subio: idUsuario },
+      ];
     }
 
     const documentos = await this.prisma.documento.findMany({

@@ -10,10 +10,10 @@ import {
 } from 'class-validator';
 
 export class CrearCopropietarioDto {
+  @IsOptional()
   @IsString()
-  @IsNotEmpty()
   @MinLength(8)
-  password: string;
+  password?: string;
 
   @IsNumberString()
   @IsNotEmpty()
@@ -31,7 +31,6 @@ export class CrearCopropietarioDto {
   @IsString()
   apellido_materno?: string;
 
-  @IsString()
   @IsIn(['M', 'F'])
   sexo: string;
 
