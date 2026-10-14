@@ -2,157 +2,233 @@
 import { useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
-import { PlusIcon, EditIcon, TrashIcon, WalletIcon, CheckIcon } from "../../../components/Icons";
+import { PlusIcon, WalletIcon, CheckIcon, BuildingIcon } from "../../../components/Icons";
 
-type Concepto = { id: number; nombre: string; monto: number; activo: boolean };
+type Categoria = "A" | "B" | "C";
+type Estado = "Pendiente" | "Pagado";
+type Concepto = { concepto: string; monto: number };
+type Departamento = { numero: number; categoria: Categoria | null; ocupado: boolean };
+type Expensa = {
+  id: string;
+  departamento: number;
+  categoria: Categoria;
+  periodo: string; // "2026-09"
+  desglose: Concepto[];
+  total: number;
+  fechaLimite: string; // "2026-09-30"
+  estado: Estado;
+};
+type Omitido = { departamento: number; motivo: string };
+type Resultado = { periodo: string; generadas: Expensa[]; omitidos: Omitido[]; yaExistian: number };
 
-// Registro real de expensa generada (esto es lo que backend va a reemplazar
-// por un POST a /expensas cuando exista el endpoint). Se deja aquí para que
-// la pantalla de "Pagos y mora" tenga datos reales con los que trabajar.
-type ExpensaGenerada = {
-  id: number;
-  departamento: string;
-  periodo: string;
-  monto: number;
-  estado: "Pendiente";
-  fechaGeneracion: string;
-  fechaVencimiento: string;
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+const ANIO_INICIO = 2025; // BACKEND: primer año con datos del edificio
+
+// =====================================================================
+// DATOS DE EJEMPLO (los reemplaza backend)
+// =====================================================================
+
+// BACKEND: GET /expensas/tarifas  → monto fijo por categoría, con su desglose
+const TARIFAS: Record<Categoria, Concepto[]> = {
+  A: [
+    { concepto: "Mantenimiento general", monto: 180 },
+    { concepto: "Limpieza de áreas comunes", monto: 70 },
+    { concepto: "Seguridad", monto: 50 },
+  ],
+  B: [
+    { concepto: "Mantenimiento general", monto: 230 },
+    { concepto: "Limpieza de áreas comunes", monto: 90 },
+    { concepto: "Seguridad", monto: 60 },
+  ],
+  C: [
+    { concepto: "Mantenimiento general", monto: 280 },
+    { concepto: "Limpieza de áreas comunes", monto: 100 },
+    { concepto: "Seguridad", monto: 70 },
+  ],
 };
 
-const DEPARTAMENTOS = ["A-101", "A-202", "B-301", "B-402"];
-
-const initialConceptos: Concepto[] = [
-  { id: 1, nombre: "Mantenimiento general", monto: 850, activo: true },
-  { id: 2, nombre: "Limpieza de áreas comunes", monto: 230, activo: true },
-  { id: 3, nombre: "Seguridad", monto: 200, activo: true },
-  { id: 4, nombre: "Fondo de reserva", monto: 0, activo: false },
+// BACKEND: GET /departamentos
+const DEPARTAMENTOS: Departamento[] = [
+  { numero: 101, categoria: "A", ocupado: true },
+  { numero: 102, categoria: "A", ocupado: true },
+  { numero: 103, categoria: "A", ocupado: true },
+  { numero: 201, categoria: "B", ocupado: true },
+  { numero: 202, categoria: "B", ocupado: true },
+  { numero: 203, categoria: "B", ocupado: true },
+  { numero: 301, categoria: "C", ocupado: true },
+  { numero: 302, categoria: "C", ocupado: true },
+  { numero: 401, categoria: null, ocupado: true }, // sin categoría → se omite
+  { numero: 402, categoria: "B", ocupado: false }, // libre → no recibe expensa
 ];
 
-function mesActual() {
-  const d = new Date();
-  return d.toLocaleDateString("es-BO", { month: "long", year: "numeric" });
+const ELEGIBLES = DEPARTAMENTOS.filter(
+  (d): d is Departamento & { categoria: Categoria } => d.ocupado && d.categoria !== null
+);
+
+function totalDe(conceptos: Concepto[]) {
+  return conceptos.reduce((s, c) => s + c.monto, 0);
 }
 
-// Fecha de vencimiento: día 10 del mes siguiente al actual.
-function fechaVencimientoMesSiguiente() {
-  const d = new Date();
-  d.setMonth(d.getMonth() + 1);
-  d.setDate(10);
-  return d.toLocaleDateString("es-BO");
+function ultimoDia(periodo: string) {
+  const [a, m] = periodo.split("-").map(Number);
+  const dia = new Date(a, m, 0).getDate();
+  return `${a}-${String(m).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
 }
+
+function crear(numero: number, categoria: Categoria, periodo: string, estado: Estado): Expensa {
+  const desglose = TARIFAS[categoria];
+  return {
+    id: `${periodo}-${numero}`,
+    departamento: numero,
+    categoria,
+    periodo,
+    desglose,
+    total: totalDe(desglose),
+    fechaLimite: ultimoDia(periodo),
+    estado,
+  };
+}
+
+// BACKEND: GET /expensas?periodo=YYYY-MM
+// Agosto: completo. Septiembre: faltan 2 departamentos (sirve para probar el aviso de "solo se generarán...").
+const EXPENSAS_INICIALES: Expensa[] = [
+  ...ELEGIBLES.map((d) => crear(d.numero, d.categoria, "2026-08", "Pagado")),
+  ...ELEGIBLES.filter((d) => d.numero < 301).map((d) =>
+    crear(d.numero, d.categoria, "2026-09", [101, 102, 201].includes(d.numero) ? "Pagado" : "Pendiente")
+  ),
+];
+
+// SIMULACIÓN de lo que hace backend. Se reemplaza por el POST real.
+async function generarExpensasApi(periodo: string, existentes: Expensa[]): Promise<Resultado> {
+  await new Promise((r) => setTimeout(r, 900));
+
+  // BACKEND: POST /expensas/generar  { mes, anio }
+  // if (res.status === 403) throw new Error("Permiso denegado: solo el administrador puede generar expensas.");
+  // if (res.status === 400) throw new Error("Período inválido. Selecciona un mes y un año que ya hayan comenzado.");
+  // if (!res.ok) throw new Error("Fallo del servicio. No se pudieron generar las expensas, intenta nuevamente.");
+
+  const yaExistian = existentes.filter((e) => e.periodo === periodo).length;
+  const generadas: Expensa[] = [];
+  const omitidos: Omitido[] = [];
+  for (const d of DEPARTAMENTOS) {
+    if (!d.ocupado) continue;
+    if (!d.categoria) {
+      omitidos.push({ departamento: d.numero, motivo: "No tiene una categoría asignada." });
+      continue;
+    }
+    if (existentes.some((e) => e.periodo === periodo && e.departamento === d.numero)) continue;
+    generadas.push(crear(d.numero, d.categoria, periodo, "Pendiente"));
+  }
+  return { periodo, generadas, omitidos, yaExistian };
+}
+
+// =====================================================================
+// Utilidades de presentación
+// =====================================================================
+
+function bs(n: number) {
+  return "Bs. " + n.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function nombrePeriodo(p: string) {
+  const [a, m] = p.split("-").map(Number);
+  return `${MESES[m - 1]} ${a}`;
+}
+function fecha(iso: string) {
+  return iso.split("-").reverse().join("/");
+}
+function plural(n: number, uno: string, varios: string) {
+  return n === 1 ? uno : varios;
+}
+
+const ESTADO_CLASE: Record<Estado, string> = { Pendiente: "status-warning", Pagado: "status-success" };
+const AVISO = { background: "#fbf1df", color: "#a16d25", border: "1px solid #f0dcb4" };
+
+function readRol(): string {
+  if (typeof window === "undefined") return "";
+  return (sessionStorage.getItem("rolUsuario") || "").toUpperCase();
+}
+
+// =====================================================================
+// Página
+// =====================================================================
 
 export default function ExpensasPage() {
-  const [conceptos, setConceptos] = useState(initialConceptos);
+  const [rol] = useState(readRol);
+  const esAdmin = rol.startsWith("ADMIN"); // Criterio 1: el botón solo es visible para el administrador
+
+  const [expensas, setExpensas] = useState<Expensa[]>(EXPENSAS_INICIALES);
+  const [periodoVista, setPeriodoVista] = useState("2026-09");
+  const [resultado, setResultado] = useState<Resultado | null>(null);
+
   const [modalOpen, setModalOpen] = useState(false);
-  const [editando, setEditando] = useState<Concepto | null>(null);
-  const [nombre, setNombre] = useState("");
-  const [monto, setMonto] = useState("");
+  const [paso, setPaso] = useState<"form" | "confirmar">("form");
+  const [mes, setMes] = useState("");
+  const [anio, setAnio] = useState("");
+  const [generando, setGenerando] = useState(false);
   const [error, setError] = useState("");
 
-  // CAMBIO: en vez de un simple booleano, ahora guardamos los registros
-  // reales de expensas generadas por período + departamento.
-  const [expensasGeneradas, setExpensasGeneradas] = useState<ExpensaGenerada[]>([]);
+  const hoy = new Date();
+  const anioActual = hoy.getFullYear();
+  const mesActual = hoy.getMonth() + 1;
+  const anios = Array.from({ length: Math.max(anioActual - ANIO_INICIO + 1, 1) }, (_, i) => ANIO_INICIO + i);
 
-  const activos = conceptos.filter((c) => c.activo);
-  const totalPorDepto = activos.reduce((sum, c) => sum + c.monto, 0);
-  const periodo = mesActual();
+  // Criterios 2 y 3: mes y año obligatorios, sin años ni meses futuros
+  const mesFuturo = (m: number) => anio !== "" && Number(anio) === anioActual && m > mesActual;
+  const periodoValido =
+    mes !== "" && anio !== "" && Number(anio) <= anioActual && !mesFuturo(Number(mes));
+  const periodoSel = periodoValido ? `${anio}-${mes.padStart(2, "0")}` : "";
 
-  // CAMBIO: esto reemplaza al booleano "generado" — ahora se calcula
-  // mirando si ya existe un registro para el período actual.
-  const yaGeneradoEstePeriodo = expensasGeneradas.some((e) => e.periodo === periodo);
+  // BACKEND: esta vista previa (cuántas existen / cuántas faltan) la devuelve el servidor
+  const existentesSel = periodoSel ? expensas.filter((e) => e.periodo === periodoSel).length : 0;
+  const faltantes = periodoSel ? ELEGIBLES.length - existentesSel : 0;
 
-  function abrirNuevo() {
-    setEditando(null);
-    setNombre("");
-    setMonto("");
+  const periodos = Array.from(new Set(expensas.map((e) => e.periodo))).sort().reverse();
+  const lista = expensas.filter((e) => e.periodo === periodoVista);
+  const montoTotal = lista.reduce((s, e) => s + e.total, 0);
+  const pendientes = lista.filter((e) => e.estado === "Pendiente").length;
+
+  function abrirModal() {
+    setPaso("form");
+    setMes("");
+    setAnio("");
     setError("");
     setModalOpen(true);
   }
 
-  function abrirEditar(c: Concepto) {
-    setEditando(c);
-    setNombre(c.nombre);
-    setMonto(String(c.monto));
-    setError("");
-    setModalOpen(true);
-  }
-
-  function guardarConcepto() {
-    const montoNum = Number(monto);
-    if (!nombre.trim()) {
-      setError("El nombre del concepto es obligatorio.");
-      return;
-    }
-    if (!monto || isNaN(montoNum) || montoNum < 0) {
-      setError("Ingresa un monto válido (mayor o igual a 0).");
-      return;
-    }
-
-    // CAMBIO: validar nombre duplicado (ignorando mayúsculas/espacios),
-    // excluyendo el propio concepto cuando se está editando.
-    const duplicado = conceptos.some(
-      (c) => c.nombre.trim().toLowerCase() === nombre.trim().toLowerCase() && c.id !== editando?.id
-    );
-    if (duplicado) {
-      setError("Ya existe un concepto con ese nombre.");
-      return;
-    }
-
-    if (editando) {
-      setConceptos((prev) =>
-        prev.map((c) => (c.id === editando.id ? { ...c, nombre: nombre.trim(), monto: montoNum } : c))
-      );
-    } else {
-      setConceptos((prev) => [
-        ...prev,
-        { id: Date.now(), nombre: nombre.trim(), monto: montoNum, activo: true },
-      ]);
-    }
+  function cerrarModal() {
+    if (generando) return; // no se puede cerrar mientras genera
     setModalOpen(false);
+    setPaso("form");
+    setMes("");
+    setAnio("");
+    setError("");
   }
 
-  function toggleActivo(id: number) {
-    setConceptos((prev) => prev.map((c) => (c.id === id ? { ...c, activo: !c.activo } : c)));
+  function cambiarAnio(valor: string) {
+    setAnio(valor);
+    if (valor !== "" && Number(valor) === anioActual && Number(mes) > mesActual) setMes("");
+    setError("");
   }
 
-  // CAMBIO: ahora pide confirmación antes de eliminar, igual que en
-  // copropietarios/departamentos/documentos.
-  function eliminarConcepto(id: number) {
-    const concepto = conceptos.find((c) => c.id === id);
-    if (!concepto) return;
-    const confirmar = window.confirm(
-      `¿Eliminar el concepto "${concepto.nombre}"? Esto afectará el monto calculado para futuras expensas.`
-    );
-    if (!confirmar) return;
-    setConceptos((prev) => prev.filter((c) => c.id !== id));
-  }
-
-  // CAMBIO: ahora valida duplicado de generación, pide confirmación, y
-  // crea un registro real por departamento (listo para que backend lo
-  // reemplace por un POST a /expensas).
-  function generarExpensas() {
-    if (yaGeneradoEstePeriodo) {
-      alert(`Ya se generaron las expensas de ${periodo}. No se puede generar el mismo período dos veces.`);
-      return;
+  async function confirmarGeneracion() {
+    if (generando) return; // Criterio 6: evita doble generación
+    setGenerando(true);
+    setError("");
+    try {
+      const res = await generarExpensasApi(periodoSel, expensas);
+      setExpensas((prev) => [...prev, ...res.generadas]);
+      setPeriodoVista(periodoSel);
+      setResultado(res);
+      setModalOpen(false);
+      setPaso("form");
+      setMes("");
+      setAnio("");
+    } catch (e) {
+      // Criterio 9: se muestra el motivo del error
+      setError(e instanceof Error ? e.message : "No se pudieron generar las expensas. Intenta nuevamente.");
+    } finally {
+      setGenerando(false);
     }
-
-    const confirmar = window.confirm(
-      `¿Generar las expensas de ${periodo} para los ${DEPARTAMENTOS.length} departamentos? Se calculará Bs. ${totalPorDepto.toFixed(2)} por unidad según los conceptos activos.`
-    );
-    if (!confirmar) return;
-
-    const nuevas: ExpensaGenerada[] = DEPARTAMENTOS.map((d, i) => ({
-      id: Date.now() + i,
-      departamento: d,
-      periodo,
-      monto: totalPorDepto,
-      estado: "Pendiente",
-      fechaGeneracion: new Date().toLocaleDateString("es-BO"),
-      fechaVencimiento: fechaVencimientoMesSiguiente(),
-    }));
-
-    setExpensasGeneradas((prev) => [...prev, ...nuevas]);
-    alert(`Expensas de ${periodo} generadas correctamente para ${DEPARTAMENTOS.length} departamentos.`);
   }
 
   return (
@@ -160,172 +236,210 @@ export default function ExpensasPage() {
       <div className="page-header">
         <div>
           <p className="eyebrow">EP-02 · EXPENSAS</p>
-          <h1>Configuración de expensas</h1>
-          <p>Define los conceptos y montos, y genera las expensas mensuales del edificio.</p>
+          <h1>Expensas mensuales</h1>
+          <p>Genera las expensas de cada período y consulta las ya emitidas.</p>
         </div>
-        <button className="btn btn-primary" onClick={abrirNuevo}>
-          <PlusIcon size={16} /> Nuevo concepto
-        </button>
+        {esAdmin && (
+          <button className="btn btn-primary" onClick={abrirModal} disabled={generando}>
+            <PlusIcon size={16} /> Generar expensas
+          </button>
+        )}
+      </div>
+
+      <div className="metric-row">
+        <div className="metric-card">
+          <div className="metric-icon"><BuildingIcon size={20} /></div>
+          <div><span>Expensas del período</span><strong>{lista.length}</strong></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon soft"><WalletIcon size={20} /></div>
+          <div><span>Monto total del período</span><strong>{bs(montoTotal)}</strong></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon attention"><CheckIcon size={20} /></div>
+          <div><span>Pendientes de pago</span><strong>{pendientes}</strong></div>
+        </div>
       </div>
 
       <section className="panel">
         <div className="panel-toolbar">
           <div>
-            <h3>Conceptos de expensas</h3>
-            <p>Solo los conceptos activos se incluyen al generar las expensas mensuales.</p>
+            <h3>Expensas de {nombrePeriodo(periodoVista)}</h3>
+            <p>Las expensas generadas no se pueden modificar.</p>
           </div>
-        </div>
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Concepto</th>
-                <th>Monto</th>
-                <th>Estado</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {conceptos.map((c) => (
-                <tr key={c.id}>
-                  <td><strong>{c.nombre}</strong></td>
-                  <td>Bs. {c.monto.toFixed(2)}</td>
-                  <td>
-                    <span className={`status ${c.activo ? "status-success" : "status-attention"}`}>
-                      <span />
-                      {c.activo ? "Activo" : "Inactivo"}
-                    </span>
-                  </td>
-                  <td>
-                    <div style={{ display: "flex", gap: 6 }}>
-                      <button className="icon-button" title="Editar" onClick={() => abrirEditar(c)}>
-                        <EditIcon size={16} />
-                      </button>
-                      <button
-                        className="icon-button"
-                        title={c.activo ? "Desactivar" : "Activar"}
-                        onClick={() => toggleActivo(c.id)}
-                      >
-                        <CheckIcon size={16} />
-                      </button>
-                      <button className="icon-button" title="Eliminar" onClick={() => eliminarConcepto(c.id)}>
-                        <TrashIcon size={16} />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+          {periodos.length > 0 && (
+            <select value={periodoVista} onChange={(e) => setPeriodoVista(e.target.value)}>
+              {periodos.map((p) => (
+                <option key={p} value={p}>{nombrePeriodo(p)}</option>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </section>
-
-      <section className="panel" style={{ marginTop: 20 }}>
-        <div className="panel-toolbar">
-          <div>
-            <h3>Generar expensas mensuales</h3>
-            <p style={{ textTransform: "capitalize" }}>Periodo: {periodo}</p>
-          </div>
-        </div>
-
-        <div className="metric-row" style={{ padding: "0 20px 20px" }}>
-          <div className="metric-card">
-            <div className="metric-icon"><WalletIcon size={20} /></div>
-            <div><span>Monto por departamento</span><strong>Bs. {totalPorDepto.toFixed(2)}</strong></div>
-          </div>
-          <div className="metric-card">
-            <div className="metric-icon soft"><CheckIcon size={20} /></div>
-            <div><span>Departamentos a generar</span><strong>{DEPARTAMENTOS.length}</strong></div>
-          </div>
-        </div>
-
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr><th>Departamento</th><th>Conceptos incluidos</th><th>Monto total</th></tr>
-            </thead>
-            <tbody>
-              {DEPARTAMENTOS.map((d) => (
-                <tr key={d}>
-                  <td><span className="tag">{d}</span></td>
-                  <td>{activos.length > 0 ? activos.map((c) => c.nombre).join(", ") : "—"}</td>
-                  <td>Bs. {totalPorDepto.toFixed(2)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <div style={{ padding: "0 20px 20px" }}>
-          <button
-            className="btn btn-primary"
-            onClick={generarExpensas}
-            disabled={activos.length === 0 || yaGeneradoEstePeriodo}
-          >
-            {yaGeneradoEstePeriodo ? "Expensas ya generadas este período" : "Generar expensas del mes"}
-          </button>
-          {activos.length === 0 && (
-            <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
-              Activa al menos un concepto para poder generar expensas.
-            </p>
-          )}
-          {yaGeneradoEstePeriodo && (
-            <div className="alert alert-success" style={{ marginTop: 12 }}>
-              Expensas de {periodo} generadas correctamente para {DEPARTAMENTOS.length} departamentos.
-            </div>
+            </select>
           )}
         </div>
-      </section>
 
-      {/* NUEVO: tabla de expensas ya generadas — esto es lo que "Pagos y mora"
-          va a necesitar leer para poder mostrar la lista a cobrar. */}
-      {expensasGeneradas.length > 0 && (
-        <section className="panel" style={{ marginTop: 20 }}>
-          <div className="panel-toolbar">
-            <div>
-              <h3>Expensas generadas</h3>
-              <p>Registros listos para que la pantalla de Pagos y mora los procese.</p>
+        {resultado && resultado.periodo === periodoVista && (
+          <div style={{ padding: "16px 20px 0", display: "grid", gap: 10 }}>
+            <div className="alert alert-success">
+              Se generaron {resultado.generadas.length} {plural(resultado.generadas.length, "expensa", "expensas")} de{" "}
+              {nombrePeriodo(resultado.periodo).toLowerCase()}.
+              {resultado.yaExistian > 0 && ` Ya existían ${resultado.yaExistian}; solo se generaron las que faltaban.`}
             </div>
+            {resultado.omitidos.length > 0 && (
+              <div className="alert" style={AVISO}>
+                <strong>
+                  {resultado.omitidos.length} {plural(resultado.omitidos.length, "departamento omitido", "departamentos omitidos")}:
+                </strong>
+                {resultado.omitidos.map((o) => (
+                  <div key={o.departamento}>Dpto. {o.departamento}: {o.motivo}</div>
+                ))}
+              </div>
+            )}
           </div>
+        )}
+
+        {lista.length === 0 ? (
+          <div className="empty-state">Todavía no se generaron expensas para este período.</div>
+        ) : (
           <div className="table-wrap">
             <table>
               <thead>
-                <tr><th>Departamento</th><th>Período</th><th>Monto</th><th>Vencimiento</th><th>Estado</th></tr>
+                <tr>
+                  <th>Departamento</th>
+                  <th>Categoría</th>
+                  <th>Desglose por concepto</th>
+                  <th>Monto total</th>
+                  <th>Fecha límite</th>
+                  <th>Estado</th>
+                </tr>
               </thead>
               <tbody>
-                {expensasGeneradas.map((e) => (
+                {lista.map((e) => (
                   <tr key={e.id}>
-                    <td><span className="tag">{e.departamento}</span></td>
-                    <td>{e.periodo}</td>
-                    <td>Bs. {e.monto.toFixed(2)}</td>
-                    <td>{e.fechaVencimiento}</td>
+                    <td><span className="tag">Dpto. {e.departamento}</span></td>
+                    <td>{e.categoria}</td>
                     <td>
-                      <span className="status status-attention"><span />{e.estado}</span>
+                      {e.desglose.map((c) => (
+                        <div key={c.concepto} style={{ fontSize: 11, color: "#766E69" }}>
+                          {c.concepto}: {bs(c.monto)}
+                        </div>
+                      ))}
+                    </td>
+                    <td><strong>{bs(e.total)}</strong></td>
+                    <td>{fecha(e.fechaLimite)}</td>
+                    <td>
+                      <span className={`status ${ESTADO_CLASE[e.estado]}`}><span />{e.estado}</span>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </section>
-      )}
+        )}
+      </section>
 
-      <Modal open={modalOpen} title={editando ? "Editar concepto" : "Nuevo concepto"} onClose={() => setModalOpen(false)}>
-        <div className="modal-form">
-          <label className="field">
-            <span>Nombre del concepto</span>
-            <input value={nombre} onChange={(e) => setNombre(e.target.value)} placeholder="Ej. Mantenimiento general" />
-          </label>
-          <label className="field">
-            <span>Monto (Bs.)</span>
-            <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" />
-          </label>
-          {error && <div className="alert alert-error">{error}</div>}
-          <button className="btn btn-primary" onClick={guardarConcepto}>
-            {editando ? "Guardar cambios" : "Crear concepto"}
-          </button>
-        </div>
-      </Modal>
+      {esAdmin && (
+        <Modal open={modalOpen} title="Generar expensas mensuales" onClose={cerrarModal}>
+          {paso === "form" ? (
+            <div className="modal-form">
+              <div className="form-grid">
+                <label className="field">
+                  <span>Mes <b>*</b></span>
+                  <select value={mes} onChange={(e) => { setMes(e.target.value); setError(""); }}>
+                    <option value="">Selecciona un mes</option>
+                    {MESES.map((m, i) => (
+                      <option key={m} value={String(i + 1)} disabled={mesFuturo(i + 1)}>{m}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="field">
+                  <span>Año <b>*</b></span>
+                  <select value={anio} onChange={(e) => cambiarAnio(e.target.value)}>
+                    <option value="">Selecciona un año</option>
+                    {anios.map((a) => (
+                      <option key={a} value={String(a)}>{a}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              {!periodoValido && (
+                <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
+                  Selecciona el mes y el año para continuar. No se pueden elegir meses que aún no han llegado.
+                </p>
+              )}
+
+              {periodoValido && existentesSel > 0 && (
+                <div className="alert" style={{ ...AVISO, marginTop: 12 }}>
+                  {faltantes > 0
+                    ? `Ya existen expensas para este período, solo se generarán ${faltantes} ${plural(faltantes, "expensa", "expensas")} que ${plural(faltantes, "falta", "faltan")}.`
+                    : "Ya existen expensas para todos los departamentos de este período. No hay expensas por generar."}
+                </div>
+              )}
+
+              <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>Vista previa de tarifas por categoría</h3>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr><th>Categoría</th><th>Conceptos</th><th>Monto por departamento</th></tr>
+                  </thead>
+                  <tbody>
+                    {(Object.keys(TARIFAS) as Categoria[]).map((cat) => (
+                      <tr key={cat}>
+                        <td><span className="tag">Categoría {cat}</span></td>
+                        <td>
+                          {TARIFAS[cat].map((c) => (
+                            <div key={c.concepto} style={{ fontSize: 11, color: "#766E69" }}>
+                              {c.concepto}: {bs(c.monto)}
+                            </div>
+                          ))}
+                        </td>
+                        <td><strong>{bs(totalDe(TARIFAS[cat]))}</strong></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
+                El monto es fijo por categoría. Los departamentos libres no reciben expensa y los que no tienen
+                categoría quedan omitidos.
+              </p>
+
+              {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+
+              <div className="modal-actions">
+                <button className="btn btn-secondary" onClick={cerrarModal}>Cancelar</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={() => setPaso("confirmar")}
+                  disabled={!periodoValido || faltantes <= 0}
+                >
+                  Continuar
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="modal-form">
+              {/* Criterio 5: confirmación con el período elegido */}
+              <p style={{ fontSize: 15, fontWeight: 600, margin: "0 0 8px" }}>
+                Se generan las expensas de {nombrePeriodo(periodoSel).toLowerCase()}.
+              </p>
+              {existentesSel > 0 && (
+                <p style={{ fontSize: 12, color: "#766E69", margin: 0 }}>
+                  Solo se generarán {faltantes} {plural(faltantes, "expensa", "expensas")} que {plural(faltantes, "falta", "faltan")}.
+                </p>
+              )}
+
+              {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+
+              <div className="modal-actions">
+                <button className="btn btn-secondary" onClick={cerrarModal} disabled={generando}>Cancelar</button>
+                <button className="btn btn-primary" onClick={confirmarGeneracion} disabled={generando}>
+                  {generando ? "Generando…" : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
     </DashboardLayout>
   );
 }

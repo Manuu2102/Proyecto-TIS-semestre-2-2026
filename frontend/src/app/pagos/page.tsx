@@ -1,1059 +1,974 @@
 "use client";
-
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import Link from "next/link";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
-import {
-  CreditCardIcon,
-  SettingsIcon,
-  WalletIcon,
-  CheckIcon,
-  PlusIcon,
-} from "../../../components/Icons";
+import { PlusIcon, WalletIcon, CheckIcon, CreditCardIcon, FileIcon } from "../../../components/Icons";
 
-type ExpensaDepto = {
-  departamento: string;
-  periodo: string;
-  monto: number;
-  pagado: boolean;
-  fechaPago: string | null;
-  pagoAnticipado: boolean;
-  anticipoAplicado: number;
+type Categoria = "A" | "B" | "C";
+type EstadoDepto = "Al día" | "Pendiente" | "En mora";
+type Departamento = { numero: number; categoria: Categoria; responsable: string };
+type Expensa = {
+  id: string;
+  departamento: number;
+  periodo: string; // "2026-09"
+  monto: number; // monto fijo de la categoría (no cambia)
+  montoRestante: number; // lo que falta pagar del monto fijo
+  moraRestante: number; // lo que falta pagar de la mora
+  vencida: boolean;
 };
-
-type ExpensaDeptoCalculada = ExpensaDepto & {
-  atraso: number;
-  mora: number;
-  saldo: number;
-};
-
-type ReglaMora = {
-  porcentaje: number;
-  diasGracia: number;
-};
-
-type FiltroEstado = "Todos" | "Pendientes" | "En mora" | "Pagados";
-
-// Anticipo real, independiente de una expensa ya generada.
-// Se guarda aparte y se aplica al período futuro que corresponda.
-type Anticipo = {
+type Movimiento = {
   id: number;
-  departamento: string;
+  fecha: string;
+  departamento: number;
+  tipo: "Pago de expensa" | "Pago anticipado registrado";
   monto: number;
-  periodoAplicado: string;
-  fechaRegistro: string;
+  metodo: string;
+  referencia: string;
+  usuario: string;
+};
+type Recibo = {
+  usuario: string;
+  fechaEmision: string;
+  horaEmision: string;
+  departamento: number;
+  periodo: string;
+  montoPagado: number;
+  descuentoMora: number;
+  fechaPago: string;
+  metodo: string;
+  referencia: string;
+};
+type Fila = { depto: Departamento; sinPagar: number; adeudado: number; mora: number; saldoTotal: number; estado: EstadoDepto };
+type Campo = "departamento" | "responsable" | "categoria" | "sinPagar" | "adeudado" | "mora" | "saldoTotal";
+
+// =====================================================================
+// DATOS DE EJEMPLO (los reemplaza backend)
+// =====================================================================
+
+// BACKEND: método(s) de pago permitidos. Por ahora solo QR (el doc dice que se ampliará).
+const METODOS = ["QR"];
+
+// BACKEND: GET /expensas/tarifas
+const TARIFA: Record<Categoria, number> = { A: 300, B: 380, C: 450 };
+
+// BACKEND: GET /departamentos (ocupados y con categoría)
+const DEPARTAMENTOS: Departamento[] = [
+  { numero: 101, categoria: "A", responsable: "María Fernanda Rojas" },
+  { numero: 102, categoria: "A", responsable: "Carlos Andrés Pérez" },
+  { numero: 103, categoria: "A", responsable: "Ana Lucía Vargas" },
+  { numero: 201, categoria: "B", responsable: "Sofía Valentina Cruz" },
+  { numero: 202, categoria: "B", responsable: "Diego Mauricio Salazar" },
+  { numero: 203, categoria: "B", responsable: "Melody Gutiérrez" },
+  { numero: 301, categoria: "C", responsable: "Rodrigo Quispe" },
+  { numero: 302, categoria: "C", responsable: "Alejandra Guzmán" },
+];
+
+const PERIODOS = ["2026-08", "2026-09", "2026-10"];
+
+const SIN_PAGAR: Record<number, string[]> = {
+  103: ["2026-08", "2026-09", "2026-10"],
+  201: ["2026-10"],
+  202: ["2026-09", "2026-10"],
+  203: ["2026-10"],
+  302: ["2026-08", "2026-10"],
 };
 
-const PERIODOS = ["2026-07", "2026-08", "2026-09"];
+// BACKEND: GET /expensas. La mora de las expensas vencidas la calcula el servidor cada día.
+const EXPENSAS_INICIALES: Expensa[] = DEPARTAMENTOS.flatMap((d) =>
+  PERIODOS.map((p) => {
+    const pendiente = (SIN_PAGAR[d.numero] ?? []).includes(p);
+    const vencida = pendiente && p !== "2026-10";
+    const monto = TARIFA[d.categoria];
+    return {
+      id: `${p}-${d.numero}`,
+      departamento: d.numero,
+      periodo: p,
+      monto,
+      montoRestante: pendiente ? monto : 0,
+      moraRestante: vencida ? monto : 0,
+      vencida,
+    };
+  })
+);
 
-const DEPARTAMENTOS = ["A-101", "A-202", "B-301", "B-402"];
+// BACKEND: saldo a favor por departamento (anticipos)
+const A_FAVOR_INICIAL: Record<number, number> = { 101: 300 };
 
-const expensasPorPeriodoInicial: Record<string, ExpensaDepto[]> = {
-  "2026-07": [
-    {
-      departamento: "A-101",
-      periodo: "2026-07",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-07-05",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "A-202",
-      periodo: "2026-07",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-07-09",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-301",
-      periodo: "2026-07",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-07-08",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-402",
-      periodo: "2026-07",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-06-30",
-      pagoAnticipado: true,
-      anticipoAplicado: 0,
-    },
-  ],
+// BACKEND: GET /pagos/historial
+const HISTORIAL_INICIAL: Movimiento[] = [
+  { id: 3, fecha: "2026-10-08", departamento: 101, tipo: "Pago anticipado registrado", monto: 300, metodo: "QR", referencia: "QR-ANT-0001", usuario: "Administrador" },
+  { id: 2, fecha: "2026-10-06", departamento: 102, tipo: "Pago de expensa", monto: 300, metodo: "QR", referencia: "QR-1002", usuario: "Administrador" },
+  { id: 1, fecha: "2026-10-04", departamento: 301, tipo: "Pago de expensa", monto: 450, metodo: "QR", referencia: "QR-1001", usuario: "Administrador" },
+];
 
-  "2026-08": [
-    {
-      departamento: "A-101",
-      periodo: "2026-08",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-07-28",
-      pagoAnticipado: true,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "A-202",
-      periodo: "2026-08",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-08-07",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-301",
-      periodo: "2026-08",
-      monto: 1280,
-      pagado: false,
-      fechaPago: null,
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-402",
-      periodo: "2026-08",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-08-04",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-  ],
+// =====================================================================
+// SIMULACIÓN de lo que hace backend. Se reemplaza por los fetch reales.
+// =====================================================================
 
-  "2026-09": [
-    {
-      departamento: "A-101",
-      periodo: "2026-09",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-09-03",
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "A-202",
-      periodo: "2026-09",
-      monto: 1280,
-      pagado: false,
-      fechaPago: null,
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-301",
-      periodo: "2026-09",
-      monto: 1280,
-      pagado: false,
-      fechaPago: null,
-      pagoAnticipado: false,
-      anticipoAplicado: 0,
-    },
-    {
-      departamento: "B-402",
-      periodo: "2026-09",
-      monto: 1280,
-      pagado: true,
-      fechaPago: "2026-08-28",
-      pagoAnticipado: true,
-      anticipoAplicado: 0,
-    },
-  ],
-};
+function r2(n: number) {
+  return Math.round(n * 100) / 100;
+}
 
-// Se utiliza la fecha real del sistema para calcular automáticamente la mora.
-const HOY = new Date();
+// BACKEND: el servidor decide cómo se reparte el pago entre mora y monto. Aquí se simula.
+function aplicar(exp: Expensa, monto: number) {
+  const aMora = r2(Math.min(monto, exp.moraRestante));
+  const aMonto = r2(Math.min(monto - aMora, exp.montoRestante));
+  return { aMora, aMonto, restante: r2(exp.moraRestante - aMora + exp.montoRestante - aMonto) };
+}
 
-function diasDeAtraso(periodo: string, diasGracia: number) {
-  const vencimiento = new Date(`${periodo}-10`);
+type PagoEntrada = { expensa: Expensa; monto: number; fecha: string; metodo: string; referencia: string; usuario: string };
 
-  vencimiento.setDate(vencimiento.getDate() + diasGracia);
+async function registrarPagoApi(p: PagoEntrada) {
+  await new Promise((r) => setTimeout(r, 900));
+  // BACKEND: POST /pagos  { departamento, monto, fecha, metodo, referencia }
+  // 403 → "Permiso denegado: solo el administrador puede registrar pagos."
+  // 422 → mensaje del servidor (monto excesivo o inválido)
+  // 5xx → "Fallo del servicio. No se pudo registrar el pago, intenta nuevamente."
+  const { aMora, aMonto } = aplicar(p.expensa, p.monto);
+  const ahora = new Date();
+  const movimiento: Movimiento = {
+    id: Date.now(),
+    fecha: p.fecha,
+    departamento: p.expensa.departamento,
+    tipo: "Pago de expensa",
+    monto: p.monto,
+    metodo: p.metodo,
+    referencia: p.referencia,
+    usuario: p.usuario,
+  };
+  const recibo: Recibo = {
+    usuario: p.usuario,
+    fechaEmision: fechaCorta(hoyISO()),
+    horaEmision: ahora.toLocaleTimeString("es-BO", { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+    departamento: p.expensa.departamento,
+    periodo: p.expensa.periodo,
+    montoPagado: p.monto,
+    descuentoMora: aMora,
+    fechaPago: p.fecha,
+    metodo: p.metodo,
+    referencia: p.referencia,
+  };
+  return {
+    montoRestante: r2(p.expensa.montoRestante - aMonto),
+    moraRestante: r2(p.expensa.moraRestante - aMora),
+    movimiento,
+    recibo,
+  };
+}
 
-  const diff = Math.floor(
-    (HOY.getTime() - vencimiento.getTime()) / 86400000
+type AnticipoEntrada = { departamento: number; monto: number; fecha: string; metodo: string; referencia: string; usuario: string };
+
+async function registrarAnticipoApi(a: AnticipoEntrada) {
+  await new Promise((r) => setTimeout(r, 900));
+  // BACKEND: POST /pagos/anticipos  { departamento, monto, fecha, metodo, referencia }
+  // 403 → "Permiso denegado: solo el administrador puede registrar pagos anticipados."
+  // 422 → "El departamento tiene expensas pendientes." u otro mensaje del servidor
+  // 5xx → "Fallo del servicio. No se pudo registrar el pago anticipado, intenta nuevamente."
+  const movimiento: Movimiento = {
+    id: Date.now(),
+    fecha: a.fecha,
+    departamento: a.departamento,
+    tipo: "Pago anticipado registrado",
+    monto: a.monto,
+    metodo: a.metodo,
+    referencia: a.referencia,
+    usuario: a.usuario,
+  };
+  return { movimiento };
+}
+
+// BACKEND: GET /saldos-pendientes?periodo=&categoria=&estado=&q=  → devuelve estas filas
+function filaDe(d: Departamento, expensas: Expensa[], aFavor: number, periodo: string): Fila {
+  const pend = expensas.filter(
+    (e) => e.departamento === d.numero && e.montoRestante + e.moraRestante > 0 && (periodo === "" || e.periodo === periodo)
   );
-
-  return diff > 0 ? diff : 0;
+  const adeudado = r2(pend.reduce((s, e) => s + e.montoRestante, 0));
+  const mora = r2(pend.reduce((s, e) => s + e.moraRestante, 0));
+  const estado: EstadoDepto = pend.length === 0 ? "Al día" : pend.some((e) => e.vencida) ? "En mora" : "Pendiente";
+  return { depto: d, sinPagar: pend.length, adeudado, mora, saldoTotal: r2(adeudado + mora - aFavor), estado };
 }
 
-function nombrePeriodo(periodo: string) {
-  return new Date(`${periodo}-01`).toLocaleDateString("es-BO", {
-    month: "long",
-    year: "numeric",
-  });
+// =====================================================================
+// Utilidades de presentación
+// =====================================================================
+
+const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
+
+function bs(n: number) {
+  return "Bs. " + n.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function nombrePeriodo(p: string) {
+  const [a, m] = p.split("-").map(Number);
+  return `${MESES[m - 1]} ${a}`;
+}
+function fechaCorta(iso: string) {
+  return iso.split("-").reverse().join("/");
+}
+function hoyISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// La búsqueda ignora mayúsculas y tildes
+function normalizar(t: string) {
+  return t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+}
+// Monto válido: mayor a 0 y máximo 2 decimales (acepta coma o punto)
+function parseMonto(txt: string): number | null {
+  const t = txt.trim().replace(",", ".");
+  if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+  const v = Number(t);
+  return v > 0 ? v : null;
+}
+function readRol(): string {
+  if (typeof window === "undefined") return "";
+  return (sessionStorage.getItem("rolUsuario") || "").toUpperCase();
+}
+function readNombre(): string {
+  if (typeof window === "undefined") return "";
+  return sessionStorage.getItem("nombreUsuario") || "Administrador";
+}
+function descargar(nombre: string, contenido: string, tipo: string) {
+  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = nombre;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+function imprimirHtml(titulo: string, cuerpo: string) {
+  const w = window.open("", "_blank", "width=900,height=700");
+  if (!w) {
+    alert("Tu navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.");
+    return;
+  }
+  w.document.write(
+    `<html><head><title>${titulo}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f3f3f3}h2{margin:0 0 8px}p{margin:4px 0}</style></head><body>${cuerpo}</body></html>`
+  );
+  w.document.close();
+  w.focus();
+  w.print();
+}
+function datosRecibo(r: Recibo): [string, string][] {
+  return [
+    ["Usuario que registró el pago", r.usuario],
+    ["Fecha de emisión", r.fechaEmision],
+    ["Hora de emisión", r.horaEmision],
+    ["Departamento", `Dpto. ${r.departamento}`],
+    ["Expensa pagada", nombrePeriodo(r.periodo)],
+    ["Monto pagado", bs(r.montoPagado)],
+    ["Descontado de la mora", bs(r.descuentoMora)],
+    ["Fecha de pago", fechaCorta(r.fechaPago)],
+    ["Método de pago", r.metodo],
+    ["Referencia", r.referencia || "—"],
+  ];
+}
+function valorOrden(f: Fila, c: Campo): string | number {
+  switch (c) {
+    case "departamento": return f.depto.numero;
+    case "responsable": return normalizar(f.depto.responsable);
+    case "categoria": return f.depto.categoria;
+    case "sinPagar": return f.sinPagar;
+    case "adeudado": return f.adeudado;
+    case "mora": return f.mora;
+    default: return f.saldoTotal;
+  }
 }
 
-// Calcula el período siguiente al período actual.
-function periodoSiguiente(periodo: string) {
-  const [anio, mes] = periodo.split("-").map(Number);
+const AVISO = { background: "#fbf1df", color: "#a16d25", border: "1px solid #f0dcb4" };
+const FILA = { display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid #F1ECE8", fontSize: 13 } as const;
+const POR_PAGINA = 5;
 
-  const fecha = new Date(anio, mes, 1);
-
-  const anioSig = fecha.getFullYear();
-  const mesSig = String(fecha.getMonth() + 1).padStart(2, "0");
-
-  return `${anioSig}-${mesSig}`;
+// Colores de la HU-11: al día verde, pendiente amarillo, en mora rojo
+function BadgeEstado({ estado }: { estado: EstadoDepto }) {
+  const clase = estado === "Al día" ? "status-success" : estado === "Pendiente" ? "status-warning" : "";
+  const rojo = estado === "En mora" ? { color: "#9F2727", background: "#FFE5E1" } : undefined;
+  return <span className={`status ${clase}`} style={rojo}><i />{estado}</span>;
 }
+
+// =====================================================================
+// Página
+// =====================================================================
 
 export default function PagosPage() {
-  const [datos, setDatos] = useState(expensasPorPeriodoInicial);
+  const [rol] = useState(readRol);
+  const esAdmin = rol.startsWith("ADMIN");
 
-  const [anticipos, setAnticipos] = useState<Anticipo[]>([]);
+  const [expensas, setExpensas] = useState<Expensa[]>(EXPENSAS_INICIALES);
+  const [aFavor, setAFavor] = useState<Record<number, number>>(A_FAVOR_INICIAL);
+  const [historial, setHistorial] = useState<Movimiento[]>(HISTORIAL_INICIAL);
+  const [exito, setExito] = useState("");
 
-  const [periodoActivo, setPeriodoActivo] = useState(
-    PERIODOS[PERIODOS.length - 1]
-  );
-
+  // Filtros de la HU-11
+  const [periodoF, setPeriodoF] = useState("");
+  const [categoriaF, setCategoriaF] = useState("");
+  const [estadoF, setEstadoF] = useState("");
   const [busqueda, setBusqueda] = useState("");
+  const [orden, setOrden] = useState<{ campo: Campo; dir: "asc" | "desc" }>({ campo: "departamento", dir: "asc" });
+  const [pagina, setPagina] = useState(1);
 
-  const [filtroEstado, setFiltroEstado] =
-    useState<FiltroEstado>("Todos");
-
-  const [regla, setRegla] = useState<ReglaMora>({
-    porcentaje: 2,
-    diasGracia: 5,
-  });
-
-  const [modalRegla, setModalRegla] = useState(false);
-
-  const [draftPorcentaje, setDraftPorcentaje] = useState(
-    String(regla.porcentaje)
-  );
-
-  const [draftDiasGracia, setDraftDiasGracia] = useState(
-    String(regla.diasGracia)
-  );
-
-  const [errorRegla, setErrorRegla] = useState("");
-
-  const [modalPago, setModalPago] = useState(false);
-
-  // CORRECCIÓN:
-  // Ahora el estado reconoce que el objeto contiene
-  // atraso, mora y saldo calculados.
-  const [pagoDepto, setPagoDepto] =
-    useState<ExpensaDeptoCalculada | null>(null);
-
-  const [metodoPago, setMetodoPago] = useState("Transferencia");
-
-  const [fechaPago, setFechaPago] = useState("");
-
+  // Modal de pago (HU-09)
+  const [pagoOpen, setPagoOpen] = useState(false);
+  const [pagoPaso, setPagoPaso] = useState<"form" | "preview" | "recibo">("form");
+  const [pagoDepto, setPagoDepto] = useState("");
+  const [pagoMonto, setPagoMonto] = useState("");
+  const [pagoFecha, setPagoFecha] = useState("");
+  const [pagoMetodo, setPagoMetodo] = useState(METODOS[0]);
+  const [pagoRef, setPagoRef] = useState("");
+  const [guardandoPago, setGuardandoPago] = useState(false);
   const [errorPago, setErrorPago] = useState("");
+  const [recibo, setRecibo] = useState<Recibo | null>(null);
 
-  const [mensajePago, setMensajePago] = useState("");
+  // Modal de anticipo (HU-10)
+  const [antOpen, setAntOpen] = useState(false);
+  const [antDepto, setAntDepto] = useState("");
+  const [antMonto, setAntMonto] = useState("");
+  const [antFecha, setAntFecha] = useState("");
+  const [antMetodo, setAntMetodo] = useState(METODOS[0]);
+  const [antRef, setAntRef] = useState("");
+  const [guardandoAnt, setGuardandoAnt] = useState(false);
+  const [errorAnt, setErrorAnt] = useState("");
 
-  // Modal para registrar anticipo.
-  const [modalAnticipo, setModalAnticipo] = useState(false);
+  // ---------- Datos derivados ----------
+  const pendientesDe = (num: number) =>
+    expensas
+      .filter((e) => e.departamento === num && e.montoRestante + e.moraRestante > 0)
+      .sort((a, b) => a.periodo.localeCompare(b.periodo));
+  const deudaDe = (num: number) =>
+    r2(expensas.filter((e) => e.departamento === num).reduce((s, e) => s + e.montoRestante + e.moraRestante, 0));
 
-  const [anticipoDepto, setAnticipoDepto] = useState(
-    DEPARTAMENTOS[0]
-  );
-
-  const [anticipoMonto, setAnticipoMonto] = useState("");
-
-  const [errorAnticipo, setErrorAnticipo] = useState("");
-
-  const filasBase = useMemo<ExpensaDeptoCalculada[]>(() => {
-    return (datos[periodoActivo] ?? []).map((e) => {
-      const atraso = e.pagado
-        ? 0
-        : diasDeAtraso(e.periodo, regla.diasGracia);
-
-      const mora =
-        atraso > 0
-          ? (e.monto * regla.porcentaje) / 100
-          : 0;
-
-      const saldo = e.pagado
-        ? 0
-        : Math.max(
-            0,
-            e.monto + mora - e.anticipoAplicado
-          );
-
-      return {
-        ...e,
-        atraso,
-        mora,
-        saldo,
-      };
+  const filasTodas = DEPARTAMENTOS.map((d) => filaDe(d, expensas, aFavor[d.numero] ?? 0, periodoF));
+  const q = normalizar(busqueda);
+  const filtradas = filasTodas
+    .filter(
+      (f) =>
+        (categoriaF === "" || f.depto.categoria === categoriaF) &&
+        (estadoF === "" || f.estado === estadoF) &&
+        (q === "" || String(f.depto.numero).includes(q) || normalizar(f.depto.responsable).includes(q))
+    )
+    .sort((a, b) => {
+      const x = valorOrden(a, orden.campo);
+      const y = valorOrden(b, orden.campo);
+      const r = typeof x === "number" && typeof y === "number" ? x - y : String(x).localeCompare(String(y));
+      return orden.dir === "asc" ? r : -r;
     });
-  }, [datos, periodoActivo, regla]);
 
-  const filas = useMemo(() => {
-    return filasBase.filter((f) => {
-      const coincideBusqueda =
-        f.departamento
-          .toLowerCase()
-          .includes(busqueda.toLowerCase());
+  const totalPaginas = Math.max(1, Math.ceil(filtradas.length / POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const visibles = filtradas.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
 
-      const coincideEstado =
-        filtroEstado === "Todos" ||
-        (filtroEstado === "Pagados" && f.pagado) ||
-        (filtroEstado === "En mora" &&
-          !f.pagado &&
-          f.atraso > 0) ||
-        (filtroEstado === "Pendientes" &&
-          !f.pagado &&
-          f.atraso === 0);
+  const sumar = (fs: Fila[], k: "adeudado" | "mora" | "saldoTotal") => r2(fs.reduce((s, f) => s + f[k], 0));
+  const categoriasPresentes = (["A", "B", "C"] as Categoria[]).filter((c) => filtradas.some((f) => f.depto.categoria === c));
 
-      return coincideBusqueda && coincideEstado;
-    });
-  }, [filasBase, busqueda, filtroEstado]);
+  const filtrosTxt =
+    [
+      periodoF && `Período: ${nombrePeriodo(periodoF)}`,
+      categoriaF && `Categoría: ${categoriaF}`,
+      estadoF && `Estado: ${estadoF}`,
+      busqueda.trim() && `Búsqueda: "${busqueda.trim()}"`,
+    ]
+      .filter(Boolean)
+      .join(" · ") || "Sin filtros";
 
-  const totalPendiente = filasBase.reduce(
-    (sum, f) => sum + f.saldo,
-    0
-  );
+  const saldoTxt = (n: number) =>
+    n < 0 ? <span style={{ color: "#56704F", fontWeight: 600 }}>A favor {bs(-n)}</span> : bs(n);
 
-  const morosos = filasBase.filter(
-    (f) => f.atraso > 0
-  ).length;
+  // ---------- Modal de pago: datos del departamento elegido ----------
+  const deptoPago = DEPARTAMENTOS.find((d) => String(d.numero) === pagoDepto) ?? null;
+  const pendPago = deptoPago ? pendientesDe(deptoPago.numero) : [];
+  const masAntigua = pendPago[0] ?? null;
+  const totalAPagar = masAntigua ? r2(masAntigua.montoRestante + masAntigua.moraRestante) : 0;
+  const montoNum = parseMonto(pagoMonto);
+  const excesivo = montoNum !== null && montoNum > totalAPagar;
+  const mensajeMonto =
+    pagoMonto.trim() === ""
+      ? ""
+      : montoNum === null
+      ? "Monto incorrecto: ingresa un valor mayor a 0 con máximo dos decimales."
+      : excesivo
+      ? `Monto excesivo: supera lo que debe pagar la expensa (${bs(totalAPagar)}). El pago no se puede realizar.`
+      : "";
+  const pagoValido = !!masAntigua && montoNum !== null && !excesivo && pagoFecha !== "";
+  const aplicacion = masAntigua && montoNum !== null && !excesivo ? aplicar(masAntigua, montoNum) : null;
 
-  // Anticipos aplicados al período actual.
-  const anticiposDeEstePeriodo = anticipos.filter(
-    (a) => a.periodoAplicado === periodoActivo
-  );
+  // ---------- Modal de anticipo: datos del departamento elegido ----------
+  const deptoAnt = DEPARTAMENTOS.find((d) => String(d.numero) === antDepto) ?? null;
+  const deudaAnt = deptoAnt ? deudaDe(deptoAnt.numero) : 0;
+  const antMontoNum = parseMonto(antMonto);
+  const mensajeAntMonto =
+    antMonto.trim() !== "" && antMontoNum === null
+      ? "Monto incorrecto: ingresa un valor mayor a 0 con máximo dos decimales."
+      : "";
+  const anticipoValido = !!deptoAnt && deudaAnt === 0 && antMontoNum !== null && antFecha !== "";
 
-  function abrirModalRegla() {
-    setDraftPorcentaje(String(regla.porcentaje));
-    setDraftDiasGracia(String(regla.diasGracia));
-    setErrorRegla("");
-    setModalRegla(true);
+  // ---------- Acciones ----------
+  function cambiarFiltro(fn: () => void) {
+    fn();
+    setPagina(1);
   }
-
-  function guardarRegla() {
-    const p = Number(draftPorcentaje);
-    const d = Number(draftDiasGracia);
-
-    if (isNaN(p) || p < 0 || p > 100) {
-      setErrorRegla(
-        "El porcentaje de mora debe estar entre 0 y 100."
-      );
-      return;
-    }
-
-    if (isNaN(d) || d < 0) {
-      setErrorRegla(
-        "Los días de gracia deben ser 0 o más."
-      );
-      return;
-    }
-
-    setRegla({
-      porcentaje: p,
-      diasGracia: d,
-    });
-
-    setModalRegla(false);
+  function limpiarFiltros() {
+    setPeriodoF("");
+    setCategoriaF("");
+    setEstadoF("");
+    setBusqueda("");
+    setPagina(1);
   }
+  function alternarOrden(campo: Campo) {
+    setOrden((o) => (o.campo === campo ? { campo, dir: o.dir === "asc" ? "desc" : "asc" } : { campo, dir: "asc" }));
+  }
+  const th = (campo: Campo, texto: string) => (
+    <th onClick={() => alternarOrden(campo)} style={{ cursor: "pointer", userSelect: "none" }}>
+      {texto}
+      {orden.campo === campo ? (orden.dir === "asc" ? " ▲" : " ▼") : ""}
+    </th>
+  );
 
-  // CORRECCIÓN:
-  // recibe ExpensaDeptoCalculada porque el objeto viene de filasBase.
-  function abrirModalPago(depto: ExpensaDeptoCalculada) {
-    setPagoDepto(depto);
-
-    setMetodoPago("Transferencia");
-
-    setFechaPago(
-      HOY.toISOString().slice(0, 10)
-    );
-
+  function elegirDeptoPago(valor: string) {
+    setPagoDepto(valor);
     setErrorPago("");
-
-    setMensajePago("");
-
-    setModalPago(true);
+    const pend = valor ? pendientesDe(Number(valor)) : [];
+    setPagoMonto(pend[0] ? (pend[0].montoRestante + pend[0].moraRestante).toFixed(2) : "");
   }
-
-  function registrarPago() {
-    if (!pagoDepto) return;
-
-    if (!fechaPago) {
-      setErrorPago(
-        "Debes indicar la fecha en que se realizó el pago."
-      );
-      return;
-    }
-
+  function abrirPago(numero?: number) {
+    setExito("");
+    setPagoPaso("form");
+    setPagoFecha(hoyISO());
+    setPagoMetodo(METODOS[0]);
+    setPagoRef("");
     setErrorPago("");
-
-    const esAnticipado =
-      pagoDepto.atraso === 0 &&
-      fechaPago < `${periodoActivo}-10`;
-
-    setDatos((prev) => ({
-      ...prev,
-
-      [periodoActivo]: prev[periodoActivo].map(
-        (e) =>
-          e.departamento === pagoDepto.departamento
-            ? {
-                ...e,
-                pagado: true,
-                fechaPago,
-                pagoAnticipado: esAnticipado,
-              }
-            : e
-      ),
-    }));
-
-    setMensajePago(
-      `Pago de ${pagoDepto.departamento} registrado correctamente (${metodoPago}).`
-    );
-
-    setTimeout(
-      () => setModalPago(false),
-      900
-    );
+    setRecibo(null);
+    setPagoDepto("");
+    setPagoMonto("");
+    if (numero !== undefined) elegirDeptoPago(String(numero));
+    setPagoOpen(true);
+  }
+  function cerrarPago() {
+    if (guardandoPago) return;
+    setPagoOpen(false);
+  }
+  function abrirAnticipo(numero?: number) {
+    setExito("");
+    setAntDepto(numero !== undefined ? String(numero) : "");
+    setAntMonto("");
+    setAntFecha(hoyISO());
+    setAntMetodo(METODOS[0]);
+    setAntRef("");
+    setErrorAnt("");
+    setAntOpen(true);
+  }
+  function cerrarAnticipo() {
+    if (guardandoAnt) return;
+    setAntOpen(false);
   }
 
-  function abrirModalAnticipo() {
-    setAnticipoDepto(DEPARTAMENTOS[0]);
-
-    setAnticipoMonto("");
-
-    setErrorAnticipo("");
-
-    setModalAnticipo(true);
-  }
-
-  function registrarAnticipo() {
-    const monto = Number(anticipoMonto);
-
-    if (!anticipoDepto) {
-      setErrorAnticipo(
-        "Selecciona un departamento."
+  async function registrarPago() {
+    // Criterio 10: el botón se bloquea para evitar pagos duplicados
+    if (guardandoPago || !masAntigua || montoNum === null) return;
+    const exp = masAntigua;
+    setGuardandoPago(true);
+    setErrorPago("");
+    try {
+      const res = await registrarPagoApi({
+        expensa: exp, monto: montoNum, fecha: pagoFecha, metodo: pagoMetodo, referencia: pagoRef.trim(), usuario: readNombre(),
+      });
+      // Criterio 7: se actualizan los datos con lo que devuelve el servidor
+      setExpensas((prev) =>
+        prev.map((e) => (e.id === exp.id ? { ...e, montoRestante: res.montoRestante, moraRestante: res.moraRestante } : e))
       );
+      setHistorial((prev) => [res.movimiento, ...prev]);
+      setRecibo(res.recibo);
+      setPagoPaso("recibo");
+      // Criterio 6: mensaje de guardado
+      setExito(`Pago de ${bs(montoNum)} registrado con éxito para el Dpto. ${exp.departamento}.`);
+    } catch (e) {
+      setErrorPago(e instanceof Error ? e.message : "No se pudo registrar el pago. Intenta nuevamente.");
+    } finally {
+      setGuardandoPago(false);
+    }
+  }
+
+  async function registrarAnticipo() {
+    if (guardandoAnt || !deptoAnt || antMontoNum === null) return;
+    setGuardandoAnt(true);
+    setErrorAnt("");
+    try {
+      const res = await registrarAnticipoApi({
+        departamento: deptoAnt.numero, monto: antMontoNum, fecha: antFecha, metodo: antMetodo, referencia: antRef.trim(), usuario: readNombre(),
+      });
+      setAFavor((prev) => ({ ...prev, [deptoAnt.numero]: r2((prev[deptoAnt.numero] ?? 0) + antMontoNum) }));
+      setHistorial((prev) => [res.movimiento, ...prev]);
+      setExito(`Pago anticipado de ${bs(antMontoNum)} registrado con éxito para el Dpto. ${deptoAnt.numero}.`);
+      setAntOpen(false);
+    } catch (e) {
+      setErrorAnt(e instanceof Error ? e.message : "No se pudo registrar el pago anticipado. Intenta nuevamente.");
+    } finally {
+      setGuardandoAnt(false);
+    }
+  }
+
+  // Criterio 6 de la HU-11: exportar con indicación de los filtros usados
+  function exportarExcel() {
+    // BACKEND: GET /saldos-pendientes/exportar?formato=xlsx&<filtros>. Aquí se simula con un CSV que abre Excel.
+    if (filtradas.length === 0) {
+      alert("No hay datos para exportar.");
       return;
     }
-
-    if (
-      !anticipoMonto ||
-      isNaN(monto) ||
-      monto <= 0
-    ) {
-      setErrorAnticipo(
-        "Ingresa un monto válido, mayor a 0."
-      );
+    const lineas: (string | number)[][] = [
+      ["Saldos pendientes"],
+      [`Filtros aplicados: ${filtrosTxt}`],
+      [],
+      ["Departamento", "Responsable", "Categoría", "Expensas sin pagar", "Monto adeudado", "Mora acumulada", "Saldo total", "Estado"],
+      ...filtradas.map((f) => [f.depto.numero, f.depto.responsable, f.depto.categoria, f.sinPagar, f.adeudado, f.mora, f.saldoTotal, f.estado]),
+      [],
+      ["Total adeudado", "", "", "", sumar(filtradas, "adeudado"), sumar(filtradas, "mora"), sumar(filtradas, "saldoTotal"), ""],
+    ];
+    const csv = lineas.map((l) => l.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n");
+    descargar("saldos-pendientes.csv", "\uFEFF" + csv, "text/csv;charset=utf-8");
+  }
+  function exportarPdf() {
+    // BACKEND: GET /saldos-pendientes/exportar?formato=pdf&<filtros>. Aquí se simula con la ventana de impresión.
+    if (filtradas.length === 0) {
+      alert("No hay datos para exportar.");
       return;
     }
-
-    const destino = periodoSiguiente(
-      periodoActivo
+    const filas = filtradas
+      .map(
+        (f) =>
+          `<tr><td>${f.depto.numero}</td><td>${f.depto.responsable}</td><td>${f.depto.categoria}</td><td>${f.sinPagar}</td><td>${bs(f.adeudado)}</td><td>${bs(f.mora)}</td><td>${bs(f.saldoTotal)}</td><td>${f.estado}</td></tr>`
+      )
+      .join("");
+    imprimirHtml(
+      "Saldos pendientes",
+      `<h2>Saldos pendientes</h2><p>Filtros aplicados: ${filtrosTxt}</p><table><thead><tr><th>Dpto.</th><th>Responsable</th><th>Cat.</th><th>Sin pagar</th><th>Adeudado</th><th>Mora</th><th>Saldo total</th><th>Estado</th></tr></thead><tbody>${filas}</tbody></table><p><b>Total adeudado:</b> ${bs(sumar(filtradas, "adeudado"))}</p>`
     );
-
-    const nuevo: Anticipo = {
-      id: Date.now(),
-      departamento: anticipoDepto,
-      monto,
-      periodoAplicado: destino,
-      fechaRegistro:
-        HOY.toISOString().slice(0, 10),
-    };
-
-    setAnticipos((prev) => [
-      nuevo,
-      ...prev,
-    ]);
-
-    // Si la expensa del período futuro ya existe,
-    // se aplica inmediatamente.
-    setDatos((prev) => {
-      if (!prev[destino]) return prev;
-
-      return {
-        ...prev,
-
-        [destino]: prev[destino].map(
-          (e) =>
-            e.departamento === anticipoDepto
-              ? {
-                  ...e,
-                  anticipoAplicado:
-                    e.anticipoAplicado +
-                    monto,
-                }
-              : e
-        ),
-      };
-    });
-
-    setModalAnticipo(false);
   }
+  function imprimirRecibo(r: Recibo) {
+    imprimirHtml("Recibo de pago", `<h2>Recibo de pago</h2>${datosRecibo(r).map(([k, v]) => `<p><b>${k}:</b> ${v}</p>`).join("")}`);
+  }
+  function descargarRecibo(r: Recibo) {
+    // BACKEND: GET /pagos/{id}/recibo (PDF). Aquí se simula con un archivo de texto.
+    descargar(
+      `recibo-dpto-${r.departamento}.txt`,
+      "RECIBO DE PAGO\r\n\r\n" + datosRecibo(r).map(([k, v]) => `${k}: ${v}`).join("\r\n"),
+      "text/plain;charset=utf-8"
+    );
+  }
+
+  // ---------- Render ----------
+  if (!esAdmin) {
+    return (
+      <DashboardLayout active="pagos">
+        <div className="panel">
+          <div className="empty-state">Acceso denegado. Solo el administrador puede ver los saldos pendientes.</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  const enMora = filasTodas.filter((f) => f.estado === "En mora").length;
 
   return (
     <DashboardLayout active="pagos">
       <div className="page-header">
         <div>
-          <p className="eyebrow">
-            EP-02 · PAGOS
-          </p>
-
+          <p className="eyebrow">EP-02 · PAGOS</p>
           <h1>Pagos y mora</h1>
-
-          <p>
-            Registra pagos de expensas, consulta
-            saldos pendientes y gestiona la mora.
-          </p>
+          <p>Registra pagos, consulta los saldos pendientes de cada departamento y revisa la mora.</p>
         </div>
-
-        <div
-          style={{
-            display: "flex",
-            gap: 10,
-          }}
-        >
-          <button
-            className="btn btn-secondary"
-            onClick={abrirModalAnticipo}
-          >
-            <PlusIcon size={16} />
-            Registrar anticipo
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn-secondary" onClick={() => abrirAnticipo()}>
+            <PlusIcon size={16} /> Pago anticipado
           </button>
-
-          <button
-            className="btn btn-secondary"
-            onClick={abrirModalRegla}
-          >
-            <SettingsIcon size={16} />
-            Reglas de mora
+          <button className="btn btn-primary" onClick={() => abrirPago()}>
+            <CreditCardIcon size={16} /> Registrar pago
           </button>
         </div>
       </div>
+
+      {exito && <div className="alert alert-success" style={{ marginBottom: 16 }}>{exito}</div>}
 
       <div className="metric-row">
         <div className="metric-card">
-          <div className="metric-icon attention">
-            <WalletIcon size={20} />
-          </div>
-
-          <div>
-            <span>
-              Saldo pendiente (
-              {nombrePeriodo(periodoActivo)})
-            </span>
-
-            <strong>
-              Bs. {totalPendiente.toFixed(2)}
-            </strong>
-          </div>
+          <div className="metric-icon attention"><WalletIcon size={20} /></div>
+          <div><span>Monto adeudado</span><strong>{bs(sumar(filasTodas, "adeudado"))}</strong></div>
         </div>
-
         <div className="metric-card">
-          <div className="metric-icon">
-            <CreditCardIcon size={20} />
-          </div>
-
-          <div>
-            <span>Mora aplicada</span>
-
-            <strong>
-              {regla.porcentaje}%
-            </strong>
-          </div>
+          <div className="metric-icon"><CreditCardIcon size={20} /></div>
+          <div><span>Mora acumulada</span><strong>{bs(sumar(filasTodas, "mora"))}</strong></div>
         </div>
-
         <div className="metric-card">
-          <div className="metric-icon soft">
-            <CheckIcon size={20} />
-          </div>
-
-          <div>
-            <span>
-              Departamentos morosos
-            </span>
-
-            <strong>{morosos}</strong>
-          </div>
+          <div className="metric-icon soft"><CheckIcon size={20} /></div>
+          <div><span>Departamentos en mora</span><strong>{enMora}</strong></div>
         </div>
       </div>
 
+      {/* HU-11: filtros y búsqueda */}
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-toolbar">
+          <div>
+            <h3>Filtros</h3>
+            <p>La búsqueda se aplica junto con los filtros. Ignora mayúsculas y tildes.</p>
+          </div>
+          <button className="btn btn-secondary" onClick={limpiarFiltros}>Limpiar filtros</button>
+        </div>
+        <div className="modal-form" style={{ paddingTop: 8 }}>
+          <div className="form-grid">
+            <label className="field">
+              <span>Período</span>
+              <select value={periodoF} onChange={(e) => cambiarFiltro(() => setPeriodoF(e.target.value))}>
+                <option value="">Todos los períodos</option>
+                {PERIODOS.map((p) => <option key={p} value={p}>{nombrePeriodo(p)}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span>Categoría de departamento</span>
+              <select value={categoriaF} onChange={(e) => cambiarFiltro(() => setCategoriaF(e.target.value))}>
+                <option value="">Todas</option>
+                <option value="A">Categoría A</option>
+                <option value="B">Categoría B</option>
+                <option value="C">Categoría C</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Estado</span>
+              <select value={estadoF} onChange={(e) => cambiarFiltro(() => setEstadoF(e.target.value))}>
+                <option value="">Todos</option>
+                <option value="Al día">Al día</option>
+                <option value="Pendiente">Pendiente</option>
+                <option value="En mora">En mora</option>
+              </select>
+            </label>
+            <label className="field">
+              <span>Buscar por número o responsable</span>
+              <input value={busqueda} onChange={(e) => cambiarFiltro(() => setBusqueda(e.target.value))} placeholder="Ej. 103 o Ana Vargas" />
+            </label>
+          </div>
+        </div>
+      </section>
+
+      {/* HU-11: tabla de saldos pendientes. HU-12: la mora aparece aquí */}
       <section className="panel">
         <div className="panel-toolbar">
           <div>
-            <h3>
-              Expensas por periodo
-            </h3>
-
-            <p>
-              Mora calculada automáticamente
-              tras {regla.diasGracia} días de
-              gracia, al {regla.porcentaje}%.
-            </p>
+            <h3>Saldos pendientes por departamento</h3>
+            <p>La mora se calcula automáticamente cada día. No es necesario calcularla.</p>
+            <p>Filtros aplicados: {filtrosTxt}</p>
           </div>
-
-          <select
-            value={periodoActivo}
-            onChange={(e) =>
-              setPeriodoActivo(e.target.value)
-            }
-            style={{
-              textTransform: "capitalize",
-            }}
-          >
-            {PERIODOS.map((p) => (
-              <option
-                key={p}
-                value={p}
-                style={{
-                  textTransform: "capitalize",
-                }}
-              >
-                {nombrePeriodo(p)}
-              </option>
-            ))}
-          </select>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-secondary" onClick={exportarPdf}><FileIcon size={16} /> Exportar PDF</button>
+            <button className="btn btn-secondary" onClick={exportarExcel}><FileIcon size={16} /> Exportar Excel</button>
+          </div>
         </div>
 
-        <div className="doc-filters">
-          {(
-            [
-              "Todos",
-              "Pendientes",
-              "En mora",
-              "Pagados",
-            ] as FiltroEstado[]
-          ).map((f) => (
-            <button
-              key={f}
-              className={`filter-chip ${
-                filtroEstado === f
-                  ? "active"
-                  : ""
-              }`}
-              onClick={() =>
-                setFiltroEstado(f)
-              }
-            >
-              {f}
-            </button>
-          ))}
-
-          <input
-            placeholder="Buscar departamento…"
-            value={busqueda}
-            onChange={(e) =>
-              setBusqueda(e.target.value)
-            }
-            style={{
-              marginLeft: "auto",
-              maxWidth: 220,
-            }}
-          />
-        </div>
-
-        {filas.length === 0 ? (
-          <div className="empty-state">
-            No se encontraron departamentos
-            con esos filtros.
-          </div>
+        {filtradas.length === 0 ? (
+          <div className="empty-state">No se encontró Departamentos con el filtro seleccionado</div>
         ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Departamento</th>
-                  <th>Monto expensa</th>
-                  <th>Mora</th>
-                  <th>
-                    Anticipo aplicado
-                  </th>
-                  <th>Saldo</th>
-                  <th>Estado</th>
-                  <th></th>
-                </tr>
-              </thead>
-
-              <tbody>
-                {filas.map((f) => (
-                  <tr
-                    key={f.departamento}
-                  >
-                    <td>
-                      <span className="tag">
-                        {f.departamento}
-                      </span>
-                    </td>
-
-                    <td>
-                      Bs. {f.monto.toFixed(2)}
-                    </td>
-
-                    <td>
-                      {f.mora > 0
-                        ? `Bs. ${f.mora.toFixed(
-                            2
-                          )} (${f.atraso} días)`
-                        : "—"}
-                    </td>
-
-                    <td>
-                      {f.anticipoAplicado >
-                      0
-                        ? `Bs. ${f.anticipoAplicado.toFixed(
-                            2
-                          )}`
-                        : "—"}
-                    </td>
-
-                    <td>
-                      <strong>
-                        Bs. {f.saldo.toFixed(2)}
-                      </strong>
-                    </td>
-
-                    <td>
-                      {f.pagado ? (
-                        <span className="status status-success">
-                          <span />
-                          {f.pagoAnticipado
-                            ? "Pagado (anticipado)"
-                            : "Pagado"}
-                        </span>
-                      ) : f.atraso > 0 ? (
-                        <span className="status status-attention">
-                          <span />
-                          En mora
-                        </span>
-                      ) : (
-                        <span className="status status-warning">
-                          <span />
-                          Pendiente
-                        </span>
-                      )}
-                    </td>
-
-                    <td>
-                      {!f.pagado && (
-                        <button
-                          className="btn btn-secondary"
-                          onClick={() =>
-                            abrirModalPago(f)
-                          }
-                        >
-                          Registrar pago
-                        </button>
-                      )}
-                    </td>
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    {th("departamento", "Departamento")}
+                    {th("responsable", "Propietario o responsable")}
+                    {th("categoria", "Categoría")}
+                    {th("sinPagar", "Expensas no pagadas")}
+                    {th("adeudado", "Monto adeudado")}
+                    {th("mora", "Mora acumulada")}
+                    {th("saldoTotal", "Saldo total")}
+                    <th>Estado</th>
+                    <th>Acciones</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {visibles.map((f) => (
+                    <tr key={f.depto.numero}>
+                      <td>
+                        {/* Criterio 8: al hacer clic en un departamento se ve su estado de cuenta */}
+                        <Link href={`/estado-cuenta?depto=${f.depto.numero}`} className="tag" title="Ver estado de cuenta">
+                          Dpto. {f.depto.numero}
+                        </Link>
+                      </td>
+                      <td>{f.depto.responsable}</td>
+                      <td>{f.depto.categoria}</td>
+                      <td>{f.sinPagar}</td>
+                      <td>{bs(f.adeudado)}</td>
+                      <td>{f.mora > 0 ? bs(f.mora) : "—"}</td>
+                      <td><strong>{saldoTxt(f.saldoTotal)}</strong></td>
+                      <td><BadgeEstado estado={f.estado} /></td>
+                      <td>
+                        {pendientesDe(f.depto.numero).length > 0 ? (
+                          <button className="btn btn-secondary" onClick={() => abrirPago(f.depto.numero)}>Registrar pago</button>
+                        ) : (
+                          <button className="btn btn-secondary" onClick={() => abrirAnticipo(f.depto.numero)}>Pago anticipado</button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  {categoriasPresentes.map((c) => {
+                    const fs = filtradas.filter((f) => f.depto.categoria === c);
+                    return (
+                      <tr key={c} style={{ background: "#faf7f4" }}>
+                        <td colSpan={4}>Subtotal categoría {c}</td>
+                        <td>{bs(sumar(fs, "adeudado"))}</td>
+                        <td>{bs(sumar(fs, "mora"))}</td>
+                        <td>{saldoTxt(sumar(fs, "saldoTotal"))}</td>
+                        <td colSpan={2}></td>
+                      </tr>
+                    );
+                  })}
+                  <tr style={{ background: "#fff0eb", fontWeight: 700 }}>
+                    <td colSpan={4}>Total adeudado</td>
+                    <td>{bs(sumar(filtradas, "adeudado"))}</td>
+                    <td>{bs(sumar(filtradas, "mora"))}</td>
+                    <td>{saldoTxt(sumar(filtradas, "saldoTotal"))}</td>
+                    <td colSpan={2}></td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", fontSize: 12, color: "#766E69" }}>
+              <span>{filtradas.length} {filtradas.length === 1 ? "departamento" : "departamentos"}</span>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <button className="btn btn-secondary" disabled={paginaActual <= 1} onClick={() => setPagina(paginaActual - 1)}>Anterior</button>
+                <span>Página {paginaActual} de {totalPaginas}</span>
+                <button className="btn btn-secondary" disabled={paginaActual >= totalPaginas} onClick={() => setPagina(paginaActual + 1)}>Siguiente</button>
+              </div>
+            </div>
+          </>
         )}
       </section>
 
-      {anticiposDeEstePeriodo.length >
-        0 && (
-        <section
-          className="panel"
-          style={{ marginTop: 20 }}
-        >
-          <div className="panel-toolbar">
-            <div>
-              <h3>
-                Anticipos aplicados a{" "}
-                {nombrePeriodo(
-                  periodoActivo
-                )}
-              </h3>
-
-              <p>
-                Pagos adelantados que se
-                descuentan del saldo de este
-                período.
-              </p>
-            </div>
+      {/* HU-10 criterio 4: el anticipo se ve en el historial como "pago anticipado registrado" */}
+      <section className="panel" style={{ marginTop: 20 }}>
+        <div className="panel-toolbar">
+          <div>
+            <h3>Historial de pagos registrados</h3>
+            <p>Pagos de expensas y pagos anticipados, con el usuario que los registró.</p>
           </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Departamento</th>
-                  <th>Monto</th>
-                  <th>
-                    Fecha de registro
-                  </th>
+        </div>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Fecha</th><th>Departamento</th><th>Tipo</th><th>Monto</th><th>Método</th><th>Referencia</th><th>Registrado por</th></tr>
+            </thead>
+            <tbody>
+              {historial.map((m) => (
+                <tr key={m.id}>
+                  <td>{fechaCorta(m.fecha)}</td>
+                  <td><span className="tag">Dpto. {m.departamento}</span></td>
+                  <td>{m.tipo}</td>
+                  <td>{bs(m.monto)}</td>
+                  <td>{m.metodo}</td>
+                  <td>{m.referencia || "—"}</td>
+                  <td>{m.usuario}</td>
                 </tr>
-              </thead>
-
-              <tbody>
-                {anticiposDeEstePeriodo.map(
-                  (a) => (
-                    <tr key={a.id}>
-                      <td>
-                        <span className="tag">
-                          {a.departamento}
-                        </span>
-                      </td>
-
-                      <td>
-                        Bs.{" "}
-                        {a.monto.toFixed(2)}
-                      </td>
-
-                      <td>
-                        {a.fechaRegistro}
-                      </td>
-                    </tr>
-                  )
-                )}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      )}
-
-      <Modal
-        open={modalRegla}
-        title="Configurar reglas de mora"
-        onClose={() =>
-          setModalRegla(false)
-        }
-      >
-        <div className="modal-form">
-          <label className="field">
-            <span>
-              Porcentaje de mora (%)
-            </span>
-
-            <input
-              type="number"
-              min="0"
-              max="100"
-              step="0.1"
-              value={draftPorcentaje}
-              onChange={(e) =>
-                setDraftPorcentaje(
-                  e.target.value
-                )
-              }
-            />
-          </label>
-
-          <label className="field">
-            <span>
-              Días de gracia antes de
-              aplicar mora
-            </span>
-
-            <input
-              type="number"
-              min="0"
-              value={draftDiasGracia}
-              onChange={(e) =>
-                setDraftDiasGracia(
-                  e.target.value
-                )
-              }
-            />
-          </label>
-
-          {errorRegla && (
-            <div className="alert alert-error">
-              {errorRegla}
-            </div>
-          )}
-
-          <button
-            className="btn btn-primary"
-            onClick={guardarRegla}
-          >
-            Guardar reglas
-          </button>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </Modal>
+      </section>
 
-      <Modal
-        open={modalPago}
-        title={`Registrar pago · ${
-          pagoDepto?.departamento ?? ""
-        }`}
-        onClose={() =>
-          setModalPago(false)
-        }
-      >
-        <div className="modal-form">
-          <p
-            style={{
-              fontSize: 12,
-              color: "#6b625c",
-            }}
-          >
-            Saldo a pagar:{" "}
-            <strong>
-              Bs.{" "}
-              {pagoDepto
-                ? (
-                    filasBase.find(
-                      (f) =>
-                        f.departamento ===
-                        pagoDepto.departamento
-                    )?.saldo ?? 0
-                  ).toFixed(2)
-                : "0.00"}
-            </strong>
-          </p>
+      {/* ================= HU-09: Registrar pago ================= */}
+      <Modal open={pagoOpen} title={pagoPaso === "recibo" ? "Recibo de pago" : "Registrar pago de expensa"} onClose={cerrarPago}>
+        {pagoPaso === "form" && (
+          <div className="modal-form">
+            <label className="field">
+              <span>Departamento <b>*</b></span>
+              <select value={pagoDepto} onChange={(e) => elegirDeptoPago(e.target.value)}>
+                <option value="">Selecciona un departamento</option>
+                {DEPARTAMENTOS.map((d) => (
+                  <option key={d.numero} value={String(d.numero)}>Dpto. {d.numero} · {d.responsable}</option>
+                ))}
+              </select>
+            </label>
 
-          <label className="field">
-            <span>
-              Método de pago
-            </span>
-
-            <select
-              value={metodoPago}
-              onChange={(e) =>
-                setMetodoPago(
-                  e.target.value
-                )
-              }
-            >
-              <option>
-                Transferencia
-              </option>
-
-              <option>Efectivo</option>
-
-              <option>QR</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>
-              Fecha de pago
-            </span>
-
-            <input
-              type="date"
-              value={fechaPago}
-              onChange={(e) =>
-                setFechaPago(
-                  e.target.value
-                )
-              }
-            />
-          </label>
-
-          <label className="field">
-            <span>
-              Comprobante (opcional)
-            </span>
-
-            <input
-              type="file"
-              accept=".pdf,.jpg,.jpeg,.png"
-            />
-          </label>
-
-          {errorPago && (
-            <div className="alert alert-error">
-              {errorPago}
-            </div>
-          )}
-
-          {mensajePago && (
-            <div className="alert alert-success">
-              {mensajePago}
-            </div>
-          )}
-
-          <button
-            className="btn btn-primary"
-            onClick={registrarPago}
-          >
-            Confirmar pago
-          </button>
-        </div>
-      </Modal>
-
-      <Modal
-        open={modalAnticipo}
-        title="Registrar pago anticipado"
-        onClose={() =>
-          setModalAnticipo(false)
-        }
-      >
-        <div className="modal-form">
-          <label className="field">
-            <span>
-              Departamento
-            </span>
-
-            <select
-              value={anticipoDepto}
-              onChange={(e) =>
-                setAnticipoDepto(
-                  e.target.value
-                )
-              }
-            >
-              {DEPARTAMENTOS.map(
-                (d) => (
-                  <option
-                    key={d}
+            {deptoPago && pendPago.length === 0 && (
+              <div className="alert alert-success" style={{ marginTop: 12 }}>
+                El Dpto. {deptoPago.numero} está al día: no tiene expensas pendientes. Puedes registrar un pago anticipado.
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => { setPagoOpen(false); abrirAnticipo(deptoPago.numero); }}
                   >
-                    {d}
-                  </option>
-                )
-              )}
+                    Registrar pago anticipado
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {deptoPago && pendPago.length > 0 && masAntigua && (
+              <>
+                <h3 style={{ fontSize: 13, margin: "16px 0 8px" }}>Expensas pendientes del Dpto. {deptoPago.numero}</h3>
+                <div className="table-wrap">
+                  <table>
+                    <thead>
+                      <tr><th>Período</th><th>Monto fijo</th><th>Mora</th><th>Total a pagar</th><th>Estado</th></tr>
+                    </thead>
+                    <tbody>
+                      {pendPago.map((e) => (
+                        <tr key={e.id}>
+                          <td>{nombrePeriodo(e.periodo)}</td>
+                          <td>{bs(e.montoRestante)}</td>
+                          <td>{e.moraRestante > 0 ? bs(e.moraRestante) : "—"}</td>
+                          <td><strong>{bs(e.montoRestante + e.moraRestante)}</strong></td>
+                          <td><BadgeEstado estado={e.vencida ? "En mora" : "Pendiente"} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <p style={{ fontSize: 11, color: "#9a918b", margin: "8px 0 14px" }}>
+                  El pago se aplica a la expensa pendiente más antigua ({nombrePeriodo(masAntigua.periodo)}).
+                </p>
+
+                <div className="form-grid">
+                  <label className="field">
+                    <span>Monto pagado (Bs.) <b>*</b></span>
+                    <input value={pagoMonto} inputMode="decimal" onChange={(e) => setPagoMonto(e.target.value)} placeholder="Ej. 300,00" />
+                  </label>
+                  <label className="field">
+                    <span>Fecha de pago <b>*</b></span>
+                    <input type="date" max={hoyISO()} value={pagoFecha} onChange={(e) => setPagoFecha(e.target.value)} />
+                  </label>
+                  <label className="field">
+                    <span>Método de pago <b>*</b></span>
+                    <select value={pagoMetodo} onChange={(e) => setPagoMetodo(e.target.value)}>
+                      {METODOS.map((m) => <option key={m}>{m}</option>)}
+                    </select>
+                  </label>
+                  <label className="field">
+                    <span>Referencias</span>
+                    <input value={pagoRef} onChange={(e) => setPagoRef(e.target.value)} placeholder="N° de operación (opcional)" />
+                  </label>
+                </div>
+
+                {mensajeMonto && (
+                  <div
+                    className={excesivo ? "alert" : "alert alert-error"}
+                    style={excesivo ? { ...AVISO, marginTop: 12 } : { marginTop: 12 }}
+                  >
+                    {mensajeMonto}
+                  </div>
+                )}
+              </>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={cerrarPago}>Cancelar</button>
+              <button className="btn btn-primary" disabled={!pagoValido} onClick={() => setPagoPaso("preview")}>
+                Ver vista previa
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Criterio 5: vista previa antes de guardar */}
+        {pagoPaso === "preview" && masAntigua && montoNum !== null && aplicacion && (
+          <div className="modal-form">
+            <p style={{ fontSize: 13, margin: "0 0 8px", color: "#766E69" }}>Revisa los datos antes de guardar el pago.</p>
+            <div style={FILA}><span>Departamento</span><strong>Dpto. {masAntigua.departamento}</strong></div>
+            <div style={FILA}><span>Expensa a la que se aplica</span><strong>{nombrePeriodo(masAntigua.periodo)}</strong></div>
+            <div style={FILA}><span>Monto pagado</span><strong>{bs(montoNum)}</strong></div>
+            <div style={FILA}>
+              <span>Se descontará de la mora</span>
+              <strong>{masAntigua.moraRestante > 0 ? bs(aplicacion.aMora) : "Sin mora"}</strong>
+            </div>
+            <div style={FILA}><span>Se aplicará al monto de la expensa</span><strong>{bs(aplicacion.aMonto)}</strong></div>
+            <div style={FILA}>
+              <span>Saldo restante de esta expensa</span>
+              <strong>{aplicacion.restante > 0 ? bs(aplicacion.restante) : "Bs. 0,00 (quedará pagada)"}</strong>
+            </div>
+            <div style={FILA}><span>Fecha · Método</span><strong>{fechaCorta(pagoFecha)} · {pagoMetodo}</strong></div>
+
+            {errorPago && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorPago}</div>}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" disabled={guardandoPago} onClick={() => setPagoPaso("form")}>Volver</button>
+              <button className="btn btn-primary" disabled={guardandoPago} onClick={registrarPago}>
+                {guardandoPago ? "Guardando…" : "Registrar pago"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Criterios 6, 8 y 9: éxito, recibo, imprimir y descargar */}
+        {pagoPaso === "recibo" && recibo && (
+          <div className="modal-form">
+            <div className="alert alert-success" style={{ marginBottom: 12 }}>El pago se registró con éxito.</div>
+            {datosRecibo(recibo).map(([k, v]) => (
+              <div key={k} style={FILA}><span>{k}</span><strong>{v}</strong></div>
+            ))}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => descargarRecibo(recibo)}>Descargar</button>
+              <button className="btn btn-secondary" onClick={() => imprimirRecibo(recibo)}>Imprimir</button>
+              <button className="btn btn-primary" onClick={() => setPagoOpen(false)}>Cerrar</button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ================= HU-10: Pago anticipado ================= */}
+      <Modal open={antOpen} title="Registrar pago anticipado" onClose={cerrarAnticipo}>
+        <div className="modal-form">
+          <label className="field">
+            <span>Departamento <b>*</b></span>
+            <select value={antDepto} onChange={(e) => { setAntDepto(e.target.value); setErrorAnt(""); }}>
+              <option value="">Selecciona un departamento</option>
+              {DEPARTAMENTOS.map((d) => (
+                <option key={d.numero} value={String(d.numero)}>Dpto. {d.numero} · {d.responsable}</option>
+              ))}
             </select>
           </label>
 
-          <label className="field">
-            <span>
-              Monto (Bs.)
-            </span>
-
-            <input
-              type="number"
-              min="1"
-              value={anticipoMonto}
-              onChange={(e) =>
-                setAnticipoMonto(
-                  e.target.value
-                )
-              }
-              placeholder="Ej. 1280"
-            />
-          </label>
-
-          <p
-            style={{
-              fontSize: 11,
-              color: "#9a918b",
-            }}
-          >
-            Este anticipo se aplicará al
-            período de{" "}
-            {nombrePeriodo(
-              periodoSiguiente(
-                periodoActivo
-              )
-            )}
-            , exista o no todavía la
-            expensa generada.
-          </p>
-
-          {errorAnticipo && (
-            <div className="alert alert-error">
-              {errorAnticipo}
+          {deptoAnt && (
+            <div style={{ margin: "12px 0" }}>
+              <div style={FILA}><span>Categoría del departamento</span><strong>{deptoAnt.categoria}</strong></div>
+              <div style={FILA}><span>Expensa mensual</span><strong>{bs(TARIFA[deptoAnt.categoria])}</strong></div>
+              <div style={FILA}><span>Deuda actual</span><strong>{bs(deudaAnt)}</strong></div>
+              <div style={FILA}><span>Saldo a favor actual</span><strong>{bs(aFavor[deptoAnt.numero] ?? 0)}</strong></div>
             </div>
           )}
 
-          <button
-            className="btn btn-primary"
-            onClick={registrarAnticipo}
-          >
-            Registrar anticipo
-          </button>
+          {deptoAnt && deudaAnt > 0 && (
+            <div className="alert alert-error" style={{ marginBottom: 12 }}>
+              Este departamento tiene expensas pendientes ({bs(deudaAnt)}). El pago anticipado solo se puede registrar
+              cuando no tiene deudas.
+            </div>
+          )}
+
+          <div className="form-grid">
+            <label className="field">
+              <span>Monto (Bs.) <b>*</b></span>
+              <input value={antMonto} inputMode="decimal" onChange={(e) => setAntMonto(e.target.value)} placeholder="Ej. 300,00" />
+            </label>
+            <label className="field">
+              <span>Fecha <b>*</b></span>
+              <input type="date" max={hoyISO()} value={antFecha} onChange={(e) => setAntFecha(e.target.value)} />
+            </label>
+            <label className="field">
+              <span>Método de pago <b>*</b></span>
+              <select value={antMetodo} onChange={(e) => setAntMetodo(e.target.value)}>
+                {METODOS.map((m) => <option key={m}>{m}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span>Referencias</span>
+              <input value={antRef} onChange={(e) => setAntRef(e.target.value)} placeholder="N° de operación (opcional)" />
+            </label>
+          </div>
+
+          {mensajeAntMonto && <div className="alert alert-error" style={{ marginTop: 12 }}>{mensajeAntMonto}</div>}
+          {errorAnt && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorAnt}</div>}
+
+          <div className="modal-actions">
+            <button className="btn btn-secondary" disabled={guardandoAnt} onClick={cerrarAnticipo}>Cancelar</button>
+            <button className="btn btn-primary" disabled={!anticipoValido || guardandoAnt} onClick={registrarAnticipo}>
+              {guardandoAnt ? "Guardando…" : "Registrar pago anticipado"}
+            </button>
+          </div>
         </div>
       </Modal>
     </DashboardLayout>

@@ -34,6 +34,7 @@ const adminSections: NavigationSection[] = [
     { key: "pagos", label: "Pagos y mora", href: "/pagos", icon: WalletIcon },
     { key: "estado-cuenta", label: "Estado de cuenta", href: "/estado-cuenta", icon: WalletIcon },
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
+    { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
   ] },
   { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
