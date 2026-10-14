@@ -2,9 +2,9 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post } from '@nestjs/common
 import { CreateExpensaDto } from './dto/create-expensa.dto.js';
 import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { ExpensasService } from './expensas.service.js';
+import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
+import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 
-// Agrega aquí el guard de autenticación que ya usas, por ejemplo:
-// @UseGuards(JwtAuthGuard)
 @Controller('expensas')
 export class ExpensasController {
   constructor(private readonly expensas: ExpensasService) {}
@@ -39,5 +39,15 @@ export class ExpensasController {
   @Get(':id')
   findOne(@Param('id', ParseIntPipe) id: number) {
     return this.expensas.findOne(id);
+  }
+
+  @Post('pagos/:id/pagar')
+  pagar(@Param('id', ParseIntPipe) id: number, @Body() dto: PagarExpensaDto) {
+    return this.expensas.pagar(id, dto);
+  }
+
+  @Post('pagos/anticipado')
+  pagarAnticipado(@Body() dto: PagarAnticipadoDto) {
+    return this.expensas.pagarAnticipado(dto);
   }
 }
