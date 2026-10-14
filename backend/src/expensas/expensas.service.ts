@@ -10,8 +10,12 @@ import { Prisma } from '../generated/prisma/client.js';
 import { CreateExpensaDto } from './dto/create-expensa.dto.js';
 import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
+import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 
 const ESTADO_PAGADA = BigInt(3);
+
+const sumarMeses = (mes: Date, n: number) =>
+  new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + n, 1));
 
 const serialize = <T>(data: T): T =>
   JSON.parse(
@@ -168,14 +172,19 @@ export class ExpensasService {
     }
 
     const vencimiento = calcularVencimiento(mes);
-    const yaGeneradas = await this.prisma.pago_expensa.count({
+    const departamentos = await this.departamentosDelTipo(expensa.tipo_departamento);
+
+    // Omite los departamentos que ya tienen deuda ese mes (por ejemplo, por pago anticipado)
+    const existentes = await this.prisma.pago_expensa.findMany({
       where: { id_expensa: expensa.id, fecha_vencimiento: vencimiento },
+      select: { id_departamento: true },
     });
-    if (yaGeneradas > 0) {
+    const conDeuda = new Set(existentes.map((e) => e.id_departamento));
+    const faltantes = departamentos.filter((d) => !conDeuda.has(d.id));
+    if (faltantes.length === 0) {
       throw new ConflictException('Ya se generaron las deudas de ese mes para esta expensa');
     }
 
-    const departamentos = await this.departamentosDelTipo(expensa.tipo_departamento);
     const pendiente = await this.estadoPendiente();
 
     try {
@@ -185,7 +194,7 @@ export class ExpensasService {
             tx,
             expensa.id,
             expensa.monto_total,
-            departamentos,
+            faltantes,
             vencimiento,
             pendiente.id,
           ),
@@ -202,7 +211,7 @@ export class ExpensasService {
       id_expensa: expensa.id,
       mes,
       fecha_vencimiento: vencimiento,
-      deudas_generadas: departamentos.length,
+      deudas_generadas: faltantes.length,
     });
   }
 
@@ -303,5 +312,96 @@ export class ExpensasService {
     });
 
     return serialize(factura);
+  }
+
+    /** Paga por adelantado N meses de un departamento: crea las deudas ya pagadas y sus facturas. */
+  async pagarAnticipado(dto: PagarAnticipadoDto) {
+    const departamento = await this.prisma.departamento.findUnique({
+      where: { id: BigInt(dto.id_departamento) },
+      select: { id: true, tipo_departamento: true },
+    });
+    if (!departamento) throw new NotFoundException('Departamento no encontrado');
+    if (departamento.tipo_departamento === null) {
+      throw new BadRequestException('El departamento no tiene tipo asignado');
+    }
+
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: dto.id_usuario },
+      select: { id: true },
+    });
+    if (!usuario) throw new NotFoundException('Usuario no encontrado');
+
+    const expensas = await this.prisma.expensa.findMany({
+      where: {
+        tipo_departamento: departamento.tipo_departamento,
+        ...(dto.id_expensa ? { id: BigInt(dto.id_expensa) } : {}),
+      },
+    });
+    if (expensas.length === 0) {
+      throw new NotFoundException('No hay una expensa para el tipo de este departamento');
+    }
+    if (expensas.length > 1) {
+      throw new BadRequestException(
+        'Hay varias expensas para ese tipo de departamento: indica id_expensa',
+      );
+    }
+    const expensa = expensas[0];
+
+    // El vencimiento de la última deuda es el mes que sigue por cubrir
+    const ultima = await this.prisma.pago_expensa.aggregate({
+      where: { id_departamento: departamento.id, id_expensa: expensa.id },
+      _max: { fecha_vencimiento: true },
+    });
+    const actual = mesActual();
+    const siguiente = ultima._max.fecha_vencimiento;
+    const inicio = siguiente && siguiente > actual ? siguiente : actual;
+
+    const mesesCubiertos = Array.from({ length: dto.meses }, (_, i) => sumarMeses(inicio, i));
+    const fechaPago = hoyLaPaz();
+
+    try {
+      const facturas = await this.prisma.$transaction(
+        async (tx) => {
+          const pagos = await tx.pago_expensa.createManyAndReturn({
+            data: mesesCubiertos.map((mes) => ({
+              id_departamento: departamento.id,
+              id_expensa: expensa.id,
+              monto: expensa.monto_total,
+              id_estado: ESTADO_PAGADA,
+              fecha_vencimiento: calcularVencimiento(mes),
+            })),
+            select: { id: true, fecha_vencimiento: true },
+          });
+
+          await tx.factura_pago_expensa.createMany({
+            data: pagos.map((p) => ({
+              id_usuario: dto.id_usuario,
+              id_pago_expensa: p.id,
+              fecha_pago: fechaPago,
+              fecha_cubierta: sumarMeses(p.fecha_vencimiento, -1),
+              monto: expensa.monto_total,
+            })),
+          });
+
+          return pagos.length;
+        },
+        { timeout: 30000 },
+      );
+
+      return serialize({
+        id_departamento: departamento.id,
+        id_expensa: expensa.id,
+        meses_pagados: facturas,
+        desde: mesesCubiertos[0],
+        hasta: mesesCubiertos[mesesCubiertos.length - 1],
+        monto_por_mes: expensa.monto_total,
+        monto_total: expensa.monto_total.mul(dto.meses),
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Ya existen deudas para alguno de esos meses');
+      }
+      throw e;
+    }
   }
 }

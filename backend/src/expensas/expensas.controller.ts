@@ -3,6 +3,7 @@ import { CreateExpensaDto } from './dto/create-expensa.dto.js';
 import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { ExpensasService } from './expensas.service.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
+import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 
 @Controller('expensas')
 export class ExpensasController {
@@ -43,5 +44,10 @@ export class ExpensasController {
   @Post('pagos/:id/pagar')
   pagar(@Param('id', ParseIntPipe) id: number, @Body() dto: PagarExpensaDto) {
     return this.expensas.pagar(id, dto);
+  }
+
+  @Post('pagos/anticipado')
+  pagarAnticipado(@Body() dto: PagarAnticipadoDto) {
+    return this.expensas.pagarAnticipado(dto);
   }
 }
