@@ -9,8 +9,10 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { CreateExpensaDto } from './dto/create-expensa.dto.js';
 import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
+import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
 
-// Los BigInt de Prisma no se pueden convertir a JSON directamente
+const ESTADO_PAGADA = BigInt(3);
+
 const serialize = <T>(data: T): T =>
   JSON.parse(
     JSON.stringify(data, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
@@ -27,6 +29,10 @@ const mesActual = () => primerDiaDelMes(new Date().toISOString());
 const calcularVencimiento = (mes: Date) =>
   new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + 1, 1));
 
+const hoyLaPaz = () =>
+  new Date(
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date()),
+  );
 @Injectable()
 export class ExpensasService {
   private readonly logger = new Logger(ExpensasService.name);
@@ -249,5 +255,53 @@ export class ExpensasService {
     });
     if (!expensa) throw new NotFoundException('Expensa no encontrada');
     return serialize(expensa);
+  }
+  
+    /** Paga una deuda completa: crea la factura y la pasa a estado "pagada". */
+  async pagar(idPago: number, dto: PagarExpensaDto) {
+    const pago = await this.prisma.pago_expensa.findUnique({
+      where: { id: BigInt(idPago) },
+    });
+    if (!pago) throw new NotFoundException('Deuda no encontrada');
+    if (pago.id_estado === ESTADO_PAGADA) {
+      throw new ConflictException('Esta deuda ya está pagada');
+    }
+
+    const usuario = await this.prisma.usuario.findUnique({
+      where: { id: dto.id_usuario },
+      select: { id: true },
+    });
+    if (!usuario) throw new NotFoundException('Usuario no encontrado');
+
+    const monto = pago.monto.plus(pago.monto_mora);
+    // La deuda vence el día 1 del mes siguiente; el mes cubierto es el anterior
+    const fechaCubierta = new Date(
+      Date.UTC(
+        pago.fecha_vencimiento.getUTCFullYear(),
+        pago.fecha_vencimiento.getUTCMonth() - 1,
+        1,
+      ),
+    );
+
+    const factura = await this.prisma.$transaction(async (tx) => {
+      // El filtro por estado evita doble pago si llegan dos requests a la vez
+      const { count } = await tx.pago_expensa.updateMany({
+        where: { id: pago.id, id_estado: { not: ESTADO_PAGADA } },
+        data: { id_estado: ESTADO_PAGADA },
+      });
+      if (count === 0) throw new ConflictException('Esta deuda ya está pagada');
+
+      return tx.factura_pago_expensa.create({
+        data: {
+          id_usuario: dto.id_usuario,
+          id_pago_expensa: pago.id,
+          fecha_pago: hoyLaPaz(),
+          fecha_cubierta: fechaCubierta,
+          monto,
+        },
+      });
+    });
+
+    return serialize(factura);
   }
 }
