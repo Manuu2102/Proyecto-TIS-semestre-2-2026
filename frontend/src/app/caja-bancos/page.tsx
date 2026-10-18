@@ -6,7 +6,7 @@
  * HU-22  Consultar saldo de caja        → pestaña "Saldo de caja"
  * HU-20  Registrar movimiento de caja   → pestaña "Movimientos de caja"
  * HU-21  Registrar movimiento bancario  → pestañas "Cuentas bancarias" y
- *                                         "Movimientos bancarios" (pendientes)
+ *                                         "Movimientos bancarios"
  *
  * Permisos de interfaz:
  *   - Administrador:        consulta y opera.
@@ -108,7 +108,7 @@ type FormMovimiento = { fecha: string; tipo: "" | TipoCaja; monto: string; conce
 const POR_PAGINA = 8;
 const ORIGENES_CAJA: OrigenCaja[] = ["Manual", "Ingreso", "Gasto", "Banco", "Anulación"];
 
-/** true → fuerza el estado de error de la HU-22 para probar el botón "Reintentar". */
+/** true → fuerza el estado de error de la consulta de saldo para probar el botón "Reintentar". */
 const FALLA_SIMULADA = false;
 
 const MUTED = { fontSize: 11, color: "#766E69" } as const;
@@ -222,7 +222,7 @@ function aCsv(filas: (string | number)[][]) {
 }
 
 // =====================================================================
-// 5. MENSAJES (texto de los criterios de aceptación)
+// 5. MENSAJES
 // =====================================================================
 
 const MENSAJES = {
@@ -289,7 +289,7 @@ function validarMotivo(valor: string) {
 // 7. SIMULACIÓN DEL BACKEND (se reemplaza por los fetch reales)
 // =====================================================================
 
-/** Un movimiento anulado y su contrario no forman parte del saldo (HU-22, criterio backend 3). */
+/** Un movimiento anulado y su contrario no forman parte del saldo. */
 const esVigente = (m: MovCaja) => !m.anulado && !m.anulaA;
 
 function saldoVigente(montoInicial: number, movs: MovCaja[], hasta?: string) {
@@ -427,8 +427,41 @@ function Paginacion({ total, pagina, totalPaginas, onCambiar, singular, plural }
   );
 }
 
+/** Tarjeta formal para mostrar un saldo: etiqueta, monto destacado, detalle y acciones. */
+function TarjetaSaldo({ etiqueta, monto, detalle, nota, insignia, accion }: {
+  etiqueta: string;
+  monto: string;
+  detalle?: string;
+  nota?: string;
+  insignia?: React.ReactNode;
+  accion?: React.ReactNode;
+}) {
+  return (
+    <section className="panel" style={{ marginBottom: 20, borderLeft: "4px solid #C13333" }}>
+      <div style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#766E69" }}>
+            {etiqueta}
+          </div>
+          <div style={{ fontSize: 34, fontWeight: 700, lineHeight: 1.15, margin: "4px 0", color: "#2B2523", fontVariantNumeric: "tabular-nums" }}>
+            {monto}
+          </div>
+          {detalle && <div style={{ fontSize: 13, color: "#766E69" }}>{detalle}</div>}
+          {nota && <small style={MUTED}>{nota}</small>}
+        </div>
+        {(insignia || accion) && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+            {insignia}
+            {accion}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 // =====================================================================
-// 9. PESTAÑA "SALDO DE CAJA" (HU-22)
+// 9. PESTAÑA "SALDO DE CAJA"
 // =====================================================================
 
 type RespuestaSaldo = { clave: string; datos: ResultadoSaldo | null };
@@ -441,7 +474,7 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
   const [intento, setIntento] = useState(0);
   const [respuesta, setRespuesta] = useState<RespuestaSaldo | null>(null);
 
-  // Criterio 2: la fecha de corte no puede ser futura ni anterior a la apertura de caja
+  // La fecha de corte no puede ser futura ni anterior a la apertura de caja
   const errorFecha = !caja.abierta
     ? ""
     : corte === ""
@@ -521,7 +554,7 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
     );
   }
 
-  // Criterio 7: sin apertura no se muestra ningún saldo
+  // Sin apertura no se muestra ningún saldo
   if (!caja.abierta) {
     return (
       <div className="panel">
@@ -578,17 +611,13 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
         </div>
       ) : (
         <>
-          <section className="panel" style={{ marginBottom: 20 }}>
-            <div style={{ padding: "22px 24px" }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-                <div style={{ fontSize: 18 }}>
-                  Saldo de caja al {fechaCorta(corte)}: <strong style={{ fontSize: 30 }}>{bs(datos.final)}</strong>
-                </div>
-                {datos.final === 0 && <span className="tag">Caja sin fondos</span>}
-              </div>
-              <small style={MUTED}>Actualizado: {datos.calculadoEn}</small>
-            </div>
-          </section>
+          <TarjetaSaldo
+            etiqueta="Saldo de caja"
+            monto={bs(datos.final)}
+            detalle={`Al ${fechaCorta(corte)}`}
+            nota={`Actualizado: ${datos.calculadoEn}`}
+            insignia={datos.final === 0 ? <span className="tag">Caja sin fondos</span> : undefined}
+          />
 
           <div className="metric-grid">
             <div className="metric-card">
@@ -617,7 +646,7 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
             </div>
           </div>
 
-          {/* COMPLEMENTO (no exigido por los criterios): flujo de caja del período. Se puede eliminar esta sección. */}
+          {/* COMPLEMENTO: flujo de caja del período. Se puede eliminar esta sección. */}
           <section className="panel" style={{ margin: "20px 0" }}>
             <div className="panel-toolbar">
               <div>
@@ -683,7 +712,7 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
 }
 
 // =====================================================================
-// 10. PESTAÑA "MOVIMIENTOS DE CAJA" (HU-20)
+// 10. PESTAÑA "MOVIMIENTOS DE CAJA"
 // =====================================================================
 
 const formVacio = (): FormMovimiento => ({ fecha: hoyISO(), tipo: "", monto: "", concepto: "" });
@@ -699,21 +728,21 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
   const saldoActual = saldoVigente(caja.monto, cajaMovs);
   const [aviso, setAviso] = useState<Aviso | null>(null);
 
-  // Filtros (criterio 14)
+  // Filtros
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
   const [tipoF, setTipoF] = useState("");
   const [origenF, setOrigenF] = useState("");
   const [pagina, setPagina] = useState(1);
 
-  // Apertura de caja (criterio 2)
+  // Apertura de caja
   const [aMonto, setAMonto] = useState("");
   const [aFecha, setAFecha] = useState(hoyISO());
   const [aIntentado, setAIntentado] = useState(false);
   const [aGuardando, setAGuardando] = useState(false);
   const [aServidor, setAServidor] = useState("");
 
-  // Registro de movimiento (criterios 4 a 12)
+  // Registro de movimiento
   const [movAbierto, setMovAbierto] = useState(false);
   const [paso, setPaso] = useState<"formulario" | "confirmar">("formulario");
   const [form, setForm] = useState<FormMovimiento>(formVacio());
@@ -721,7 +750,7 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
   const [guardando, setGuardando] = useState(false);
   const [errorServidor, setErrorServidor] = useState("");
 
-  // Anulación (criterios 16 y 17)
+  // Anulación
   const [objetivo, setObjetivo] = useState<MovCaja | null>(null);
   const [motivo, setMotivo] = useState("");
   const [anulIntentado, setAnulIntentado] = useState(false);
@@ -766,7 +795,7 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
     concepto: validarConcepto(form.concepto),
   };
   const hayErrores = Object.values(errores).some(Boolean);
-  const excedeSaldo = form.tipo === "SALIDA" && monto.valor !== null && monto.valor > saldoActual; // criterio 8
+  const excedeSaldo = form.tipo === "SALIDA" && monto.valor !== null && monto.valor > saldoActual;
   const saldoNuevo =
     monto.valor !== null && form.tipo !== "" ? r2(saldoActual + (form.tipo === "ENTRADA" ? monto.valor : -monto.valor)) : saldoActual;
   const mostrarError = (campo: keyof FormMovimiento) => intentado || form[campo] !== "";
@@ -786,10 +815,10 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
   function continuar() {
     setIntentado(true);
     if (hayErrores || excedeSaldo) return;
-    setPaso("confirmar"); // criterio 9
+    setPaso("confirmar");
   }
   async function confirmarMovimiento() {
-    if (guardando || form.tipo === "" || monto.valor === null) return; // criterio 10
+    if (guardando || form.tipo === "" || monto.valor === null) return;
     setGuardando(true);
     setErrorServidor("");
     try {
@@ -801,9 +830,9 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
       setCajaMovs((prev) => [...prev, nuevo]);
       setMovAbierto(false);
       setPagina(1);
-      setAviso({ tipo: "ok", texto: MENSAJES.movimientoRegistrado(nuevo.numero, nuevo.saldoPosterior) }); // criterio 11
+      setAviso({ tipo: "ok", texto: MENSAJES.movimientoRegistrado(nuevo.numero, nuevo.saldoPosterior) });
     } catch (e) {
-      // criterio 12: se muestra el mensaje recibido y se conservan los datos ingresados
+      // Se muestra el mensaje recibido y se conservan los datos ingresados
       setErrorServidor(e instanceof Error ? e.message : "No se pudo registrar el movimiento. Intenta nuevamente.");
       setPaso("formulario");
     } finally {
@@ -834,7 +863,7 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
       const res = await anularMovCajaApi(numero, motivo.trim(), caja, cajaMovs);
       setCajaMovs((prev) => [...prev.map((x) => (x.numero === numero ? { ...x, anulado: res.anulado } : x)), res.contrario]);
       setObjetivo(null);
-      setAviso({ tipo: "ok", texto: MENSAJES.movimientoAnulado(numero) }); // criterio 17
+      setAviso({ tipo: "ok", texto: MENSAJES.movimientoAnulado(numero) });
     } catch (e) {
       setErrorAnulacion(e instanceof Error ? e.message : "No se pudo anular el movimiento. Intenta nuevamente.");
     } finally {
@@ -871,7 +900,7 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
     </div>
   );
 
-  // ---------- Caja sin abrir (criterio 2) ----------
+  // ---------- Caja sin abrir ----------
   if (!caja.abierta) {
     return (
       <>
@@ -916,17 +945,19 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
     <>
       {bannerAviso}
 
-      {/* Criterio 3: saldo destacado. Criterio 1: el botón solo se muestra al administrador. */}
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <div style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 18 }}>
-            Saldo de caja: <strong style={{ fontSize: 30 }}>{bs(saldoActual)}</strong>
-          </div>
-          {esAdmin && (
-            <button className="btn btn-primary" onClick={abrirFormulario}><PlusIcon size={16} /> Registrar movimiento</button>
-          )}
-        </div>
-      </section>
+      {/* Saldo destacado. El botón solo se muestra al administrador. */}
+      <TarjetaSaldo
+        etiqueta="Saldo de caja"
+        monto={bs(saldoActual)}
+        detalle={`Caja abierta el ${fechaCorta(caja.fecha)}`}
+        accion={
+          esAdmin ? (
+            <button className="btn btn-primary" onClick={abrirFormulario}>
+              <PlusIcon size={16} /> Registrar movimiento
+            </button>
+          ) : undefined
+        }
+      />
 
       <section className="panel" style={{ marginBottom: 20 }}>
         <div className="panel-toolbar">
@@ -1005,7 +1036,7 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
                           ) : x.origen === "Manual" ? (
                             <button className="btn btn-secondary" style={BTN_SM} onClick={() => abrirAnulacion(x)}>Anular</button>
                           ) : (
-                            // Criterio 15: los movimientos automáticos no se anulan desde caja
+                            // Los movimientos automáticos no se anulan desde caja
                             <div>
                               <div style={MUTED}>Se anula desde {x.origen}</div>
                               <EnlaceOrigen mov={x} irABancos={irABancos} />
@@ -1132,24 +1163,1045 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
 }
 
 // =====================================================================
-// 11. PESTAÑAS DE BANCOS (HU-21) — PENDIENTES DE IMPLEMENTAR
+// 11. PESTAÑAS DE BANCOS
 // =====================================================================
 
-// PENDIENTE: HU-21. Estas dos pestañas se reemplazan en la siguiente entrega.
-function PestanaCuentas(props: BancosProps) {
-  void props;
+const MENSAJES_BANCO = {
+  cuentaInactiva: "La cuenta está inactiva y no admite movimientos.",
+  cuentaDuplicada: (numero: string, banco: string) => `Ya existe una cuenta con el número ${numero} en el banco ${banco}.`,
+  referenciaDuplicada: (referencia: string, cuenta: string) => `La referencia ${referencia} ya está registrada en la cuenta ${cuenta}.`,
+  confirmarDesactivar: (cuenta: string) => `¿Desactivar la cuenta ${cuenta}? No admitirá nuevos movimientos.`,
+  cuentaCreada: (cuenta: string) => `Cuenta ${cuenta} creada.`,
+  cuentaActualizada: (cuenta: string) => `Cuenta ${cuenta} actualizada.`,
+  cuentaDesactivada: (cuenta: string) => `Cuenta ${cuenta} desactivada.`,
+  saldoDeCuenta: (cuenta: string, saldo: number) => `Saldo de ${cuenta}: ${bs(saldo)}`,
+  montoExcede: (saldo: number) => `El monto supera el saldo de la cuenta (${bs(saldo)}).`,
+  saldoInsuficiente: (cuenta: string, disponible: number, monto: number) =>
+    `Saldo insuficiente en la cuenta ${cuenta}. Disponible: ${bs(disponible)}; el movimiento es de ${bs(monto)}.`,
+  cajaInsuficiente: (disponible: number) => `Saldo insuficiente en caja para registrar el depósito. Disponible: ${bs(disponible)}.`,
+  confirmarMovimiento: (tipo: string, monto: number, cuenta: string) => `¿Registrar ${tipo} de ${bs(monto)} en la cuenta ${cuenta}?`,
+  movimientoRegistrado: (numero: string, cuenta: string, saldo: number) =>
+    `Movimiento ${numero} registrado en la cuenta ${cuenta}. Saldo: ${bs(saldo)}.`,
+  confirmarAnulacion: (numero: string, monto: number, saldo: number) =>
+    `¿Anular el movimiento ${numero} de ${bs(monto)}? Se creará un movimiento contrario y el saldo de la cuenta será ${bs(saldo)}.`,
+  movimientoAnulado: (numero: string) => `Movimiento ${numero} anulado.`,
+  anulacionNegativa: (numero: string, cuenta: string, saldo: number) =>
+    `No se puede anular el movimiento ${numero}: la cuenta ${cuenta} quedaría en ${bs(saldo)}.`,
+  generadoPor: (numero: string, origen: string) => `El movimiento ${numero} fue generado por ${origen}. Anúlalo desde su registro de origen.`,
+  sinResultados: "No hay movimientos bancarios que coincidan con los filtros aplicados.",
+  sinCuentas: "Todavía no hay cuentas bancarias registradas.",
+  adjuntoFormato: "Formato no permitido. Usa PDF, JPG o PNG.",
+  adjuntoTamano: "El adjunto no debe superar los 5 MB.",
+};
+
+// ---------- Tipos y utilidades de bancos ----------
+
+type FormCuenta = { banco: string; numero: string; titular: string; apertura: string };
+type FormBanco = {
+  cuentaId: string;
+  fecha: string;
+  opcion: string;
+  monto: string;
+  referencia: string;
+  concepto: string;
+  enCaja: boolean;
+  adjunto: File | null;
+};
+type DatosCuenta = { banco: string; numero: string; titular: string; apertura: number };
+type NuevoMovBanco = {
+  cuentaId: number;
+  fecha: string;
+  tipo: TipoBanco;
+  signo: 1 | -1;
+  monto: number;
+  referencia: string;
+  concepto: string;
+  enCaja: boolean;
+  adjunto: string | null;
+};
+
+const TIPOS_BANCO: TipoBanco[] = ["Depósito", "Retiro", "Transferencia recibida", "Transferencia enviada", "Comisión", "Ajuste"];
+
+/** Depósitos, transferencias recibidas y ajustes a favor suman; el resto resta. */
+const OPCIONES_TIPO: { valor: string; tipo: TipoBanco; signo: 1 | -1; texto: string }[] = [
+  { valor: "deposito", tipo: "Depósito", signo: 1, texto: "Depósito" },
+  { valor: "retiro", tipo: "Retiro", signo: -1, texto: "Retiro" },
+  { valor: "trf-recibida", tipo: "Transferencia recibida", signo: 1, texto: "Transferencia recibida" },
+  { valor: "trf-enviada", tipo: "Transferencia enviada", signo: -1, texto: "Transferencia enviada" },
+  { valor: "comision", tipo: "Comisión", signo: -1, texto: "Comisión" },
+  { valor: "ajuste-mas", tipo: "Ajuste", signo: 1, texto: "Ajuste (aumenta el saldo)" },
+  { valor: "ajuste-menos", tipo: "Ajuste", signo: -1, texto: "Ajuste (disminuye el saldo)" },
+];
+
+const TIPO_CONTRARIO: Record<TipoBanco, TipoBanco> = {
+  "Depósito": "Retiro",
+  "Retiro": "Depósito",
+  "Transferencia recibida": "Transferencia enviada",
+  "Transferencia enviada": "Transferencia recibida",
+  "Comisión": "Ajuste",
+  "Ajuste": "Ajuste",
+};
+
+const formCuentaVacio = (): FormCuenta => ({ banco: "", numero: "", titular: "", apertura: "" });
+const formBancoVacio = (cuentaId: string): FormBanco => ({
+  cuentaId, fecha: hoyISO(), opcion: "", monto: "", referencia: "", concepto: "", enCaja: false, adjunto: null,
+});
+
+const etiquetaCuenta = (c: Cuenta) => `${c.banco} · ${c.numero}`;
+
+/** Un movimiento anulado y su contrario no forman parte del saldo. */
+const esVigenteBanco = (m: MovBanco) => !m.anulado && !m.anulaA;
+
+function saldoCuenta(cuenta: Cuenta, movs: MovBanco[]) {
+  const suma = movs
+    .filter((m) => m.cuentaId === cuenta.id && esVigenteBanco(m))
+    .reduce((s, m) => s + m.signo * m.monto, 0);
+  return r2(cuenta.apertura + suma);
+}
+
+const masRecientesBanco = (a: MovBanco, b: MovBanco) => b.fecha.localeCompare(a.fecha) || b.numero.localeCompare(a.numero);
+
+function estadoDe(m: MovBanco): "Anulado" | "Conciliado" | "Pendiente" {
+  if (m.anulado) return "Anulado";
+  return m.conciliado ? "Conciliado" : "Pendiente";
+}
+
+// ---------- Simulación del backend (bancos) ----------
+
+async function guardarCuentaApi(datos: DatosCuenta, editId: number | null, cuentas: Cuenta[]): Promise<Cuenta> {
+  await esperar(700);
+  // BACKEND: POST /cuentas-bancarias  ·  PUT /cuentas-bancarias/{id}
+  //   403 → "Acceso denegado. Solo el administrador puede gestionar cuentas bancarias."
+  const duplicada = cuentas.some(
+    (c) =>
+      c.id !== editId &&
+      c.banco.trim().toLowerCase() === datos.banco.trim().toLowerCase() &&
+      c.numero.trim().toLowerCase() === datos.numero.trim().toLowerCase()
+  );
+  if (duplicada) throw new Error(MENSAJES_BANCO.cuentaDuplicada(datos.numero, datos.banco));
+  if (editId !== null) {
+    const actual = cuentas.find((c) => c.id === editId);
+    if (!actual) throw new Error("La cuenta no existe.");
+    return { ...actual, banco: datos.banco, numero: datos.numero, titular: datos.titular };
+  }
+  return { id: Date.now(), ...datos, activa: true };
+}
+
+async function registrarMovBancoApi(n: NuevoMovBanco, cuentas: Cuenta[], movs: MovBanco[], caja: Caja, cajaMovs: MovCaja[]) {
+  await esperar(900);
+  // BACKEND: POST /bancos/movimientos  { cuentaId, fecha, tipo, monto, referencia, concepto, registrarEnCaja, adjunto }
+  //   El traspaso con caja se guarda en una sola transacción: si algo falla, no se guarda nada.
+  //   403 → "Acceso denegado. Solo el administrador puede registrar movimientos bancarios."
+  //   422 → mensaje del servidor  ·  5xx → "Fallo del servicio. Intenta nuevamente."
+  const cuenta = cuentas.find((c) => c.id === n.cuentaId);
+  if (!cuenta) throw new Error("La cuenta seleccionada no existe.");
+  if (!cuenta.activa) throw new Error(MENSAJES_BANCO.cuentaInactiva);
+  if (n.fecha > hoyISO()) throw new Error("La fecha del movimiento no puede ser posterior a la fecha actual.");
+
+  const referencia = n.referencia.trim();
+  if (movs.some((m) => m.cuentaId === n.cuentaId && m.referencia.trim().toLowerCase() === referencia.toLowerCase())) {
+    throw new Error(MENSAJES_BANCO.referenciaDuplicada(referencia, etiquetaCuenta(cuenta)));
+  }
+
+  const saldo = saldoCuenta(cuenta, movs);
+  if (n.signo === -1 && n.monto > saldo) {
+    throw new Error(MENSAJES_BANCO.saldoInsuficiente(etiquetaCuenta(cuenta), saldo, n.monto));
+  }
+
+  const numeroBan = siguienteNumero("BAN", movs.map((m) => m.numero));
+  let cajaMov: MovCaja | null = null;
+
+  if (n.enCaja && (n.tipo === "Retiro" || n.tipo === "Depósito")) {
+    if (!caja.abierta) throw new Error("La caja aún no ha sido abierta. Regístrate primero con el monto inicial.");
+    if (n.fecha < caja.fecha) throw new Error("La fecha del movimiento no puede ser anterior a la apertura de caja.");
+    const saldoCajaActual = saldoVigente(caja.monto, cajaMovs);
+    const tipoCaja: TipoCaja = n.tipo === "Retiro" ? "ENTRADA" : "SALIDA";
+    if (tipoCaja === "SALIDA" && n.monto > saldoCajaActual) throw new Error(MENSAJES_BANCO.cajaInsuficiente(saldoCajaActual));
+    cajaMov = {
+      numero: siguienteNumero("CAJ", cajaMovs.map((m) => m.numero)),
+      fecha: n.fecha,
+      hora: horaTxt(),
+      tipo: tipoCaja,
+      monto: n.monto,
+      concepto:
+        n.tipo === "Retiro"
+          ? `Retiro desde la cuenta ${etiquetaCuenta(cuenta)} (${numeroBan})`
+          : `Depósito hacia la cuenta ${etiquetaCuenta(cuenta)} (${numeroBan})`,
+      origen: "Banco",
+      saldoPosterior: r2(saldoCajaActual + (tipoCaja === "ENTRADA" ? n.monto : -n.monto)),
+      usuario: readNombre(),
+    };
+  }
+
+  const mov: MovBanco = {
+    numero: numeroBan,
+    cuentaId: n.cuentaId,
+    fecha: n.fecha,
+    hora: horaTxt(),
+    tipo: n.tipo,
+    monto: n.monto,
+    signo: n.signo,
+    referencia,
+    concepto: n.concepto.trim(),
+    origen: "Manual",
+    saldoPosterior: r2(saldo + n.signo * n.monto),
+    usuario: readNombre(),
+    conciliado: false,
+    vinculoCaja: cajaMov?.numero,
+    adjunto: n.adjunto,
+  };
+  return { mov, cajaMov };
+}
+
+async function anularMovBancoApi(numero: string, motivo: string, cuentas: Cuenta[], movs: MovBanco[], caja: Caja, cajaMovs: MovCaja[]) {
+  await esperar(800);
+  // BACKEND: POST /bancos/movimientos/{numero}/anular  { motivo }
+  //   Crea el movimiento contrario y registra la operación en auditoría.
+  //   Si el movimiento tiene un movimiento de caja vinculado, ambos se anulan en la misma transacción.
+  const mov = movs.find((x) => x.numero === numero);
+  if (!mov) throw new Error("El movimiento no existe.");
+  if (mov.anulado) throw new Error(MENSAJES.yaAnulado(mov.numero, mov.anulado.fecha.slice(0, 10)));
+  if (mov.origen !== "Manual") throw new Error(MENSAJES_BANCO.generadoPor(mov.numero, mov.origen));
+  const cuenta = cuentas.find((c) => c.id === mov.cuentaId);
+  if (!cuenta) throw new Error("La cuenta no existe.");
+  if (!cuenta.activa) throw new Error(MENSAJES_BANCO.cuentaInactiva);
+
+  const resultante = r2(saldoCuenta(cuenta, movs) - mov.signo * mov.monto);
+  if (resultante < 0) throw new Error(MENSAJES_BANCO.anulacionNegativa(mov.numero, etiquetaCuenta(cuenta), resultante));
+
+  const fechaAnulacion = ahoraTxt();
+  const numeroContrario = siguienteNumero("BAN", movs.map((x) => x.numero));
+  const contrario: MovBanco = {
+    numero: numeroContrario,
+    cuentaId: mov.cuentaId,
+    fecha: hoyISO(),
+    hora: horaTxt(),
+    tipo: TIPO_CONTRARIO[mov.tipo],
+    monto: mov.monto,
+    signo: mov.signo === 1 ? -1 : 1,
+    referencia: `ANU-${mov.numero}`,
+    concepto: `Anulación de ${mov.numero}`,
+    origen: "Manual",
+    saldoPosterior: resultante,
+    usuario: readNombre(),
+    conciliado: true,
+    anulaA: mov.numero,
+  };
+  const anulado: Anulacion = { motivo, usuario: readNombre(), fecha: fechaAnulacion, contrario: numeroContrario };
+
+  let cajaAnulado: { numero: string; anulado: Anulacion } | null = null;
+  let cajaContrario: MovCaja | null = null;
+  const vinculado = mov.vinculoCaja ? cajaMovs.find((x) => x.numero === mov.vinculoCaja) : undefined;
+  if (vinculado && !vinculado.anulado) {
+    const saldoCajaActual = saldoVigente(caja.monto, cajaMovs);
+    const cajaResultante = r2(saldoCajaActual + (vinculado.tipo === "ENTRADA" ? -vinculado.monto : vinculado.monto));
+    if (cajaResultante < 0) throw new Error(MENSAJES.anulacionNegativa(vinculado.numero, cajaResultante));
+    const numeroCaja = siguienteNumero("CAJ", cajaMovs.map((x) => x.numero));
+    cajaContrario = {
+      numero: numeroCaja,
+      fecha: hoyISO(),
+      hora: horaTxt(),
+      tipo: vinculado.tipo === "ENTRADA" ? "SALIDA" : "ENTRADA",
+      monto: vinculado.monto,
+      concepto: `Anulación de ${vinculado.numero}`,
+      origen: "Anulación",
+      saldoPosterior: cajaResultante,
+      usuario: readNombre(),
+      anulaA: vinculado.numero,
+    };
+    cajaAnulado = { numero: vinculado.numero, anulado: { motivo, usuario: readNombre(), fecha: fechaAnulacion, contrario: numeroCaja } };
+  }
+  return { anulado, contrario, cajaAnulado, cajaContrario };
+}
+
+// ---------- Presentación ----------
+
+function ImporteBanco({ mov }: { mov: MovBanco }) {
   return (
-    <div className="panel">
-      <div className="empty-state">Cuentas bancarias: pendiente de implementación (HU-21).</div>
-    </div>
+    <span style={{ color: mov.signo === 1 ? "#56704F" : "#9F2727", fontWeight: 600 }}>
+      {mov.signo === 1 ? "+" : "−"} {bs(mov.monto)}
+    </span>
   );
 }
-function PestanaMovBanco(props: BancosProps) {
-  void props;
+
+function EstadoConciliacion({ estado }: { estado: "Anulado" | "Conciliado" | "Pendiente" }) {
+  if (estado === "Anulado") return <span className="tag">Anulado</span>;
+  return estado === "Conciliado" ? (
+    <span className="status status-success"><i />Conciliado</span>
+  ) : (
+    <span className="status status-warning"><i />Pendiente</span>
+  );
+}
+
+function EnlaceOrigenBanco({ mov, irACaja }: { mov: MovBanco; irACaja: () => void }) {
+  if (mov.origen === "Caja") {
+    return <button className="btn btn-secondary" style={BTN_SM} onClick={irACaja}>Ver registro</button>;
+  }
+  const destino = mov.origen === "QR de expensas" ? "/pagos" : "/ingresos-egresos";
+  return <Link href={destino} className="btn btn-secondary" style={BTN_SM}>Ver registro</Link>;
+}
+
+// =====================================================================
+// PESTAÑA "CUENTAS BANCARIAS"
+// =====================================================================
+
+function PestanaCuentas({ esAdmin, cuentas, setCuentas, movBanco }: BancosProps) {
+  const [aviso, setAviso] = useState<Aviso | null>(null);
+  const [abierto, setAbierto] = useState(false);
+  const [editando, setEditando] = useState<Cuenta | null>(null);
+  const [form, setForm] = useState<FormCuenta>(formCuentaVacio());
+  const [intentado, setIntentado] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorServidor, setErrorServidor] = useState("");
+
+  const activas = cuentas.filter((c) => c.activa);
+  const totalActivas = r2(activas.reduce((s, c) => s + saldoCuenta(c, movBanco), 0));
+
+  // Campos obligatorios validados antes de enviar
+  const apertura = validarMonto(form.apertura, "saldo de apertura", true);
+  const errores = {
+    banco: form.banco.trim() === "" ? MENSAJES.campoObligatorio("banco") : "",
+    numero: form.numero.trim() === "" ? MENSAJES.campoObligatorio("número de cuenta") : "",
+    titular: form.titular.trim() === "" ? MENSAJES.campoObligatorio("titular") : "",
+    apertura: editando ? "" : apertura.error,
+  };
+  const mostrar = (valor: string) => intentado || valor !== "";
+
+  function abrirFormulario(cuenta?: Cuenta) {
+    setEditando(cuenta ?? null);
+    setForm(cuenta ? { banco: cuenta.banco, numero: cuenta.numero, titular: cuenta.titular, apertura: String(cuenta.apertura) } : formCuentaVacio());
+    setIntentado(false);
+    setErrorServidor("");
+    setAviso(null);
+    setAbierto(true);
+  }
+  function cerrarFormulario() {
+    if (guardando) return;
+    setAbierto(false);
+  }
+
+  async function guardar() {
+    if (guardando) return;
+    setIntentado(true);
+    if (Object.values(errores).some(Boolean)) return;
+    setGuardando(true);
+    setErrorServidor("");
+    try {
+      const datos: DatosCuenta = {
+        banco: form.banco.trim(),
+        numero: form.numero.trim(),
+        titular: form.titular.trim(),
+        apertura: editando ? editando.apertura : apertura.valor ?? 0,
+      };
+      const cuenta = await guardarCuentaApi(datos, editando?.id ?? null, cuentas);
+      setCuentas((prev) => (editando ? prev.map((c) => (c.id === cuenta.id ? cuenta : c)) : [...prev, cuenta]));
+      setAbierto(false);
+      setAviso({
+        tipo: "ok",
+        texto: editando ? MENSAJES_BANCO.cuentaActualizada(etiquetaCuenta(cuenta)) : MENSAJES_BANCO.cuentaCreada(etiquetaCuenta(cuenta)),
+      });
+    } catch (e) {
+      // Se muestra el mensaje del backend y se conservan los datos ingresados
+      setErrorServidor(e instanceof Error ? e.message : "No se pudo guardar la cuenta. Intenta nuevamente.");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  function desactivar(cuenta: Cuenta) {
+    // Confirmación antes de desactivar
+    if (!window.confirm(MENSAJES_BANCO.confirmarDesactivar(etiquetaCuenta(cuenta)))) return;
+    // BACKEND: PATCH /cuentas-bancarias/{id}/desactivar  (una cuenta con movimientos no se elimina, solo se desactiva)
+    setCuentas((prev) => prev.map((c) => (c.id === cuenta.id ? { ...c, activa: false } : c)));
+    setAviso({ tipo: "ok", texto: MENSAJES_BANCO.cuentaDesactivada(etiquetaCuenta(cuenta)) });
+  }
+
   return (
-    <div className="panel">
-      <div className="empty-state">Movimientos bancarios: pendiente de implementación (HU-21).</div>
-    </div>
+    <>
+      {aviso && (
+        <div className={aviso.tipo === "ok" ? "alert alert-success" : "alert alert-error"} style={{ marginBottom: 16 }}>{aviso.texto}</div>
+      )}
+
+      <div className="metric-row">
+        <div className="metric-card">
+          <div className="metric-icon"><BuildingIcon size={20} /></div>
+          <div><span>Cuentas activas</span><strong>{activas.length}</strong></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon soft"><WalletIcon size={20} /></div>
+          <div><span>Saldo total en cuentas activas</span><strong>{bs(totalActivas)}</strong></div>
+        </div>
+      </div>
+
+      <section className="panel">
+        <div className="panel-toolbar">
+          <div>
+            <h3>Cuentas bancarias del edificio</h3>
+            <p>Una cuenta con movimientos no se elimina: solo se desactiva y deja de aceptar movimientos.</p>
+          </div>
+          {esAdmin && (
+            <button className="btn btn-primary" onClick={() => abrirFormulario()}><PlusIcon size={16} /> Nueva cuenta</button>
+          )}
+        </div>
+        {cuentas.length === 0 ? (
+          <div className="empty-state">{MENSAJES_BANCO.sinCuentas}</div>
+        ) : (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Banco</th><th>Número de cuenta</th><th>Titular</th><th>Saldo actual</th><th>Estado</th>
+                  {esAdmin && <th>Acciones</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {cuentas.map((c) => (
+                  <tr key={c.id} style={!c.activa ? { opacity: 0.6 } : undefined}>
+                    <td><strong>{c.banco}</strong></td>
+                    <td>{c.numero}</td>
+                    <td>{c.titular}</td>
+                    <td><strong>{bs(saldoCuenta(c, movBanco))}</strong></td>
+                    <td>
+                      <span className={`status ${c.activa ? "status-success" : "status-warning"}`}><i />{c.activa ? "Activa" : "Inactiva"}</span>
+                    </td>
+                    {esAdmin && (
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button className="btn btn-secondary" style={BTN_SM} onClick={() => abrirFormulario(c)}>Editar</button>
+                          {c.activa && <button className="btn btn-secondary" style={BTN_SM} onClick={() => desactivar(c)}>Desactivar</button>}
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {esAdmin && (
+        <Modal open={abierto} title={editando ? "Editar cuenta bancaria" : "Nueva cuenta bancaria"} onClose={cerrarFormulario}>
+          <div className="modal-form">
+            <div className="form-grid">
+              <label className="field">
+                <span>Banco <b>*</b></span>
+                <input value={form.banco} onChange={(e) => setForm({ ...form, banco: e.target.value })} placeholder="Ej. Banco Nacional de Bolivia" />
+                {mostrar(form.banco) && errores.banco && <small style={ERR}>{errores.banco}</small>}
+              </label>
+              <label className="field">
+                <span>Número de cuenta <b>*</b></span>
+                <input value={form.numero} onChange={(e) => setForm({ ...form, numero: e.target.value })} placeholder="Ej. 1000-123456" />
+                {mostrar(form.numero) && errores.numero && <small style={ERR}>{errores.numero}</small>}
+              </label>
+              <label className="field">
+                <span>Titular <b>*</b></span>
+                <input value={form.titular} onChange={(e) => setForm({ ...form, titular: e.target.value })} placeholder="Ej. Edificio Central" />
+                {mostrar(form.titular) && errores.titular && <small style={ERR}>{errores.titular}</small>}
+              </label>
+              <label className="field">
+                <span>Saldo de apertura (Bs.) <b>*</b></span>
+                <input
+                  value={form.apertura}
+                  inputMode="decimal"
+                  disabled={editando !== null}
+                  onChange={(e) => setForm({ ...form, apertura: e.target.value })}
+                  placeholder="Ej. 5000,00 (puede ser 0)"
+                />
+                {editando ? (
+                  <small style={MUTED}>El saldo de apertura no se modifica una vez registrada la cuenta.</small>
+                ) : (
+                  mostrar(form.apertura) && errores.apertura && <small style={ERR}>{errores.apertura}</small>
+                )}
+              </label>
+            </div>
+            {errorServidor && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorServidor}</div>}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" disabled={guardando} onClick={cerrarFormulario}>Cancelar</button>
+              <button className="btn btn-primary" disabled={guardando} onClick={guardar}>
+                {guardando ? "Guardando…" : editando ? "Guardar cambios" : "Crear cuenta"}
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </>
+  );
+}
+
+// =====================================================================
+// PESTAÑA "MOVIMIENTOS BANCARIOS"
+// =====================================================================
+
+function PestanaMovBanco({ esAdmin, caja, cajaMovs, setCajaMovs, cuentas, movBanco, setMovBanco, irACaja }: BancosProps) {
+  const cuentasActivas = cuentas.filter((c) => c.activa);
+  const [cuentaSel, setCuentaSel] = useState(() => String((cuentas.find((c) => c.activa) ?? cuentas[0])?.id ?? ""));
+  const [aviso, setAviso] = useState<Aviso | null>(null);
+
+  // Filtros
+  const [desde, setDesde] = useState("");
+  const [hasta, setHasta] = useState("");
+  const [tipoF, setTipoF] = useState("");
+  const [estadoF, setEstadoF] = useState("");
+  const [pagina, setPagina] = useState(1);
+
+  // Registro
+  const [abierto, setAbierto] = useState(false);
+  const [paso, setPaso] = useState<"formulario" | "confirmar">("formulario");
+  const [form, setForm] = useState<FormBanco>(formBancoVacio(""));
+  const [intentado, setIntentado] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [errorServidor, setErrorServidor] = useState("");
+  const [errorAdjunto, setErrorAdjunto] = useState("");
+
+  // Anulación
+  const [objetivo, setObjetivo] = useState<MovBanco | null>(null);
+  const [motivo, setMotivo] = useState("");
+  const [anulIntentado, setAnulIntentado] = useState(false);
+  const [anulando, setAnulando] = useState(false);
+  const [errorAnulacion, setErrorAnulacion] = useState("");
+
+  const cuenta = cuentas.find((c) => String(c.id) === cuentaSel) ?? null;
+  const saldo = cuenta ? saldoCuenta(cuenta, movBanco) : 0;
+  const saldoCajaActual = saldoVigente(caja.monto, cajaMovs);
+
+  const delaCuenta = cuenta ? movBanco.filter((m) => m.cuentaId === cuenta.id) : [];
+  const vigentes = delaCuenta.filter(esVigenteBanco);
+  const pendientes = vigentes.filter((m) => !m.conciliado).length;
+  const conciliados = vigentes.filter((m) => m.conciliado).length;
+
+  // ---------- Registro ----------
+  const opcion = OPCIONES_TIPO.find((o) => o.valor === form.opcion) ?? null;
+  const cuentaForm = cuentas.find((c) => String(c.id) === form.cuentaId) ?? null;
+  const saldoForm = cuentaForm ? saldoCuenta(cuentaForm, movBanco) : 0;
+  const monto = validarMonto(form.monto, "monto");
+  const errores = {
+    cuenta: form.cuentaId === "" ? MENSAJES.campoObligatorio("cuenta") : "",
+    fecha:
+      form.fecha === ""
+        ? MENSAJES.campoObligatorio("fecha")
+        : form.fecha > hoyISO()
+        ? "La fecha no puede ser futura."
+        : "",
+    tipo: opcion === null ? MENSAJES.campoObligatorio("tipo") : "",
+    monto: monto.error,
+    referencia: form.referencia.trim() === "" ? MENSAJES.campoObligatorio("referencia") : "",
+    concepto: validarConcepto(form.concepto),
+  };
+  const hayErrores = Object.values(errores).some(Boolean);
+
+  // Un movimiento que resta no puede superar el saldo de la cuenta
+  const excedeCuenta = opcion?.signo === -1 && monto.valor !== null && cuentaForm !== null && monto.valor > saldoForm;
+  // Retiro y Depósito pueden registrarse también en caja
+  const permiteCaja = opcion?.tipo === "Retiro" || opcion?.tipo === "Depósito";
+  const enCaja = permiteCaja && form.enCaja && caja.abierta;
+  const excedeCaja = enCaja && opcion?.tipo === "Depósito" && monto.valor !== null && monto.valor > saldoCajaActual;
+  const saldoNuevo = monto.valor !== null && opcion !== null ? r2(saldoForm + opcion.signo * monto.valor) : saldoForm;
+  const textoMontoCaja = monto.valor !== null ? bs(monto.valor) : "el monto indicado";
+
+  function abrirFormulario() {
+    const inicial = cuenta?.activa ? cuentaSel : String(cuentasActivas[0]?.id ?? "");
+    setForm(formBancoVacio(inicial));
+    setPaso("formulario");
+    setIntentado(false);
+    setErrorServidor("");
+    setErrorAdjunto("");
+    setAviso(null);
+    setAbierto(true);
+  }
+  function cerrarFormulario() {
+    if (guardando) return;
+    setAbierto(false);
+  }
+  function cambiarAdjunto(e: React.ChangeEvent<HTMLInputElement>) {
+    const archivo = e.target.files?.[0] ?? null;
+    if (!archivo) {
+      setForm((f) => ({ ...f, adjunto: null }));
+      setErrorAdjunto("");
+      return;
+    }
+    const extension = (archivo.name.split(".").pop() || "").toLowerCase();
+    if (!["pdf", "jpg", "jpeg", "png"].includes(extension)) {
+      setErrorAdjunto(MENSAJES_BANCO.adjuntoFormato);
+      setForm((f) => ({ ...f, adjunto: null }));
+      e.target.value = "";
+      return;
+    }
+    if (archivo.size > 5 * 1024 * 1024) {
+      setErrorAdjunto(MENSAJES_BANCO.adjuntoTamano);
+      setForm((f) => ({ ...f, adjunto: null }));
+      e.target.value = "";
+      return;
+    }
+    setErrorAdjunto("");
+    setForm((f) => ({ ...f, adjunto: archivo }));
+  }
+  function continuar() {
+    setIntentado(true);
+    if (hayErrores || excedeCuenta || excedeCaja) return;
+    setPaso("confirmar");
+  }
+  async function confirmarMovimiento() {
+    if (guardando || opcion === null || monto.valor === null) return;
+    setGuardando(true);
+    setErrorServidor("");
+    try {
+      const res = await registrarMovBancoApi(
+        {
+          cuentaId: Number(form.cuentaId),
+          fecha: form.fecha,
+          tipo: opcion.tipo,
+          signo: opcion.signo,
+          monto: monto.valor,
+          referencia: form.referencia,
+          concepto: form.concepto,
+          enCaja,
+          adjunto: form.adjunto ? form.adjunto.name : null,
+        },
+        cuentas,
+        movBanco,
+        caja,
+        cajaMovs
+      );
+      setMovBanco((prev) => [...prev, res.mov]);
+      if (res.cajaMov) {
+        const nuevoCaja = res.cajaMov;
+        setCajaMovs((prev) => [...prev, nuevoCaja]);
+      }
+      setCuentaSel(form.cuentaId);
+      setPagina(1);
+      setAbierto(false);
+      const cuentaUsada = cuentas.find((c) => c.id === res.mov.cuentaId);
+      setAviso({
+        tipo: "ok",
+        texto: MENSAJES_BANCO.movimientoRegistrado(res.mov.numero, cuentaUsada ? etiquetaCuenta(cuentaUsada) : "", res.mov.saldoPosterior),
+      });
+    } catch (e) {
+      // Se muestra el mensaje recibido y se conservan los datos del formulario
+      setErrorServidor(e instanceof Error ? e.message : "No se pudo registrar el movimiento. Intenta nuevamente.");
+      setPaso("formulario");
+    } finally {
+      setGuardando(false);
+    }
+  }
+
+  // ---------- Conciliación ----------
+  function conciliar(numero: string) {
+    // BACKEND: PATCH /bancos/movimientos/{numero}/conciliar
+    setMovBanco((prev) => prev.map((x) => (x.numero === numero ? { ...x, conciliado: true } : x)));
+    setAviso({ tipo: "ok", texto: `Movimiento ${numero} conciliado.` });
+  }
+
+  // ---------- Anulación ----------
+  const cuentaObjetivo = objetivo ? cuentas.find((c) => c.id === objetivo.cuentaId) ?? null : null;
+  const saldoObjetivo = cuentaObjetivo ? saldoCuenta(cuentaObjetivo, movBanco) : 0;
+  const saldoTrasAnular = objetivo ? r2(saldoObjetivo - objetivo.signo * objetivo.monto) : 0;
+  const anulacionNegativa = objetivo !== null && saldoTrasAnular < 0;
+  const vinculadoCaja = objetivo?.vinculoCaja ? cajaMovs.find((x) => x.numero === objetivo.vinculoCaja) : undefined;
+  const cajaTrasAnular =
+    vinculadoCaja && !vinculadoCaja.anulado
+      ? r2(saldoCajaActual + (vinculadoCaja.tipo === "ENTRADA" ? -vinculadoCaja.monto : vinculadoCaja.monto))
+      : null;
+  const cajaNegativa = cajaTrasAnular !== null && cajaTrasAnular < 0;
+  const errorMotivo = validarMotivo(motivo);
+
+  function abrirAnulacion(mov: MovBanco) {
+    setObjetivo(mov);
+    setMotivo("");
+    setAnulIntentado(false);
+    setErrorAnulacion("");
+    setAviso(null);
+  }
+  async function confirmarAnulacion() {
+    if (anulando || !objetivo) return;
+    setAnulIntentado(true);
+    if (errorMotivo || anulacionNegativa || cajaNegativa) return;
+    const numero = objetivo.numero;
+    setAnulando(true);
+    setErrorAnulacion("");
+    try {
+      const res = await anularMovBancoApi(numero, motivo.trim(), cuentas, movBanco, caja, cajaMovs);
+      setMovBanco((prev) => [...prev.map((x) => (x.numero === numero ? { ...x, anulado: res.anulado } : x)), res.contrario]);
+      const { cajaAnulado, cajaContrario } = res;
+      if (cajaAnulado && cajaContrario) {
+        setCajaMovs((prev) => [
+          ...prev.map((x) => (x.numero === cajaAnulado.numero ? { ...x, anulado: cajaAnulado.anulado } : x)),
+          cajaContrario,
+        ]);
+      }
+      setObjetivo(null);
+      setAviso({ tipo: "ok", texto: MENSAJES_BANCO.movimientoAnulado(numero) });
+    } catch (e) {
+      setErrorAnulacion(e instanceof Error ? e.message : "No se pudo anular el movimiento. Intenta nuevamente.");
+    } finally {
+      setAnulando(false);
+    }
+  }
+
+  // ---------- Filtros y paginación ----------
+  const filtrados = delaCuenta
+    .filter(
+      (x) =>
+        (desde === "" || x.fecha >= desde) &&
+        (hasta === "" || x.fecha <= hasta) &&
+        (tipoF === "" || x.tipo === tipoF) &&
+        (estadoF === "" || estadoDe(x) === estadoF)
+    )
+    .sort(masRecientesBanco);
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / POR_PAGINA));
+  const paginaActual = Math.min(pagina, totalPaginas);
+  const visibles = filtrados.slice((paginaActual - 1) * POR_PAGINA, paginaActual * POR_PAGINA);
+  const rangoInvalido = desde !== "" && hasta !== "" && desde > hasta;
+
+  function limpiarFiltros() {
+    setDesde("");
+    setHasta("");
+    setTipoF("");
+    setEstadoF("");
+    setPagina(1);
+  }
+
+  if (cuentas.length === 0) {
+    return <div className="panel"><div className="empty-state">{MENSAJES_BANCO.sinCuentas}</div></div>;
+  }
+
+  return (
+    <>
+      {aviso && (
+        <div className={aviso.tipo === "ok" ? "alert alert-success" : "alert alert-error"} style={{ marginBottom: 16 }}>{aviso.texto}</div>
+      )}
+
+      {/* Saldo destacado de la cuenta seleccionada */}
+      {cuenta && (
+        <TarjetaSaldo
+          etiqueta={`Saldo · ${etiquetaCuenta(cuenta)}`}
+          monto={bs(saldo)}
+          detalle={`Titular: ${cuenta.titular}`}
+          insignia={
+            <span className={`status ${cuenta.activa ? "status-success" : "status-warning"}`}>
+              <i />{cuenta.activa ? "Activa" : "Inactiva"}
+            </span>
+          }
+        />
+      )}
+
+      {/* Selector de cuenta */}
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div style={{ padding: "20px 24px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
+          <label className="field" style={{ minWidth: 280 }}>
+            <span>Cuenta bancaria</span>
+            <select value={cuentaSel} onChange={(e) => { setCuentaSel(e.target.value); setPagina(1); }}>
+              {cuentas.map((c) => (
+                <option key={c.id} value={String(c.id)}>{etiquetaCuenta(c)}{c.activa ? "" : " (inactiva)"}</option>
+              ))}
+            </select>
+          </label>
+          {esAdmin && (
+            <button className="btn btn-primary" disabled={cuentasActivas.length === 0} onClick={abrirFormulario}>
+              <PlusIcon size={16} /> Registrar movimiento
+            </button>
+          )}
+        </div>
+        {cuenta && !cuenta.activa && (
+          <div className="alert" style={{ ...AVISO, margin: "0 24px 16px" }}>{MENSAJES_BANCO.cuentaInactiva}</div>
+        )}
+      </section>
+
+      <div className="metric-row">
+        <div className="metric-card">
+          <div className="metric-icon attention"><WalletIcon size={20} /></div>
+          <div><span>Pendientes de conciliar</span><strong>{pendientes}</strong></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon soft"><CheckIcon size={20} /></div>
+          <div><span>Conciliados</span><strong>{conciliados}</strong></div>
+        </div>
+        <div className="metric-card">
+          <div className="metric-icon"><FileIcon size={20} /></div>
+          <div><span>Movimientos vigentes</span><strong>{vigentes.length}</strong></div>
+        </div>
+      </div>
+
+      {/* Filtros */}
+      <section className="panel" style={{ marginBottom: 20 }}>
+        <div className="panel-toolbar">
+          <div>
+            <h3>Filtros</h3>
+            <p>Combina rango de fechas, tipo y estado de conciliación.</p>
+          </div>
+          <button className="btn btn-secondary" onClick={limpiarFiltros}>Limpiar filtros</button>
+        </div>
+        <div className="modal-form" style={{ paddingTop: 8 }}>
+          <div className="form-grid">
+            <label className="field">
+              <span>Desde</span>
+              <input type="date" value={desde} onChange={(e) => { setDesde(e.target.value); setPagina(1); }} />
+            </label>
+            <label className="field">
+              <span>Hasta</span>
+              <input type="date" value={hasta} onChange={(e) => { setHasta(e.target.value); setPagina(1); }} />
+            </label>
+            <label className="field">
+              <span>Tipo</span>
+              <select value={tipoF} onChange={(e) => { setTipoF(e.target.value); setPagina(1); }}>
+                <option value="">Todos</option>
+                {TIPOS_BANCO.map((t) => <option key={t}>{t}</option>)}
+              </select>
+            </label>
+            <label className="field">
+              <span>Estado de conciliación</span>
+              <select value={estadoF} onChange={(e) => { setEstadoF(e.target.value); setPagina(1); }}>
+                <option value="">Todos</option>
+                <option value="Conciliado">Conciliado</option>
+                <option value="Pendiente">Pendiente</option>
+                <option value="Anulado">Anulado</option>
+              </select>
+            </label>
+          </div>
+          {rangoInvalido && <div className="alert alert-error" style={{ marginTop: 12 }}>La fecha inicial no puede ser posterior a la fecha final.</div>}
+        </div>
+      </section>
+
+      {/* Tabla de movimientos */}
+      <section className="panel">
+        <div className="panel-toolbar">
+          <div>
+            <h3>Movimientos bancarios</h3>
+            <p>Los movimientos no se eliminan ni se modifican: se anulan y permanecen en el historial.</p>
+          </div>
+        </div>
+        {filtrados.length === 0 ? (
+          <div className="empty-state">{MENSAJES_BANCO.sinResultados}</div>
+        ) : (
+          <>
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Número</th><th>Fecha</th><th>Tipo</th><th>Referencia</th><th>Concepto</th><th>Monto</th>
+                    <th>Saldo posterior</th><th>Origen</th><th>Estado de conciliación</th>
+                    {esAdmin && <th>Acciones</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibles.map((x) => (
+                    <tr key={x.numero} style={x.anulado ? { opacity: 0.55 } : undefined}>
+                      <td>{x.numero}</td>
+                      <td>{fechaCorta(x.fecha)}</td>
+                      <td>{x.tipo}</td>
+                      <td>{x.referencia}</td>
+                      <td>
+                        {x.concepto}
+                        {x.vinculoCaja && <div style={MUTED}>Vinculado a {x.vinculoCaja}</div>}
+                        {x.adjunto && <div style={MUTED}>Adjunto: {x.adjunto}</div>}
+                      </td>
+                      <td><ImporteBanco mov={x} /></td>
+                      <td>{bs(x.saldoPosterior)}</td>
+                      <td><span className="tag">{x.origen}</span></td>
+                      <td><EstadoConciliacion estado={estadoDe(x)} /></td>
+                      {esAdmin && (
+                        <td>
+                          <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
+                            {x.anulado ? (
+                              <span style={MUTED}>Anulado por {x.anulado.usuario}</span>
+                            ) : x.anulaA ? (
+                              <span style={MUTED}>Anula a {x.anulaA}</span>
+                            ) : (
+                              <>
+                                {!x.conciliado && (
+                                  <button className="btn btn-secondary" style={BTN_SM} onClick={() => conciliar(x.numero)}>Conciliar</button>
+                                )}
+                                {x.origen === "Manual" ? (
+                                  <button className="btn btn-secondary" style={BTN_SM} onClick={() => abrirAnulacion(x)}>Anular</button>
+                                ) : (
+                                  // Los movimientos automáticos no se anulan desde bancos
+                                  <>
+                                    <span style={MUTED}>Se anula desde {x.origen}</span>
+                                    <EnlaceOrigenBanco mov={x} irACaja={irACaja} />
+                                  </>
+                                )}
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <Paginacion
+              total={filtrados.length}
+              pagina={paginaActual}
+              totalPaginas={totalPaginas}
+              onCambiar={setPagina}
+              singular="movimiento"
+              plural="movimientos"
+            />
+          </>
+        )}
+      </section>
+
+      {/* ---------- Registro de movimiento ---------- */}
+      {esAdmin && (
+        <Modal open={abierto} title="Registrar movimiento bancario" onClose={cerrarFormulario}>
+          {paso === "formulario" ? (
+            <div className="modal-form">
+              <div className="form-grid">
+                <label className="field">
+                  <span>Cuenta bancaria <b>*</b></span>
+                  <select value={form.cuentaId} onChange={(e) => setForm({ ...form, cuentaId: e.target.value })}>
+                    <option value="">Selecciona una cuenta</option>
+                    {cuentasActivas.map((c) => <option key={c.id} value={String(c.id)}>{etiquetaCuenta(c)}</option>)}
+                  </select>
+                  {intentado && errores.cuenta && <small style={ERR}>{errores.cuenta}</small>}
+                  {cuentaForm && <small style={MUTED}>{MENSAJES_BANCO.saldoDeCuenta(etiquetaCuenta(cuentaForm), saldoForm)}</small>}
+                </label>
+                <label className="field">
+                  <span>Fecha <b>*</b></span>
+                  <input type="date" max={hoyISO()} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
+                  {errores.fecha && <small style={ERR}>{errores.fecha}</small>}
+                </label>
+                <label className="field">
+                  <span>Tipo <b>*</b></span>
+                  <select value={form.opcion} onChange={(e) => setForm({ ...form, opcion: e.target.value, enCaja: false })}>
+                    <option value="">Selecciona el tipo</option>
+                    {OPCIONES_TIPO.map((o) => <option key={o.valor} value={o.valor}>{o.texto}</option>)}
+                  </select>
+                  {intentado && errores.tipo && <small style={ERR}>{errores.tipo}</small>}
+                </label>
+                <label className="field">
+                  <span>Monto (Bs.) <b>*</b></span>
+                  <input value={form.monto} inputMode="decimal" onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="Ej. 500,00" />
+                  {(intentado || form.monto !== "") && errores.monto && <small style={ERR}>{errores.monto}</small>}
+                </label>
+                <label className="field">
+                  <span>Referencia <b>*</b></span>
+                  <input value={form.referencia} onChange={(e) => setForm({ ...form, referencia: e.target.value })} placeholder="N° de operación o referencia" />
+                  {(intentado || form.referencia !== "") && errores.referencia && <small style={ERR}>{errores.referencia}</small>}
+                </label>
+              </div>
+
+              <label className="field" style={{ marginTop: 12 }}>
+                <span>Concepto <b>*</b></span>
+                <input value={form.concepto} maxLength={300} onChange={(e) => setForm({ ...form, concepto: e.target.value })} placeholder="Describe el movimiento (10 a 255 caracteres)" />
+                <small style={MUTED}>{form.concepto.trim().length}/255 caracteres</small>
+                {(intentado || form.concepto !== "") && errores.concepto && <small style={ERR}>{errores.concepto}</small>}
+              </label>
+
+              {/* Casilla "Registrar también en caja" para Retiro y Depósito */}
+              {permiteCaja && (
+                <div style={{ marginTop: 12 }}>
+                  <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13 }}>
+                    <input
+                      type="checkbox"
+                      checked={form.enCaja}
+                      disabled={!caja.abierta}
+                      onChange={(e) => setForm({ ...form, enCaja: e.target.checked })}
+                      style={{ width: "auto", minHeight: "auto" }}
+                    />
+                    Registrar también en caja
+                  </label>
+                  {!caja.abierta ? (
+                    <small style={MUTED}>{MENSAJES.cajaSinAbrir}</small>
+                  ) : form.enCaja ? (
+                    <small style={MUTED}>
+                      Se registrará {opcion?.tipo === "Retiro" ? "una entrada" : "una salida"} de caja por {textoMontoCaja}.
+                    </small>
+                  ) : null}
+                </div>
+              )}
+
+              <label className="field" style={{ marginTop: 12 }}>
+                <span>Adjunto (opcional)</span>
+                <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={cambiarAdjunto} />
+                {errorAdjunto && <small style={ERR}>{errorAdjunto}</small>}
+                {form.adjunto && <small style={MUTED}>{form.adjunto.name}</small>}
+              </label>
+
+              {/* Monto mayor al saldo → mensaje en rojo y Guardar deshabilitado */}
+              {excedeCuenta && (
+                <p style={{ color: "#9F2727", fontSize: 12, fontWeight: 600, marginTop: 12 }}>{MENSAJES_BANCO.montoExcede(saldoForm)}</p>
+              )}
+              {excedeCaja && (
+                <p style={{ color: "#9F2727", fontSize: 12, fontWeight: 600, marginTop: 12 }}>{MENSAJES_BANCO.cajaInsuficiente(saldoCajaActual)}</p>
+              )}
+              {errorServidor && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorServidor}</div>}
+
+              <div className="modal-actions">
+                <button className="btn btn-secondary" onClick={cerrarFormulario}>Cancelar</button>
+                <button className="btn btn-primary" disabled={excedeCuenta || excedeCaja} onClick={continuar}>Guardar</button>
+              </div>
+            </div>
+          ) : (
+            <div className="modal-form">
+              <p style={{ fontSize: 15, fontWeight: 600, margin: "0 0 8px" }}>
+                {opcion !== null && monto.valor !== null && cuentaForm !== null
+                  ? MENSAJES_BANCO.confirmarMovimiento(opcion.tipo.toLowerCase(), monto.valor, etiquetaCuenta(cuentaForm))
+                  : ""}
+              </p>
+              <p style={{ fontSize: 13, color: "#766E69", margin: 0 }}>{MENSAJES.saldoDespues(saldoNuevo)}</p>
+              {enCaja && opcion !== null && (
+                <p style={{ fontSize: 13, color: "#766E69", margin: "8px 0 0" }}>
+                  También se registrará {opcion.tipo === "Retiro" ? "una entrada" : "una salida"} de caja por {textoMontoCaja}.
+                </p>
+              )}
+              <div className="modal-actions">
+                <button className="btn btn-secondary" disabled={guardando} onClick={() => setPaso("formulario")}>Cancelar</button>
+                <button className="btn btn-primary" disabled={guardando} onClick={confirmarMovimiento}>
+                  {guardando ? "Guardando…" : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+
+      {/* ---------- Anulación ---------- */}
+      {esAdmin && (
+        <Modal open={objetivo !== null} title="Anular movimiento bancario" onClose={() => { if (!anulando) setObjetivo(null); }}>
+          {objetivo && (
+            <div className="modal-form">
+              <div style={FILA}><span>Movimiento</span><strong>{objetivo.numero}</strong></div>
+              <div style={FILA}><span>Concepto</span><strong>{objetivo.concepto}</strong></div>
+              <div style={FILA}><span>Monto</span><strong>{bs(objetivo.monto)}</strong></div>
+
+              <label className="field" style={{ marginTop: 14 }}>
+                <span>Motivo de anulación <b>*</b></span>
+                <input value={motivo} maxLength={300} onChange={(e) => setMotivo(e.target.value)} placeholder="Explica por qué se anula (10 a 255 caracteres)" />
+                <small style={MUTED}>{motivo.trim().length}/255 caracteres</small>
+                {(anulIntentado || motivo !== "") && errorMotivo && <small style={ERR}>{errorMotivo}</small>}
+              </label>
+
+              <div className="alert" style={{ ...AVISO, marginTop: 12 }}>
+                {MENSAJES_BANCO.confirmarAnulacion(objetivo.numero, objetivo.monto, saldoTrasAnular)}
+                {vinculadoCaja && !vinculadoCaja.anulado && (
+                  <div style={{ marginTop: 6 }}>También se anulará el movimiento de caja vinculado {vinculadoCaja.numero}.</div>
+                )}
+              </div>
+              {anulacionNegativa && cuentaObjetivo && (
+                <p style={{ color: "#9F2727", fontSize: 12, fontWeight: 600, marginTop: 10 }}>
+                  {MENSAJES_BANCO.anulacionNegativa(objetivo.numero, etiquetaCuenta(cuentaObjetivo), saldoTrasAnular)}
+                </p>
+              )}
+              {cajaNegativa && vinculadoCaja && cajaTrasAnular !== null && (
+                <p style={{ color: "#9F2727", fontSize: 12, fontWeight: 600, marginTop: 10 }}>
+                  {MENSAJES.anulacionNegativa(vinculadoCaja.numero, cajaTrasAnular)}
+                </p>
+              )}
+              {errorAnulacion && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorAnulacion}</div>}
+
+              <div className="modal-actions">
+                <button className="btn btn-secondary" disabled={anulando} onClick={() => setObjetivo(null)}>Cancelar</button>
+                <button className="btn btn-primary" disabled={anulando || anulacionNegativa || cajaNegativa} onClick={confirmarAnulacion}>
+                  {anulando ? "Anulando…" : "Confirmar"}
+                </button>
+              </div>
+            </div>
+          )}
+        </Modal>
+      )}
+    </>
   );
 }
 
