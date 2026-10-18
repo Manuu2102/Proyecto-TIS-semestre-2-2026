@@ -213,13 +213,19 @@ function readNombre(): string {
 }
 
 function descargar(nombre: string, contenido: string, tipo: string) {
-  const url = URL.createObjectURL(new Blob([contenido], { type }));
+  const blob = new Blob([contenido], { type: tipo });
+  const url = URL.createObjectURL(blob);
+
   const enlace = document.createElement("a");
   enlace.href = url;
   enlace.download = nombre;
+  document.body.appendChild(enlace);
   enlace.click();
+  enlace.remove();
 
-  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  window.setTimeout(() => {
+    URL.revokeObjectURL(url);
+  }, 1000);
 }
 
 function imprimirHtml(titulo: string, cuerpo: string) {
