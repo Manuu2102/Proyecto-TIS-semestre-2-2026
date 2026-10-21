@@ -7,7 +7,10 @@ import {
   IsIn,
   IsDateString,
   MinLength,
+  IsInt,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CrearCopropietarioDto {
   @IsOptional()
@@ -43,4 +46,10 @@ export class CrearCopropietarioDto {
   @IsString()
   @IsNotEmpty()
   telefono: string;
+
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  id_departamento?: number;
 }

@@ -92,7 +92,7 @@ export class IngresosService {
       );
     }
 
-    const ingreso = await this.prisma.ingreso.create({
+    const creado = await this.prisma.ingreso.create({
       data: {
         fecha: new Date(dto.fecha),
         monto: dto.monto.toFixed(2),
@@ -109,9 +109,12 @@ export class IngresosService {
         comprobante_peso: comprobante?.peso ?? null,
       },
       include: {
-        categoria: { select: { id: true, nombre: true, tipo: true } },
+        categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
       },
     });
+    // En el schema la relación se llama categoria_movimiento; la API sigue respondiendo "categoria"
+    const { categoria_movimiento: categoria, ...resto } = creado;
+    const ingreso = { ...resto, categoria };
 
     await this.registrarAuditoria(ingreso.id, 'CREAR', null, ingreso, idUsuario);
 
@@ -140,15 +143,15 @@ export class IngresosService {
     const ingresos = await this.prisma.ingreso.findMany({
       where,
       include: {
-        categoria: { select: { id: true, nombre: true, tipo: true } },
+        categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
       },
       orderBy: { fecha: 'desc' },
     });
 
     const ingresosSinContenido = ingresos.map((i) => {
-      const { comprobante_contenido, ...resto } = i;
+      const { comprobante_contenido, categoria_movimiento, ...resto } = i;
       void comprobante_contenido;
-      return resto;
+      return { ...resto, categoria: categoria_movimiento };
     });
 
     return {

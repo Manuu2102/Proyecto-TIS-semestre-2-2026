@@ -102,6 +102,20 @@ export class ExpensasController {
   listarDepartamentos() {
     return this.expensas.listarDepartamentos();
   }
+
+  /** Departamentos para el buscador del estado de cuenta. */
+  @Get('estado-cuenta')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  departamentosEstadoCuenta() {
+    return this.expensas.departamentosEstadoCuenta();
+  }
+
+  /** Estado de cuenta de un departamento, por su número. */
+  @Get('estado-cuenta/:numero')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  estadoCuenta(@Param('numero', ParseIntPipe) numero: number) {
+    return this.expensas.estadoCuenta(numero);
+  }
   /** Añade deudas extra a departamentos específicos. */
   @Post('extras')
   crearExtras(@Body() dto: CrearExtrasDto) {

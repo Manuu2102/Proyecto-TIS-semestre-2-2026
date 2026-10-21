@@ -848,6 +848,222 @@ export class ExpensasService {
     ].sort((a, b) => b.fecha.localeCompare(a.fecha));
   }
 
+  /** Departamentos activos para el buscador del estado de cuenta. */
+  async departamentosEstadoCuenta() {
+    // Consultas una tras otra para no ocupar varias conexiones a la vez
+    const departamentos = await this.prisma.departamento.findMany({
+      where: { estatus: true },
+      select: { id: true, numero: true, tipo_departamento: true },
+      orderBy: [{ piso: 'asc' }, { numero: 'asc' }],
+    });
+    const tipos = await this.prisma.tipo_departamento.findMany({
+      select: { id: true, nombre: true },
+    });
+    const responsables = await this.responsables(departamentos.map((d) => d.id));
+    const nombres = new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
+
+    return departamentos.map((d) => ({
+      numero: d.numero,
+      categoria: (d.tipo_departamento !== null && nombres.get(d.tipo_departamento)) || '-',
+      responsable: responsables.get(d.id) ?? 'Sin responsable',
+    }));
+  }
+
+  /**
+   * Estado de cuenta de un departamento, en orden cronológico:
+   *  - expensa: lo emitido en cada mes (expensa base y extras), con su desglose
+   *  - mora:    la mora de las deudas de ese mes
+   *  - pago:    cada pago registrado por un usuario
+   *  - anticipo: cada depósito de saldo a favor
+   * Las deudas pagadas con saldo a favor no se listan como pago (el dinero ya figura
+   * como anticipo); su expensa lo indica en el detalle.
+   * saldo = deuda sin pagar (monto + mora) − saldo a favor. Negativo = a favor.
+   */
+  async estadoCuenta(numero: number) {
+    const coincidencias = await this.prisma.departamento.findMany({
+      where: { numero, estatus: true },
+      select: { id: true, numero: true, tipo_departamento: true },
+    });
+    if (coincidencias.length === 0) throw new NotFoundException(`Departamento ${numero} no encontrado`);
+    if (coincidencias.length > 1) {
+      throw new BadRequestException(`Hay varios departamentos con el número ${numero}`);
+    }
+    const departamento = coincidencias[0];
+
+    const tipo =
+      departamento.tipo_departamento !== null
+        ? await this.prisma.tipo_departamento.findUnique({
+            where: { id: departamento.tipo_departamento },
+            select: { nombre: true },
+          })
+        : null;
+    const responsable =
+      (await this.responsables([departamento.id])).get(departamento.id) ?? 'Sin responsable';
+
+    const deudas = await this.prisma.pago_expensa.findMany({
+      where: { id_departamento: departamento.id },
+      select: {
+        id_estado: true,
+        monto: true,
+        monto_mora: true,
+        fecha_vencimiento: true,
+        concepto: true,
+        expensa: { select: { nombre: true } },
+        factura_pago_expensa: {
+          select: { id: true, fecha_pago: true, monto: true, metodo: true, referencia: true, id_usuario: true },
+        },
+      },
+      orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
+    });
+    const fondos = await this.prisma.movimiento_fondo.findMany({
+      where: { id_departamento: departamento.id },
+      select: { id: true, tipo: true, monto: true, fecha: true, metodo: true, referencia: true },
+      orderBy: { id: 'asc' },
+    });
+
+    const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto',
+      'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const nombrePeriodo = (periodo: string) => {
+      const [anio, mes] = periodo.split('-').map(Number);
+      return `${MESES[mes - 1]} ${anio}`;
+    };
+
+    type Movimiento = {
+      id: string;
+      fecha: string;
+      tipo: 'expensa' | 'pago' | 'anticipo' | 'mora';
+      detalle: string;
+      monto: number;
+      desglose?: { concepto: string; monto: number }[];
+      vencimiento?: string;
+    };
+    type Mes = {
+      periodo: string;
+      emision: Date;
+      vencimiento: Date;
+      desglose: { concepto: string; monto: number }[];
+      monto: Prisma.Decimal;
+      mora: Prisma.Decimal;
+      conFondos: boolean;
+    };
+
+    // Agrupa las deudas por mes cubierto (vencen el mes siguiente)
+    const meses = new Map<string, Mes>();
+    const pagos: Movimiento[] = [];
+    let pendiente = new Prisma.Decimal(0);
+
+    for (const d of deudas) {
+      const periodo = sumarMeses(d.fecha_vencimiento, -1).toISOString().slice(0, 7);
+      let mes = meses.get(periodo);
+      if (!mes) {
+        const v = d.fecha_vencimiento;
+        mes = {
+          periodo,
+          // Se emite el mismo día del mes anterior al vencimiento
+          emision: new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth() - 1, v.getUTCDate())),
+          vencimiento: v,
+          desglose: [],
+          monto: new Prisma.Decimal(0),
+          mora: new Prisma.Decimal(0),
+          conFondos: false,
+        };
+        meses.set(periodo, mes);
+      }
+      mes.desglose.push({
+        concepto: d.concepto ?? d.expensa?.nombre ?? 'Extra',
+        monto: d.monto.toNumber(),
+      });
+      mes.monto = mes.monto.plus(d.monto);
+      mes.mora = mes.mora.plus(d.monto_mora);
+      if (d.id_estado !== ESTADO_PAGADA) pendiente = pendiente.plus(d.monto).plus(d.monto_mora);
+
+      for (const f of d.factura_pago_expensa) {
+        if (f.id_usuario === null) {
+          mes.conFondos = true;
+          continue;
+        }
+        const extras = [f.metodo, f.referencia ? `Ref. ${f.referencia}` : null].filter(Boolean);
+        pagos.push({
+          id: `pag-${f.id}`,
+          fecha: iso(f.fecha_pago),
+          tipo: 'pago',
+          detalle: [`Pago de la expensa de ${nombrePeriodo(periodo)}`, ...extras].join(' · '),
+          monto: f.monto.toNumber(),
+        });
+      }
+    }
+
+    const movimientos: Movimiento[] = [];
+    for (const mes of meses.values()) {
+      movimientos.push({
+        id: `exp-${mes.periodo}`,
+        fecha: iso(mes.emision),
+        tipo: 'expensa',
+        detalle:
+          `Expensa de ${nombrePeriodo(mes.periodo)}` +
+          (mes.conFondos ? ' (pagada con saldo a favor)' : ''),
+        monto: mes.monto.toNumber(),
+        desglose: mes.desglose,
+        // Último día para pagar sin mora
+        vencimiento: iso(new Date(mes.vencimiento.getTime() - 86400000)),
+      });
+      if (mes.mora.gt(0)) {
+        movimientos.push({
+          id: `mor-${mes.periodo}`,
+          fecha: iso(mes.vencimiento),
+          tipo: 'mora',
+          detalle: `Mora de la expensa de ${nombrePeriodo(mes.periodo)}`,
+          monto: mes.mora.toNumber(),
+        });
+      }
+    }
+    movimientos.push(...pagos);
+
+    let aFavor = new Prisma.Decimal(0);
+    for (const f of fondos) {
+      if (f.tipo === 'consumo') {
+        aFavor = aFavor.minus(f.monto);
+        continue;
+      }
+      aFavor = aFavor.plus(f.monto);
+      const extras = [f.metodo, f.referencia ? `Ref. ${f.referencia}` : null].filter(Boolean);
+      movimientos.push({
+        id: `ant-${f.id}`,
+        fecha: iso(f.fecha),
+        tipo: 'anticipo',
+        detalle: ['Pago anticipado', ...extras].join(' · '),
+        monto: f.monto.toNumber(),
+      });
+    }
+
+    // Mismo día: primero lo emitido, luego mora, pagos y anticipos
+    const orden = { expensa: 0, mora: 1, pago: 2, anticipo: 3 };
+    movimientos.sort((a, b) => a.fecha.localeCompare(b.fecha) || orden[a.tipo] - orden[b.tipo]);
+
+    const suma = (t: Movimiento['tipo']) =>
+      movimientos
+        .filter((m) => m.tipo === t)
+        .reduce((total, m) => total.plus(m.monto), new Prisma.Decimal(0))
+        .toNumber();
+
+    return {
+      depto: {
+        numero: departamento.numero,
+        categoria: tipo?.nombre?.trim().toUpperCase() || '-',
+        responsable,
+      },
+      movimientos,
+      totales: {
+        expensas: suma('expensa'),
+        pagos: suma('pago'),
+        anticipos: suma('anticipo'),
+        moras: suma('mora'),
+        saldo: pendiente.minus(aFavor).toNumber(),
+      },
+    };
+  }
+
   /** Departamentos activos, con la forma que usa el front. */
   async listarDepartamentos() {
     const [departamentos, tipos] = await Promise.all([
