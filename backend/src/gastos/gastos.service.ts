@@ -92,70 +92,26 @@ export class GastosService {
       );
     }
 
-    // TRANSACCIÓN: Guardar gasto y actualizar caja
-    const gasto = await this.prisma.$transaction(async (tx) => {
-      const nuevoGasto = await tx.gasto.create({
-        data: {
-          fecha: new Date(dto.fecha),
-          monto: dto.monto.toFixed(2),
-          id_categoria: BigInt(dto.id_categoria),
-          proveedor: dto.proveedor?.trim() || null,
-          descripcion: dto.descripcion?.trim() || null,
-          metodo: dto.metodo,
-          id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
-          id_usuario: idUsuario,
-          comprobante_nombre: comprobante?.nombre ?? null,
-          comprobante_contenido: comprobante
-            ? Buffer.from(comprobante.contenido)
-            : null,
-          comprobante_mime: comprobante?.mime ?? null,
-          comprobante_peso: comprobante?.peso ?? null,
-        },
-        include: {
-          categoria: { select: { id: true, nombre: true, tipo: true } },
-        },
-      });
-
-      // Si es efectivo, afectar la caja
-      if (dto.metodo === 'efectivo') {
-        let caja = await tx.caja.findFirst();
-        if (!caja) caja = await tx.caja.create({ data: { abierta: false } });
-        
-        if (!caja.abierta) {
-          throw new BadRequestException('La caja está cerrada. No se puede registrar efectivo.');
-        }
-
-        const movs = await tx.movimiento_caja.findMany({ where: { caja_id: caja.id, anulado: false } });
-        let saldo = Number(caja.monto_apertura || 0);
-        movs.forEach(m => saldo += (m.tipo === 'ENTRADA' ? Number(m.monto) : -Number(m.monto)));
-        
-        const nuevoSaldo = saldo - dto.monto;
-        if (nuevoSaldo < 0) {
-          throw new BadRequestException(`Saldo insuficiente en caja. Disponible: Bs. ${saldo.toFixed(2)}`);
-        }
-
-        const year = new Date().getFullYear();
-        const count = await tx.movimiento_caja.count();
-        const numero = `CAJ-${year}-${String(count + 1).padStart(6, '0')}`;
-
-        await tx.movimiento_caja.create({
-          data: {
-            caja_id: caja.id,
-            numero,
-            fecha: new Date(dto.fecha),
-            hora: new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false }),
-            tipo: 'SALIDA',
-            monto: dto.monto.toFixed(2),
-            concepto: `Gasto: ${dto.descripcion || 'Sin descripción'}`,
-            origen: 'Gasto',
-            saldo_posterior: nuevoSaldo.toFixed(2),
-            id_usuario: idUsuario,
-            id_referencia: nuevoGasto.id,
-          },
-        });
-      }
-
-      return nuevoGasto;
+    const gasto = await this.prisma.gasto.create({
+      data: {
+        fecha: new Date(dto.fecha),
+        monto: dto.monto.toFixed(2),
+        id_categoria: BigInt(dto.id_categoria),
+        proveedor: dto.proveedor?.trim() || null,
+        descripcion: dto.descripcion?.trim() || null,
+        metodo: dto.metodo,
+        id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
+        id_usuario: idUsuario,
+        comprobante_nombre: comprobante?.nombre ?? null,
+        comprobante_contenido: comprobante
+          ? Buffer.from(comprobante.contenido)
+          : null,
+        comprobante_mime: comprobante?.mime ?? null,
+        comprobante_peso: comprobante?.peso ?? null,
+      },
+      include: {
+        categoria: { select: { id: true, nombre: true, tipo: true } },
+      },
     });
 
     await this.registrarAuditoria(gasto.id, 'CREAR', null, gasto, idUsuario);
@@ -209,39 +165,6 @@ export class GastosService {
     }
     if (gasto.anulado) {
       throw new BadRequestException('El gasto ya está anulado');
-    }
-
-    // Si fue en efectivo, revertir la caja (devolver el dinero)
-    if (gasto.metodo === 'efectivo') {
-      await this.prisma.$transaction(async (tx) => {
-        let caja = await tx.caja.findFirst();
-        if (caja && caja.abierta) {
-          const movs = await tx.movimiento_caja.findMany({ where: { caja_id: caja.id, anulado: false } });
-          let saldo = Number(caja.monto_apertura || 0);
-          movs.forEach(m => saldo += (m.tipo === 'ENTRADA' ? Number(m.monto) : -Number(m.monto)));
-          
-          const nuevoSaldo = saldo + Number(gasto.monto);
-          const year = new Date().getFullYear();
-          const count = await tx.movimiento_caja.count();
-          const numero = `CAJ-${year}-${String(count + 1).padStart(6, '0')}`;
-
-          await tx.movimiento_caja.create({
-            data: {
-              caja_id: caja.id,
-              numero,
-              fecha: new Date(),
-              hora: new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false }),
-              tipo: 'ENTRADA',
-              monto: gasto.monto,
-              concepto: `Anulación Gasto: ${gasto.descripcion || ''}`,
-              origen: 'Anulación',
-              saldo_posterior: nuevoSaldo.toFixed(2),
-              id_usuario: idUsuario,
-              id_referencia: gasto.id,
-            },
-          });
-        }
-      });
     }
 
     const anulado = await this.prisma.gasto.update({
