@@ -63,12 +63,12 @@ export class IngresosService {
     await this.validarCategoria(BigInt(dto.id_categoria));
 
     let comprobante: {
-  nombre: string;
-  contenido: Buffer;
-  mime: string;
-  peso: bigint;
-} | null = null;
-    
+      nombre: string;
+      contenido: Buffer;
+      mime: string;
+      peso: bigint;
+    } | null = null;
+
     if (archivo) {
       if (!TIPOS_PERMITIDOS.includes(archivo.mimetype)) {
         throw new BadRequestException(
@@ -79,11 +79,11 @@ export class IngresosService {
         throw new BadRequestException('El archivo supera los 5 MB');
       }
       comprobante = {
-  nombre: archivo.originalname,
-  contenido: archivo.buffer,
-  mime: archivo.mimetype,
-  peso: BigInt(archivo.size),
-};
+        nombre: archivo.originalname,
+        contenido: archivo.buffer,
+        mime: archivo.mimetype,
+        peso: BigInt(archivo.size),
+      };
     }
 
     if (dto.metodo !== 'efectivo' && !dto.id_cuenta) {
@@ -92,25 +92,65 @@ export class IngresosService {
       );
     }
 
-    const ingreso = await this.prisma.ingreso.create({
-      data: {
-        fecha: new Date(dto.fecha),
-        monto: dto.monto.toFixed(2),
-        id_categoria: BigInt(dto.id_categoria),
-        descripcion: dto.descripcion?.trim() || null,
-        metodo: dto.metodo,
-        id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
-        id_usuario: idUsuario,
-        comprobante_nombre: comprobante?.nombre ?? null,
-        comprobante_contenido: comprobante
-  ? Buffer.from(comprobante.contenido)
-  : null,
-        comprobante_mime: comprobante?.mime ?? null,
-        comprobante_peso: comprobante?.peso ?? null,
-      },
-      include: {
-        categoria: { select: { id: true, nombre: true, tipo: true } },
-      },
+    // TRANSACCIÓN: Guardar ingreso y actualizar caja
+    const ingreso = await this.prisma.$transaction(async (tx) => {
+      const nuevoIngreso = await tx.ingreso.create({
+        data: {
+          fecha: new Date(dto.fecha),
+          monto: dto.monto.toFixed(2),
+          id_categoria: BigInt(dto.id_categoria),
+          descripcion: dto.descripcion?.trim() || null,
+          metodo: dto.metodo,
+          id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
+          id_usuario: idUsuario,
+          comprobante_nombre: comprobante?.nombre ?? null,
+          comprobante_contenido: comprobante
+            ? Buffer.from(comprobante.contenido)
+            : null,
+          comprobante_mime: comprobante?.mime ?? null,
+          comprobante_peso: comprobante?.peso ?? null,
+        },
+        include: {
+          categoria: { select: { id: true, nombre: true, tipo: true } },
+        },
+      });
+
+      // Si es efectivo, afectar la caja
+      if (dto.metodo === 'efectivo') {
+        let caja = await tx.caja.findFirst();
+        if (!caja) caja = await tx.caja.create({ data: { abierta: false } });
+        
+        if (!caja.abierta) {
+          throw new BadRequestException('La caja está cerrada. No se puede registrar efectivo.');
+        }
+
+        const movs = await tx.movimiento_caja.findMany({ where: { caja_id: caja.id, anulado: false } });
+        let saldo = Number(caja.monto_apertura || 0);
+        movs.forEach(m => saldo += (m.tipo === 'ENTRADA' ? Number(m.monto) : -Number(m.monto)));
+        
+        const nuevoSaldo = saldo + dto.monto;
+        const year = new Date().getFullYear();
+        const count = await tx.movimiento_caja.count();
+        const numero = `CAJ-${year}-${String(count + 1).padStart(6, '0')}`;
+
+        await tx.movimiento_caja.create({
+          data: {
+            caja_id: caja.id,
+            numero,
+            fecha: new Date(dto.fecha),
+            hora: new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false }),
+            tipo: 'ENTRADA',
+            monto: dto.monto.toFixed(2),
+            concepto: `Ingreso: ${dto.descripcion || 'Sin descripción'}`,
+            origen: 'Ingreso',
+            saldo_posterior: nuevoSaldo.toFixed(2),
+            id_usuario: idUsuario,
+            id_referencia: nuevoIngreso.id,
+          },
+        });
+      }
+
+      return nuevoIngreso;
     });
 
     await this.registrarAuditoria(ingreso.id, 'CREAR', null, ingreso, idUsuario);
@@ -164,6 +204,39 @@ export class IngresosService {
     }
     if (ingreso.anulado) {
       throw new BadRequestException('El ingreso ya está anulado');
+    }
+
+    // Si fue en efectivo, revertir la caja
+    if (ingreso.metodo === 'efectivo') {
+      await this.prisma.$transaction(async (tx) => {
+        let caja = await tx.caja.findFirst();
+        if (caja && caja.abierta) {
+          const movs = await tx.movimiento_caja.findMany({ where: { caja_id: caja.id, anulado: false } });
+          let saldo = Number(caja.monto_apertura || 0);
+          movs.forEach(m => saldo += (m.tipo === 'ENTRADA' ? Number(m.monto) : -Number(m.monto)));
+          
+          const nuevoSaldo = saldo - Number(ingreso.monto);
+          const year = new Date().getFullYear();
+          const count = await tx.movimiento_caja.count();
+          const numero = `CAJ-${year}-${String(count + 1).padStart(6, '0')}`;
+
+          await tx.movimiento_caja.create({
+            data: {
+              caja_id: caja.id,
+              numero,
+              fecha: new Date(),
+              hora: new Date().toLocaleTimeString('es-BO', { hour: '2-digit', minute: '2-digit', hour12: false }),
+              tipo: 'SALIDA',
+              monto: ingreso.monto,
+              concepto: `Anulación Ingreso: ${ingreso.descripcion || ''}`,
+              origen: 'Anulación',
+              saldo_posterior: nuevoSaldo.toFixed(2),
+              id_usuario: idUsuario,
+              id_referencia: ingreso.id,
+            },
+          });
+        }
+      });
     }
 
     const anulado = await this.prisma.ingreso.update({
