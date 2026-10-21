@@ -29,9 +29,10 @@ export class OcupacionesService {
       );
     }
 
+    // En la base la columna se llama id_usuario; la API sigue usando id_copropietario
     const existe = await this.prisma.departamento_usuario.findFirst({
       where: {
-        id_copropietario: data.id_copropietario,
+        id_usuario: data.id_copropietario,
         id_departamento: BigInt(data.id_departamento),
         estatus: true,
       },
@@ -45,7 +46,7 @@ export class OcupacionesService {
     const ocupacion = await this.prisma.conUsuario(adminId, async (tx) => {
       const nuevaOcupacion = await tx.departamento_usuario.create({
         data: {
-          id_copropietario: data.id_copropietario,
+          id_usuario: data.id_copropietario,
           id_departamento: BigInt(data.id_departamento),
           fecha_ocupacion: new Date(data.fecha_ocupacion),
           fecha_fin_ocupacion: data.fecha_fin_ocupacion
@@ -112,7 +113,7 @@ export class OcupacionesService {
   async cerrar(id_copropietario: string, id_departamento: bigint, adminId: string) {
     const ocupacion = await this.prisma.departamento_usuario.findFirst({
       where: {
-        id_copropietario,
+        id_usuario: id_copropietario,
         id_departamento,
         estatus: true,
       },
@@ -127,9 +128,9 @@ export class OcupacionesService {
     await this.prisma.conUsuario(adminId, async (tx) => {
       await tx.departamento_usuario.update({
         where: {
-          id_departamento_id_copropietario: {
+          id_departamento_id_usuario: {
             id_departamento,
-            id_copropietario,
+            id_usuario: id_copropietario,
           },
         },
         data: {
@@ -157,6 +158,9 @@ export class OcupacionesService {
     return {
       ...o,
       id_departamento: o.id_departamento.toString(),
+      // La API sigue respondiendo id_copropietario (en la base es id_usuario)
+      id_copropietario: o.id_usuario,
+      id_usuario: undefined,
     };
   }
 }

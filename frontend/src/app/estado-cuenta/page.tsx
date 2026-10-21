@@ -1,6 +1,7 @@
 "use client";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { api } from "../../../lib/api";
 import { FileIcon } from "../../../components/Icons";
 
 type Categoria = "A" | "B" | "C";
@@ -23,133 +24,26 @@ type EstadoCuenta = {
 };
 
 // =====================================================================
-// DATOS DE EJEMPLO (los reemplaza backend)
+// LLAMADAS AL BACKEND
 // =====================================================================
 
-// BACKEND: GET /departamentos  → solo departamentos existentes (alimenta el buscador)
-const DEPARTAMENTOS: Departamento[] = [
-  { numero: 101, categoria: "A", responsable: "María Fernanda Rojas" },
-  { numero: 102, categoria: "A", responsable: "Carlos Andrés Pérez" },
-  { numero: 103, categoria: "A", responsable: "Ana Lucía Vargas" },
-  { numero: 201, categoria: "B", responsable: "Sofía Valentina Cruz" },
-  { numero: 202, categoria: "B", responsable: "Diego Mauricio Salazar" },
-  { numero: 203, categoria: "B", responsable: "Melody Gutiérrez" },
-  { numero: 301, categoria: "C", responsable: "Rodrigo Quispe" },
-  { numero: 302, categoria: "C", responsable: "Alejandra Guzmán" },
-];
+// BACKEND: GET /expensas/estado-cuenta → departamentos activos (alimenta el buscador)
+const cargarDepartamentosApi = () => api<Departamento[]>("/expensas/estado-cuenta");
 
-const TARIFAS: Record<Categoria, Concepto[]> = {
-  A: [
-    { concepto: "Mantenimiento general", monto: 180 },
-    { concepto: "Limpieza de áreas comunes", monto: 70 },
-    { concepto: "Seguridad", monto: 50 },
-  ],
-  B: [
-    { concepto: "Mantenimiento general", monto: 230 },
-    { concepto: "Limpieza de áreas comunes", monto: 90 },
-    { concepto: "Seguridad", monto: 60 },
-  ],
-  C: [
-    { concepto: "Mantenimiento general", monto: 280 },
-    { concepto: "Limpieza de áreas comunes", monto: 100 },
-    { concepto: "Seguridad", monto: 70 },
-  ],
-};
-
-const PERIODOS = ["2026-08", "2026-09", "2026-10"];
-
-const SIN_PAGAR: Record<number, string[]> = {
-  103: ["2026-08", "2026-09", "2026-10"],
-  201: ["2026-10"],
-  202: ["2026-09", "2026-10"],
-  203: ["2026-10"],
-  302: ["2026-08", "2026-10"],
-};
-
-const PAGO_FECHA_REF: Record<string, [string, string]> = {
-  "2026-10-102": ["2026-10-06", "QR-1002"],
-  "2026-10-301": ["2026-10-04", "QR-1001"],
-};
-
-const ANTICIPOS = [{ departamento: 101, fecha: "2026-10-08", monto: 300, referencia: "QR-ANT-0001" }];
-
-// SIMULACIÓN de lo que devuelve backend: GET /estado-cuenta/{departamento}
+// BACKEND: GET /expensas/estado-cuenta/{numero}
 // Los movimientos llegan en orden cronológico y el saldo viene calculado por el servidor.
-function estadoDe(d: Departamento): EstadoCuenta {
-  const movs: Movimiento[] = [];
-  let adeudado = 0;
-  let moras = 0;
-
-  for (const p of PERIODOS) {
-    const desglose = TARIFAS[d.categoria];
-    const monto = desglose.reduce((s, c) => s + c.monto, 0);
-    const pendiente = (SIN_PAGAR[d.numero] ?? []).includes(p);
-    const vencida = pendiente && p !== "2026-10";
-
-    movs.push({
-      id: `exp-${p}`,
-      fecha: `${p}-01`,
-      tipo: "expensa",
-      detalle: `Expensa de ${nombrePeriodo(p)}`,
-      monto,
-      desglose,
-      vencimiento: ultimoDia(p),
-    });
-
-    if (pendiente) {
-      adeudado += monto;
-    } else {
-      const [fecha, ref] = PAGO_FECHA_REF[`${p}-${d.numero}`] ?? [`${p}-0${(d.numero % 5) + 3}`, `QR-${p.replace("-", "")}-${d.numero}`];
-      movs.push({ id: `pag-${p}`, fecha, tipo: "pago", detalle: `Pago de la expensa de ${nombrePeriodo(p)} · QR · Ref. ${ref}`, monto });
-    }
-
-    if (vencida) {
-      moras += monto;
-      movs.push({ id: `mor-${p}`, fecha: diaSiguiente(ultimoDia(p)), tipo: "mora", detalle: `Mora de la expensa de ${nombrePeriodo(p)}`, monto });
-    }
-  }
-
-  let anticipos = 0;
-  for (const a of ANTICIPOS.filter((x) => x.departamento === d.numero)) {
-    anticipos += a.monto;
-    movs.push({ id: `ant-${a.referencia}`, fecha: a.fecha, tipo: "anticipo", detalle: `Pago anticipado · QR · Ref. ${a.referencia}`, monto: a.monto });
-  }
-
-  movs.sort((a, b) => a.fecha.localeCompare(b.fecha));
-
-  const suma = (t: Tipo) => movs.filter((m) => m.tipo === t).reduce((s, m) => s + m.monto, 0);
-  return {
-    depto: d,
-    movimientos: movs,
-    totales: { expensas: suma("expensa"), pagos: suma("pago"), anticipos, moras, saldo: adeudado + moras - anticipos },
-  };
-}
+const cargarEstadoApi = (numero: number) =>
+  api<EstadoCuenta>(`/expensas/estado-cuenta/${numero}`);
 
 // =====================================================================
 // Utilidades de presentación
 // =====================================================================
 
-const MESES = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto", "Septiembre", "Octubre", "Noviembre", "Diciembre"];
-
 function bs(n: number) {
   return "Bs. " + n.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
-function nombrePeriodo(p: string) {
-  const [a, m] = p.split("-").map(Number);
-  return `${MESES[m - 1]} ${a}`;
-}
 function fechaCorta(iso: string) {
   return iso.split("-").reverse().join("/");
-}
-function ultimoDia(periodo: string) {
-  const [a, m] = periodo.split("-").map(Number);
-  const dia = new Date(a, m, 0).getDate();
-  return `${a}-${String(m).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-}
-function diaSiguiente(iso: string) {
-  const [a, m, d] = iso.split("-").map(Number);
-  const x = new Date(a, m - 1, d + 1);
-  return `${x.getFullYear()}-${String(x.getMonth() + 1).padStart(2, "0")}-${String(x.getDate()).padStart(2, "0")}`;
 }
 // La búsqueda ignora mayúsculas y tildes
 function normalizar(t: string) {
@@ -163,7 +57,8 @@ function readRol(): string {
 function leerDeptoDeUrl(): number | null {
   if (typeof window === "undefined") return null;
   const n = Number(new URLSearchParams(window.location.search).get("depto"));
-  return DEPARTAMENTOS.some((d) => d.numero === n) ? n : null;
+  // Si el número no existe, el backend responde 404 y se muestra el error
+  return Number.isInteger(n) && n > 0 ? n : null;
 }
 function descargar(nombre: string, contenido: string, tipo: string) {
   const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
@@ -201,15 +96,34 @@ export default function EstadoCuentaPage() {
   const [busqueda, setBusqueda] = useState("");
   const [seleccionado, setSeleccionado] = useState<number | null>(leerDeptoDeUrl);
   const [abiertas, setAbiertas] = useState<Record<string, boolean>>({});
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
+  // Se guarda junto al número pedido para no mostrar el estado de otro departamento
+  const [cargado, setCargado] = useState<{ numero: number; estado: EstadoCuenta } | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    cargarDepartamentosApi()
+      .then(setDepartamentos)
+      .catch((e) => setError(e instanceof Error ? e.message : "No se pudieron cargar los departamentos."));
+  }, []);
+
+  useEffect(() => {
+    if (seleccionado === null) return;
+    cargarEstadoApi(seleccionado)
+      .then((estado) => {
+        setCargado({ numero: seleccionado, estado });
+        setError("");
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : "No se pudo cargar el estado de cuenta."));
+  }, [seleccionado]);
 
   // Criterio 1: el buscador solo ofrece departamentos que existen
   const q = normalizar(busqueda);
-  const coincidencias = DEPARTAMENTOS.filter(
+  const coincidencias = departamentos.filter(
     (d) => q === "" || String(d.numero).includes(q) || normalizar(d.responsable).includes(q)
   );
 
-  const depto = DEPARTAMENTOS.find((d) => d.numero === seleccionado) ?? null;
-  const estado = depto ? estadoDe(depto) : null;
+  const estado = cargado && cargado.numero === seleccionado ? cargado.estado : null;
 
   function seleccionar(numero: number) {
     setSeleccionado(numero);
@@ -284,6 +198,12 @@ export default function EstadoCuentaPage() {
           <p>Consulta las expensas, pagos, anticipos, moras y el saldo de un departamento.</p>
         </div>
       </div>
+
+      {error && (
+        <div className="alert alert-error" style={{ marginBottom: 16 }}>
+          {error}
+        </div>
+      )}
 
       {/* Criterio 1: buscador de departamento */}
       <section className="panel" style={{ marginBottom: 20 }}>

@@ -106,7 +106,7 @@ export class CopropietariosService {
         if (idDepartamento) {
           await tx.departamento_usuario.create({
             data: {
-              id_copropietario: nuevoUsuario.id,
+              id_usuario: nuevoUsuario.id,
               id_departamento: idDepartamento,
               fecha_ocupacion: new Date(),
               estatus: true,
@@ -281,6 +281,9 @@ export class CopropietariosService {
       departamento_usuario: copropietario.departamento_usuario.map((du) => ({
         ...du,
         id_departamento: du.id_departamento.toString(),
+        // La API sigue respondiendo id_copropietario (en la base es id_usuario)
+        id_copropietario: du.id_usuario,
+        id_usuario: undefined,
       })),
       rol_usuario: undefined,
     };

@@ -606,33 +606,72 @@ model baulera {
   @@schema("public")
 }
 
+model caja {
+  id              BigInt            @id @default(autoincrement())
+  abierta         Boolean           @default(false)
+  fecha_apertura  DateTime?         @db.Date
+  monto_apertura  Decimal?          @default(0) @db.Decimal(12, 2)
+  created_at      DateTime          @default(now()) @db.Timestamp(6)
+  updated_at      DateTime          @default(now()) @db.Timestamp(6)
+  movimiento_caja movimiento_caja[]
+
+  @@schema("public")
+}
+
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model categoria_movimiento {
+  id          BigInt    @id @default(autoincrement())
+  nombre      String    @db.VarChar(100)
+  tipo        String    @db.VarChar(20)
+  descripcion String?   @db.VarChar(255)
+  activa      Boolean   @default(true)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  updated_at  DateTime  @default(now()) @db.Timestamp(6)
+  gasto       gasto[]
+  ingreso     ingreso[]
+
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model cuenta_bancaria {
+  id               BigInt             @id @default(autoincrement())
+  nombre           String             @db.VarChar(100)
+  banco            String             @db.VarChar(100)
+  numero_cuenta    String             @db.VarChar(50)
+  tipo_cuenta      String             @db.VarChar(20)
+  saldo            Decimal            @default(0) @db.Decimal(12, 2)
+  activa           Boolean            @default(true)
+  created_at       DateTime           @default(now()) @db.Timestamp(6)
+  updated_at       DateTime           @default(now()) @db.Timestamp(6)
+  gasto            gasto[]
+  ingreso          ingreso[]
+  movimiento_banco movimiento_banco[]
+
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
 model departamento {
-  id                                                                  BigInt             @id @default(autoincrement())
+  id                                                                  BigInt                 @id @default(autoincrement())
   numero                                                              Int
   piso                                                                Int
   habitaciones                                                        Int
   banos                                                               Int
   superficie_m2                                                       Int
   estatus                                                             Boolean
-  descripcion                                                         String?            @db.VarChar(255)
+  descripcion                                                         String?                @db.VarChar(255)
   amueblado                                                           Boolean
   libre                                                               Boolean
-  precio                                                              Decimal            @db.Decimal(12, 2)
-  cantidad_habitantes                                                 Int                @default(0)
-  dormitorios                                                         Int                @default(0)
-  salas                                                               Int                @default(0)
+  precio                                                              Decimal                @db.Decimal(12, 2)
+  cantidad_habitantes                                                 Int                    @default(0)
+  dormitorios                                                         Int                    @default(0)
+  salas                                                               Int                    @default(0)
   tipo_departamento                                                   BigInt?
-  codigo                                                              String             @db.VarChar(5)
-  
-  tipo_departamento_departamento_tipo_departamentoTotipo_departamento tipo_departamento? @relation("departamento_tipo_departamentoTotipo_departamento", fields: [tipo_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_tipo_departamento")
-  
-  // FIX: Agregar estas relaciones de vuelta
-  departamento_baulera                                                departamento_baulera[]
-  departamento_parqueo                                                departamento_parqueo[]
+  codigo                                                              String                 @db.VarChar(5)
+  tipo_departamento_departamento_tipo_departamentoTotipo_departamento tipo_departamento?     @relation("departamento_tipo_departamentoTotipo_departamento", fields: [tipo_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_tipo_departamento")
   departamento_usuario                                                departamento_usuario[]
-  pago_expensa                                                        pago_expensa[]
 
   @@schema("public")
 }
@@ -641,8 +680,7 @@ model departamento {
 model departamento_baulera {
   id_baulera      BigInt
   id_departamento BigInt
-  baulera         baulera      @relation(fields: [id_baulera], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_baulera_foreign")
-  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_departamento_foreign")
+  baulera         baulera @relation(fields: [id_baulera], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_baulera_foreign")
 
   @@id([id_departamento, id_baulera])
   @@schema("public")
@@ -652,8 +690,7 @@ model departamento_baulera {
 model departamento_parqueo {
   id_parqueo      BigInt
   id_departamento BigInt
-  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_departamento_foreign")
-  parqueo         parqueo      @relation(fields: [id_parqueo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_parqueo_foreign")
+  parqueo         parqueo @relation(fields: [id_parqueo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_parqueo_foreign")
 
   @@id([id_departamento, id_parqueo])
   @@schema("public")
@@ -661,16 +698,15 @@ model departamento_parqueo {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model departamento_usuario {
-  id_copropietario    String    @db.Uuid
+  id_usuario          String       @db.Uuid
   id_departamento     BigInt
-  fecha_ocupacion     DateTime  @db.Date
-  fecha_fin_ocupacion DateTime? @db.Date
+  fecha_ocupacion     DateTime     @db.Date
+  fecha_fin_ocupacion DateTime?    @db.Date
   estatus             Boolean
-  usuario             usuario   @relation(fields: [id_copropietario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_copropietario_foreign")
-  
-  departamento        departamento @relation(fields: [id_departamento], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_departamento_foreign")
+  usuario             usuario      @relation(fields: [id_usuario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_copropietario_foreign")
+  departamento        departamento @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_usuario_departamento")
 
-  @@id([id_departamento, id_copropietario])
+  @@id([id_departamento, id_usuario])
   @@schema("public")
 }
 
@@ -757,6 +793,35 @@ model funciones {
   @@schema("public")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model gasto {
+  id                    BigInt               @id @default(autoincrement())
+  fecha                 DateTime             @db.Date
+  monto                 Decimal              @db.Decimal(12, 2)
+  id_categoria          BigInt
+  proveedor             String?              @db.VarChar(255)
+  descripcion           String?              @db.VarChar(255)
+  metodo                String               @db.VarChar(20)
+  id_cuenta             BigInt?
+  anulado               Boolean              @default(false)
+  motivo_anulacion      String?              @db.VarChar(255)
+  id_usuario            String               @db.Uuid
+  created_at            DateTime             @default(now()) @db.Timestamp(6)
+  updated_at            DateTime             @default(now()) @db.Timestamp(6)
+  comprobante_nombre    String?              @db.VarChar(255)
+  comprobante_contenido Bytes?
+  comprobante_mime      String?              @db.VarChar(100)
+  comprobante_peso      BigInt?
+  categoria_movimiento  categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_categoria")
+  cuenta_bancaria       cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_cuenta")
+  usuario               usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_usuario")
+
+  @@index([id_categoria], map: "idx_gasto_categoria")
+  @@index([fecha], map: "idx_gasto_fecha")
+  @@index([id_usuario], map: "idx_gasto_usuario")
+  @@schema("public")
+}
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model historial_personal {
   id           BigInt    @id @default(autoincrement())
@@ -765,6 +830,104 @@ model historial_personal {
   fecha_fin    DateTime? @db.Date
   personal     personal  @relation(fields: [id_personal], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "historial_personal_id_personal_foreign")
 
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model ingreso {
+  id                    BigInt               @id @default(autoincrement())
+  fecha                 DateTime             @db.Date
+  monto                 Decimal              @db.Decimal(12, 2)
+  id_categoria          BigInt
+  descripcion           String?              @db.VarChar(255)
+  metodo                String               @db.VarChar(20)
+  id_cuenta             BigInt?
+  anulado               Boolean              @default(false)
+  motivo_anulacion      String?              @db.VarChar(255)
+  id_usuario            String               @db.Uuid
+  created_at            DateTime             @default(now()) @db.Timestamp(6)
+  updated_at            DateTime             @default(now()) @db.Timestamp(6)
+  comprobante_nombre    String?              @db.VarChar(255)
+  comprobante_contenido Bytes?
+  comprobante_mime      String?              @db.VarChar(100)
+  comprobante_peso      BigInt?
+  categoria_movimiento  categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_categoria")
+  cuenta_bancaria       cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_cuenta")
+  usuario               usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_usuario")
+
+  @@index([id_categoria], map: "idx_ingreso_categoria")
+  @@index([fecha], map: "idx_ingreso_fecha")
+  @@index([id_usuario], map: "idx_ingreso_usuario")
+  @@schema("public")
+}
+
+model movimiento_banco {
+  id               BigInt          @id @default(autoincrement())
+  cuenta_id        BigInt
+  numero           String          @unique @db.VarChar(50)
+  fecha            DateTime        @db.Date
+  hora             String          @db.VarChar(10)
+  tipo             String          @db.VarChar(50)
+  monto            Decimal         @db.Decimal(12, 2)
+  signo            Int
+  referencia       String          @db.VarChar(100)
+  concepto         String          @db.VarChar(255)
+  origen           String          @db.VarChar(50)
+  saldo_posterior  Decimal         @db.Decimal(12, 2)
+  conciliado       Boolean?        @default(false)
+  vinculo_caja     String?         @db.VarChar(50)
+  adjunto          String?         @db.VarChar(255)
+  id_usuario       String          @db.Uuid
+  anulado          Boolean?        @default(false)
+  motivo_anulacion String?         @db.VarChar(255)
+  anula_a          String?         @db.VarChar(50)
+  created_at       DateTime        @default(now()) @db.Timestamp(6)
+  cuenta_bancaria  cuenta_bancaria @relation(fields: [cuenta_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuenta_banco")
+  usuario          usuario         @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario_banco")
+
+  @@schema("public")
+}
+
+model movimiento_caja {
+  id               BigInt   @id @default(autoincrement())
+  caja_id          BigInt
+  numero           String   @unique @db.VarChar(50)
+  fecha            DateTime @db.Date
+  hora             DateTime @db.Time(6)
+  tipo             String   @db.VarChar(20)
+  monto            Decimal  @db.Decimal(12, 2)
+  concepto         String   @db.VarChar(255)
+  origen           String   @db.VarChar(50)
+  saldo_posterior  Decimal  @db.Decimal(12, 2)
+  id_usuario       String   @db.Uuid
+  id_referencia    BigInt?
+  anulado          Boolean? @default(false)
+  motivo_anulacion String?  @db.VarChar(255)
+  anula_a          String?  @db.VarChar(50)
+  created_at       DateTime @default(now()) @db.Timestamp(6)
+  caja             caja     @relation(fields: [caja_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_caja")
+  usuario          usuario  @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario")
+
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model movimiento_fondo {
+  id                   BigInt                @id @default(autoincrement())
+  id_departamento      BigInt
+  tipo                 String                @db.VarChar(20)
+  monto                Decimal               @db.Decimal(12, 2)
+  fecha                DateTime              @db.Date
+  metodo               String?               @db.VarChar(20)
+  referencia           String?               @db.VarChar(100)
+  id_usuario           String?               @db.Uuid
+  id_factura           BigInt?
+  created_at           DateTime              @default(now()) @db.Timestamp(6)
+  factura_pago_expensa factura_pago_expensa? @relation(fields: [id_factura], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  usuario              usuario?              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([id_departamento], map: "idx_movimiento_fondo_depto")
   @@schema("public")
 }
 
@@ -780,8 +943,6 @@ model pago_expensa {
   factura_pago_expensa factura_pago_expensa[]
   estado_deuda         estado_deuda           @relation(fields: [id_estado], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_estado_expensa")
   expensa              expensa?               @relation(fields: [id_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pago_expensa_expensa")
-  
-  departamento         departamento           @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_departamento")
 
   @@schema("public")
 }
@@ -828,6 +989,20 @@ model personal {
   @@schema("public")
 }
 
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model regla_mora {
+  id         BigInt   @id @default(autoincrement())
+  dia        Int
+  tipo       String   @db.VarChar(20)
+  valor      Decimal  @db.Decimal(12, 2)
+  tope       Decimal? @db.Decimal(12, 2)
+  frecuencia String   @db.VarChar(10)
+  updated_at DateTime @default(now()) @db.Timestamp(6)
+
+  @@schema("public")
+}
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model rol {
   id          BigInt        @id @default(autoincrement())
@@ -861,103 +1036,21 @@ model rol_usuario {
   @@schema("public")
 }
 
+model tipo_departamento {
+  id                                                             BigInt         @id(map: "pk_tipo_departamento")
+  nombre                                                         String?        @db.VarChar(100)
+  departamento_departamento_tipo_departamentoTotipo_departamento departamento[] @relation("departamento_tipo_departamentoTotipo_departamento")
+  expensa_expensa_tipo_departamentoTotipo_departamento           expensa[]      @relation("expensa_tipo_departamentoTotipo_departamento")
+
+  @@schema("public")
+}
+
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model tipo_documento {
   id        BigInt      @id @default(autoincrement())
   nombre    String      @db.VarChar(100)
   documento documento[]
 
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
-model categoria_movimiento {
-  id          BigInt    @id @default(autoincrement())
-  nombre      String    @db.VarChar(100)
-  tipo        String    @db.VarChar(20)
-  descripcion String?   @db.VarChar(255)
-  activa      Boolean   @default(true)
-  created_at  DateTime  @default(now()) @db.Timestamp(6)
-  updated_at  DateTime  @default(now()) @db.Timestamp(6)
-  gasto       gasto[]
-  ingreso     ingreso[]
-
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model cuenta_bancaria {
-  id            BigInt             @id @default(autoincrement())
-  nombre        String             @db.VarChar(100)
-  banco         String             @db.VarChar(100)
-  numero_cuenta String             @db.VarChar(50)
-  tipo_cuenta   String             @db.VarChar(20)
-  saldo         Decimal            @default(0) @db.Decimal(12, 2)
-  activa        Boolean            @default(true)
-  created_at    DateTime           @default(now()) @db.Timestamp(6)
-  updated_at    DateTime           @default(now()) @db.Timestamp(6)
-  gasto         gasto[]
-  ingreso       ingreso[]
-  movimientos   movimiento_banco[]
-
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model ingreso {
-  id                    BigInt               @id @default(autoincrement())
-  fecha                 DateTime             @db.Date
-  monto                 Decimal              @db.Decimal(12, 2)
-  id_categoria          BigInt
-  descripcion           String?              @db.VarChar(255)
-  metodo                String               @db.VarChar(20)
-  id_cuenta             BigInt?
-  anulado               Boolean              @default(false)
-  motivo_anulacion      String?              @db.VarChar(255)
-  id_usuario            String               @db.Uuid
-  created_at            DateTime             @default(now()) @db.Timestamp(6)
-  updated_at            DateTime             @default(now()) @db.Timestamp(6)
-  comprobante_nombre    String?              @db.VarChar(255)
-  comprobante_contenido Bytes?
-  comprobante_mime      String?              @db.VarChar(100)
-  comprobante_peso      BigInt?
-  categoria             categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_categoria")
-  cuenta_bancaria       cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_cuenta")
-  usuario               usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ingreso_usuario")
-
-  @@index([id_categoria], map: "idx_ingreso_categoria")
-  @@index([fecha], map: "idx_ingreso_fecha")
-  @@index([id_usuario], map: "idx_ingreso_usuario")
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model gasto {
-  id                    BigInt               @id @default(autoincrement())
-  fecha                 DateTime             @db.Date
-  monto                 Decimal              @db.Decimal(12, 2)
-  id_categoria          BigInt
-  proveedor             String?              @db.VarChar(255)
-  descripcion           String?              @db.VarChar(255)
-  metodo                String               @db.VarChar(20)
-  id_cuenta             BigInt?
-  anulado               Boolean              @default(false)
-  motivo_anulacion      String?              @db.VarChar(255)
-  id_usuario            String               @db.Uuid
-  created_at            DateTime             @default(now()) @db.Timestamp(6)
-  updated_at            DateTime             @default(now()) @db.Timestamp(6)
-  comprobante_nombre    String?              @db.VarChar(255)
-  comprobante_contenido Bytes?
-  comprobante_mime      String?              @db.VarChar(100)
-  comprobante_peso      BigInt?
-  categoria             categoria_movimiento @relation(fields: [id_categoria], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_categoria")
-  cuenta_bancaria       cuenta_bancaria?     @relation(fields: [id_cuenta], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_cuenta")
-  usuario               usuario              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_gasto_usuario")
-
-  @@index([id_categoria], map: "idx_gasto_categoria")
-  @@index([fecha], map: "idx_gasto_fecha")
-  @@index([id_usuario], map: "idx_gasto_usuario")
   @@schema("public")
 }
 
@@ -996,99 +1089,6 @@ model usuario {
   rol_usuario          rol_usuario[]
   users                users                  @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
-  @@schema("public")
-}
-
-model tipo_departamento {
-  id                                                             BigInt         @id(map: "pk_tipo_departamento")
-  nombre                                                         String?        @db.VarChar(100)
-  departamento_departamento_tipo_departamentoTotipo_departamento departamento[] @relation("departamento_tipo_departamentoTotipo_departamento")
-  expensa_expensa_tipo_departamentoTotipo_departamento           expensa[]      @relation("expensa_tipo_departamentoTotipo_departamento")
-
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model caja {
-  id             BigInt            @id @default(autoincrement())
-  abierta        Boolean           @default(false)
-  fecha_apertura DateTime?         @db.Date
-  monto_apertura Decimal?          @default(0) @db.Decimal(12, 2)
-  created_at     DateTime          @default(now()) @db.Timestamp(6)
-  updated_at     DateTime          @default(now()) @db.Timestamp(6)
-  movimientos    movimiento_caja[]
-
-  @@schema("public")
-}
-
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model movimiento_caja {
-  id               BigInt   @id @default(autoincrement())
-  caja_id          BigInt
-  numero           String   @unique @db.VarChar(50)
-  fecha            DateTime @db.Date
-  hora             DateTime @db.Time(6)
-  tipo             String   @db.VarChar(20)
-  monto            Decimal  @db.Decimal(12, 2)
-  concepto         String   @db.VarChar(255)
-  origen           String   @db.VarChar(50)
-  saldo_posterior  Decimal  @db.Decimal(12, 2)
-  id_usuario       String   @db.Uuid
-  id_referencia    BigInt?
-  anulado          Boolean? @default(false)
-  motivo_anulacion String?  @db.VarChar(255)
-  anula_a          String?  @db.VarChar(50)
-  created_at       DateTime @default(now()) @db.Timestamp(6)
-  caja             caja     @relation(fields: [caja_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_caja")
-  usuario          usuario  @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario")
-
-  @@schema("public")
-}
-
-model movimiento_banco {
-  id               BigInt          @id @default(autoincrement())
-  cuenta_id        BigInt
-  numero           String          @unique @db.VarChar(50)
-  fecha            DateTime        @db.Date
-  hora             String          @db.VarChar(10)
-  tipo             String          @db.VarChar(50)
-  monto            Decimal         @db.Decimal(12, 2)
-  signo            Int
-  referencia       String          @db.VarChar(100)
-  concepto         String          @db.VarChar(255)
-  origen           String          @db.VarChar(50)
-  saldo_posterior  Decimal         @db.Decimal(12, 2)
-  conciliado       Boolean?        @default(false)
-  vinculo_caja     String?         @db.VarChar(50)
-  adjunto          String?         @db.VarChar(255)
-  id_usuario       String          @db.Uuid
-  anulado          Boolean?        @default(false)
-  motivo_anulacion String?         @db.VarChar(255)
-  anula_a          String?         @db.VarChar(50)
-  created_at       DateTime        @default(now()) @db.Timestamp(6)
-  cuenta           cuenta_bancaria @relation(fields: [cuenta_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_cuenta_banco")
-  usuario          usuario         @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_usuario_banco")
-
-  @@schema("public")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
-model movimiento_fondo {
-  id                   BigInt                @id @default(autoincrement())
-  id_departamento      BigInt
-  tipo                 String                @db.VarChar(20)
-  monto                Decimal               @db.Decimal(12, 2)
-  fecha                DateTime              @db.Date
-  metodo               String?               @db.VarChar(20)
-  referencia           String?               @db.VarChar(100)
-  id_usuario           String?               @db.Uuid
-  id_factura           BigInt?
-  created_at           DateTime              @default(now()) @db.Timestamp(6)
-  factura_pago_expensa factura_pago_expensa? @relation(fields: [id_factura], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  usuario              usuario?              @relation(fields: [id_usuario], references: [id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@index([id_departamento], map: "idx_movimiento_fondo_depto")
   @@schema("public")
 }
 
