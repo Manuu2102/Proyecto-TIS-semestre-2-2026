@@ -2,6 +2,7 @@ import {
   Injectable,
   ConflictException,
   NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
@@ -41,6 +42,21 @@ export class CopropietariosService {
       );
     }
 
+    // NUEVO: Validar que el departamento exista y esté libre antes de crear el usuario en Auth
+    let idDepartamento: bigint | null = null;
+    if (data.id_departamento) {
+      idDepartamento = BigInt(data.id_departamento);
+      const depto = await this.prisma.departamento.findUnique({
+        where: { id: idDepartamento },
+      });
+      if (!depto) {
+        throw new BadRequestException('El departamento seleccionado no existe.');
+      }
+      if (!depto.libre) {
+        throw new BadRequestException('El departamento seleccionado ya está ocupado.');
+      }
+    }
+
     const { data: authData, error } = await this.supabase.client.auth.signUp({
       email: data.email,
       password: data.password ?? data.ci,
@@ -56,8 +72,9 @@ export class CopropietariosService {
     const userId = authData.user.id;
 
     try {
-      const copropietario = await this.prisma.conUsuario(adminId, (tx) =>
-        tx.usuario.create({
+      const copropietario = await this.prisma.conUsuario(adminId, async (tx) => {
+        // 1. Crear el usuario
+        const nuevoUsuario = await tx.usuario.create({
           data: {
             id: userId,
             ci: BigInt(data.ci),
@@ -67,7 +84,7 @@ export class CopropietariosService {
             sexo: data.sexo,
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
             email: data.email,
-            estatus: true,
+            estatus: true, // FIX: Forzado a true, ignorando lo que venga del front
             fecha_de_registro: new Date(),
             telefono: data.telefono,
             rol_usuario: {
@@ -83,8 +100,27 @@ export class CopropietariosService {
               },
             },
           },
-        }),
-      );
+        });
+
+        // 2. NUEVO: Asociar al departamento si se envió
+        if (idDepartamento) {
+          await tx.departamento_usuario.create({
+            data: {
+              id_copropietario: nuevoUsuario.id,
+              id_departamento: idDepartamento,
+              fecha_ocupacion: new Date(),
+              estatus: true,
+            },
+          });
+          // Marcar departamento como ocupado
+          await tx.departamento.update({
+            where: { id: idDepartamento },
+            data: { libre: false },
+          });
+        }
+
+        return nuevoUsuario;
+      });
 
       return {
         message: 'Copropietario registrado correctamente',
@@ -95,6 +131,7 @@ export class CopropietariosService {
         },
       };
     } catch (dbError) {
+      // Si falla la BD, eliminamos el usuario de Supabase Auth para no dejar basura
       await this.supabase.adminClient.auth.admin.deleteUser(authData.user.id);
       throw dbError;
     }
@@ -105,13 +142,11 @@ export class CopropietariosService {
     data: ActualizarCopropietarioDto,
     adminId: string,
   ) {
-    // 1. Verificar que exista
     const existe = await this.prisma.usuario.findUnique({ where: { id } });
     if (!existe) {
       throw new NotFoundException(`Copropietario con id ${id} no encontrado`);
     }
 
-    // 2. Verificar CI duplicado (si lo están cambiando)
     if (data.ci && BigInt(data.ci) !== existe.ci) {
       const ciDuplicado = await this.prisma.usuario.findUnique({
         where: { ci: BigInt(data.ci) },
@@ -121,7 +156,6 @@ export class CopropietariosService {
       }
     }
 
-    // 3. Verificar email duplicado (si lo están cambiando)
     if (data.email && data.email !== existe.email) {
       const emailDuplicado = await this.prisma.usuario.findUnique({
         where: { email: data.email },
@@ -131,7 +165,6 @@ export class CopropietariosService {
       }
     }
 
-    // 4. Si cambia el email, actualizar también en Supabase Auth
     if (data.email && data.email !== existe.email) {
       const { error } =
         await this.supabase.adminClient.auth.admin.updateUserById(id, {
@@ -144,7 +177,6 @@ export class CopropietariosService {
       }
     }
 
-    // 5. Actualizar en la BD con RLS
     const actualizado = await this.prisma.conUsuario(adminId, (tx) =>
       tx.usuario.update({
         where: { id },
@@ -177,6 +209,7 @@ export class CopropietariosService {
     };
   }
 
+  // FIX: Ahora incluye el departamento en la lista
   async listar() {
     const copropietarios = await this.prisma.usuario.findMany({
       where: {
@@ -190,6 +223,14 @@ export class CopropietariosService {
             rol: { select: { nombre_rol: true } },
           },
         },
+        departamento_usuario: {
+          where: { estatus: true }, // Solo la ocupación actual
+          include: {
+            departamento: {
+              select: { id: true, numero: true, piso: true },
+            },
+          },
+        },
       },
       orderBy: { created_at: 'desc' },
     });
@@ -200,7 +241,12 @@ export class CopropietariosService {
         ...c,
         ci: c.ci.toString(),
         roles: c.rol_usuario.map((ru) => ru.rol.nombre_rol),
+        // NUEVO: Formateamos el departamento para que el front lo muestre
+        departamento: c.departamento_usuario[0]?.departamento
+          ? `${c.departamento_usuario[0].departamento.numero} - Piso ${c.departamento_usuario[0].departamento.piso}`
+          : null,
         rol_usuario: undefined,
+        departamento_usuario: undefined,
       })),
     };
   }
