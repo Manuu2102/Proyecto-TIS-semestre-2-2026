@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { api } from "../../../lib/api";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -18,9 +19,11 @@ type EstadoDepto = "Al día" | "Pendiente" | "En mora";
 type Frecuencia = "mes" | "dia";
 
 type Departamento = {
+  id: string;
   numero: number;
   categoria: Categoria;
   responsable: string;
+  tarifa: number;
 };
 
 type ReglaMora = {
@@ -42,7 +45,7 @@ type Expensa = {
 };
 
 type Movimiento = {
-  id: number;
+  id: string;
   fecha: string;
   departamento: number;
   tipo: "Pago de expensa" | "Pago anticipado registrado";
@@ -83,65 +86,18 @@ type Campo =
   | "mora"
   | "saldoTotal";
 
-// ============================================================
-// DATOS DE EJEMPLO: reemplazar con las respuestas del backend
-// ============================================================
-
 const METODOS = ["QR"];
 
-const TARIFA: Record<Categoria, number> = {
-  A: 400,
-  B: 450,
-  C: 500,
-};
-
-const DEPARTAMENTOS: Departamento[] = [
-  { numero: 101, categoria: "A", responsable: "María Fernanda Rojas" },
-  { numero: 102, categoria: "A", responsable: "Carlos Andrés Pérez" },
-  { numero: 103, categoria: "A", responsable: "Ana Lucía Vargas" },
-  { numero: 201, categoria: "B", responsable: "Sofía Valentina Cruz" },
-  { numero: 202, categoria: "B", responsable: "Diego Mauricio Salazar" },
-  { numero: 203, categoria: "B", responsable: "Melody Gutiérrez" },
-  { numero: 301, categoria: "C", responsable: "Rodrigo Quispe" },
-  { numero: 302, categoria: "C", responsable: "Alejandra Guzmán" },
-];
-
-const PERIODOS = ["2026-08", "2026-09", "2026-10"];
-
-const SIN_PAGAR: Record<number, string[]> = {
-  103: ["2026-08", "2026-09", "2026-10"],
-  201: ["2026-10"],
-  202: ["2026-09", "2026-10"],
-  203: ["2026-10"],
-  302: ["2026-08", "2026-10"],
-};
-
-// Regla inicial de ejemplo.
-// Antes del día de inicio no se cobra mora.
-// Desde ese día se aplica el menor valor entre el porcentaje y el límite en Bs.
+// Se muestra hasta que llega la regla del backend (GET /expensas/mora/regla).
 const REGLA_INICIAL: ReglaMora = {
-  diaInicio: 10,
-  porcentaje: 10,
-  montoMaximo: 50,
+  diaInicio: 1,
+  porcentaje: 0,
+  montoMaximo: 0,
   frecuencia: "mes",
 };
 
-// Obtiene la fecha actual en la zona horaria local del navegador.
-// En producción, el backend debe ser la fuente oficial de la fecha.
-function fechaActualISO(): string {
-  const hoy = new Date();
-  const anio = hoy.getFullYear();
-  const mes = String(hoy.getMonth() + 1).padStart(2, "0");
-  const dia = String(hoy.getDate()).padStart(2, "0");
-  return `${anio}-${mes}-${dia}`;
-}
-
 function r2(n: number) {
   return Math.round((n + Number.EPSILON) * 100) / 100;
-}
-
-function esperar(ms: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 const MESES = [
@@ -261,116 +217,67 @@ function imprimirHtml(titulo: string, cuerpo: string) {
 }
 
 // ============================================================
-// CÁLCULO DE MORA
+// LLAMADAS AL BACKEND
 // ============================================================
 
-// La mora empieza el día configurado del período.
-// Se calcula por día o por mes según la regla guardada.
-// Cada unidad aplica el menor importe entre porcentaje y límite fijo.
-//
-// IMPORTANTE: esta función es una simulación de frontend.
-// En producción, el backend debe calcular y persistir la mora.
-function moraCalculada(
-  periodo: string,
-  monto: number,
-  regla: ReglaMora
-): number {
-  const [anio, mes] = periodo.split("-").map(Number);
-  const inicio = `${periodo}-${String(regla.diaInicio).padStart(2, "0")}`;
-  const hoyReferencia = fechaActualISO();
-
-  if (hoyReferencia < inicio) return 0;
-
-  const [anioHoy, mesHoy, diaHoy] = hoyReferencia.split("-").map(Number);
-  const fechaInicio = Date.UTC(anio, mes - 1, regla.diaInicio);
-  const fechaHoy = Date.UTC(anioHoy, mesHoy - 1, diaHoy);
-
-  if (fechaHoy < fechaInicio) return 0;
-
-  let unidades = 0;
-
-  if (regla.frecuencia === "dia") {
-    unidades =
-      Math.floor((fechaHoy - fechaInicio) / 86400000) + 1;
-  } else {
-    unidades =
-      (anioHoy - anio) * 12 +
-      (mesHoy - mes) +
-      (diaHoy >= regla.diaInicio ? 1 : 0);
-
-    unidades = Math.max(1, unidades);
-  }
-
-  const porcentajePorUnidad = (monto * regla.porcentaje) / 100;
-  const importePorUnidad = Math.min(
-    porcentajePorUnidad,
-    regla.montoMaximo
-  );
-
-  return r2(unidades * importePorUnidad);
-}
-
-const EXPENSAS_INICIALES: Expensa[] = DEPARTAMENTOS.flatMap((depto) =>
-  PERIODOS.map((periodo) => {
-    const pendiente = (SIN_PAGAR[depto.numero] ?? []).includes(periodo);
-    const monto = TARIFA[depto.categoria];
-    const mora = pendiente
-      ? moraCalculada(periodo, monto, REGLA_INICIAL)
-      : 0;
-
-    return {
-      id: `${periodo}-${depto.numero}`,
-      departamento: depto.numero,
-      periodo,
-      monto,
-      montoRestante: pendiente ? monto : 0,
-      moraRestante: mora,
-      moraPagada: 0,
-      vencida: mora > 0,
-    };
-  })
-);
-
-const A_FAVOR_INICIAL: Record<number, number> = {
-  101: 300,
+// Forma de la regla en el backend. El modal actual solo maneja
+// porcentaje con tope; el tipo "fijo" existe en el backend pero
+// el modal todavía no tiene selector para elegirlo.
+type ReglaMoraApi = {
+  dia: number;
+  tipo: "porcentaje" | "fijo";
+  valor: number;
+  tope: number | null;
+  frecuencia: Frecuencia;
 };
 
-const HISTORIAL_INICIAL: Movimiento[] = [
-  {
-    id: 3,
-    fecha: "2026-10-08",
-    departamento: 101,
-    tipo: "Pago anticipado registrado",
-    monto: 300,
-    metodo: "QR",
-    referencia: "QR-ANT-0001",
-    usuario: "Administrador",
-  },
-  {
-    id: 2,
-    fecha: "2026-10-06",
-    departamento: 102,
-    tipo: "Pago de expensa",
-    monto: 400,
-    metodo: "QR",
-    referencia: "QR-1002",
-    usuario: "Administrador",
-  },
-  {
-    id: 1,
-    fecha: "2026-10-04",
-    departamento: 301,
-    tipo: "Pago de expensa",
-    monto: 500,
-    metodo: "QR",
-    referencia: "QR-1001",
-    usuario: "Administrador",
-  },
-];
+const deReglaApi = (regla: ReglaMoraApi): ReglaMora => ({
+  diaInicio: regla.dia,
+  porcentaje: regla.valor,
+  montoMaximo: regla.tope ?? 0,
+  frecuencia: regla.frecuencia,
+});
 
-// ============================================================
-// SIMULACIONES DE API: reemplazar por fetch al integrar backend
-// ============================================================
+type ResumenPagos = {
+  departamentos: Departamento[];
+  deudas: {
+    id: string;
+    departamento: number;
+    periodo: string;
+    monto: number;
+    mora: number;
+    vencida: boolean;
+  }[];
+  aFavor: Record<number, number>;
+};
+
+// BACKEND: GET /expensas/pagos/resumen y GET /expensas/pagos/historial
+async function cargarPagosApi() {
+  const [resumen, historial, regla] = await Promise.all([
+    api<ResumenPagos>("/expensas/pagos/resumen"),
+    api<Movimiento[]>("/expensas/pagos/historial"),
+    api<ReglaMoraApi>("/expensas/mora/regla"),
+  ]);
+
+  const expensas: Expensa[] = resumen.deudas.map((deuda) => ({
+    id: deuda.id,
+    departamento: deuda.departamento,
+    periodo: deuda.periodo,
+    monto: deuda.monto,
+    montoRestante: deuda.monto,
+    moraRestante: deuda.mora,
+    moraPagada: 0,
+    vencida: deuda.vencida,
+  }));
+
+  return {
+    departamentos: resumen.departamentos,
+    expensas,
+    aFavor: resumen.aFavor,
+    historial,
+    regla: deReglaApi(regla),
+  };
+}
 
 function aplicar(expensa: Expensa, monto: number) {
   const aMora = r2(Math.min(monto, expensa.moraRestante));
@@ -399,15 +306,27 @@ type PagoEntrada = {
   usuario: string;
 };
 
+// BACKEND: POST /expensas/pagos/:id/pagar
+// Solo acepta el pago completo (monto + mora); si no, responde con error.
 async function registrarPagoApi(pago: PagoEntrada) {
-  await esperar(700);
+  const factura = await api<{ id: string }>(
+    `/expensas/pagos/${pago.expensa.id}/pagar`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        monto: pago.monto,
+        fecha: pago.fecha,
+        metodo: pago.metodo,
+        referencia: pago.referencia || undefined,
+      }),
+    }
+  );
 
-  // BACKEND: POST /pagos
-  const { aMora, aMonto } = aplicar(pago.expensa, pago.monto);
+  const { aMora } = aplicar(pago.expensa, pago.monto);
   const ahora = new Date();
 
   const movimiento: Movimiento = {
-    id: Date.now(),
+    id: `P-${factura.id}`,
     fecha: pago.fecha,
     departamento: pago.expensa.departamento,
     tipo: "Pago de expensa",
@@ -434,9 +353,10 @@ async function registrarPagoApi(pago: PagoEntrada) {
     referencia: pago.referencia,
   };
 
+  // El backend deja la deuda pagada por completo
   return {
-    montoRestante: r2(pago.expensa.montoRestante - aMonto),
-    moraRestante: r2(pago.expensa.moraRestante - aMora),
+    montoRestante: 0,
+    moraRestante: 0,
     moraPagada: r2(pago.expensa.moraPagada + aMora),
     movimiento,
     recibo,
@@ -444,6 +364,7 @@ async function registrarPagoApi(pago: PagoEntrada) {
 }
 
 type AnticipoEntrada = {
+  idDepartamento: string;
   departamento: number;
   monto: number;
   fecha: string;
@@ -452,12 +373,21 @@ type AnticipoEntrada = {
   usuario: string;
 };
 
+// BACKEND: POST /expensas/fondos (solo si el departamento está al día)
 async function registrarAnticipoApi(anticipo: AnticipoEntrada) {
-  await esperar(700);
+  await api("/expensas/fondos", {
+    method: "POST",
+    body: JSON.stringify({
+      id_departamento: Number(anticipo.idDepartamento),
+      monto: anticipo.monto,
+      fecha: anticipo.fecha,
+      metodo: anticipo.metodo,
+      referencia: anticipo.referencia || undefined,
+    }),
+  });
 
-  // BACKEND: POST /pagos/anticipos
   const movimiento: Movimiento = {
-    id: Date.now(),
+    id: `D-${Date.now()}`,
     fecha: anticipo.fecha,
     departamento: anticipo.departamento,
     tipo: "Pago anticipado registrado",
@@ -470,13 +400,23 @@ async function registrarAnticipoApi(anticipo: AnticipoEntrada) {
   return { movimiento };
 }
 
+// BACKEND: PUT /expensas/mora/regla
+// El backend recalcula la mora de las deudas vencidas con la nueva regla.
 async function guardarReglaApi(
   regla: ReglaMora
 ): Promise<ReglaMora> {
-  await esperar(500);
+  const guardada = await api<ReglaMoraApi>("/expensas/mora/regla", {
+    method: "PUT",
+    body: JSON.stringify({
+      dia: regla.diaInicio,
+      tipo: "porcentaje",
+      valor: regla.porcentaje,
+      tope: regla.montoMaximo,
+      frecuencia: regla.frecuencia,
+    }),
+  });
 
-  // BACKEND: PUT /mora/reglas
-  return regla;
+  return deReglaApi(guardada);
 }
 
 function filaDe(
@@ -611,13 +551,33 @@ export default function PagosPage() {
   const [rol] = useState(readRol);
   const esAdmin = rol.startsWith("ADMIN");
 
-  const [expensas, setExpensas] = useState<Expensa[]>(EXPENSAS_INICIALES);
-  const [aFavor, setAFavor] =
-    useState<Record<number, number>>(A_FAVOR_INICIAL);
-  const [historial, setHistorial] =
-    useState<Movimiento[]>(HISTORIAL_INICIAL);
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
+  const [expensas, setExpensas] = useState<Expensa[]>([]);
+  const [aFavor, setAFavor] = useState<Record<number, number>>({});
+  const [historial, setHistorial] = useState<Movimiento[]>([]);
   const [regla, setRegla] = useState<ReglaMora>(REGLA_INICIAL);
   const [exito, setExito] = useState("");
+  const [errorCarga, setErrorCarga] = useState("");
+
+  useEffect(() => {
+    cargarPagosApi()
+      .then((datos) => {
+        setDepartamentos(datos.departamentos);
+        setExpensas(datos.expensas);
+        setAFavor(datos.aFavor);
+        setHistorial(datos.historial);
+        setRegla(datos.regla);
+      })
+      .catch((error) =>
+        setErrorCarga(
+          error instanceof Error
+            ? error.message
+            : "No se pudieron cargar los pagos."
+        )
+      );
+  }, []);
+
+  const periodos = [...new Set(expensas.map((e) => e.periodo))].sort();
 
   // Filtros
   const [periodoF, setPeriodoF] = useState("");
@@ -684,7 +644,7 @@ export default function PagosPage() {
         )
     );
 
-  const filasTodas = DEPARTAMENTOS.map((depto) =>
+  const filasTodas = departamentos.map((depto) =>
     filaDe(depto, expensas, aFavor[depto.numero] ?? 0, periodoF)
   );
 
@@ -821,33 +781,9 @@ export default function PagosPage() {
 
       setRegla(nueva);
 
-      // Simulación: se actualiza la mora de expensas pendientes.
-      // En producción, el backend debe definir cómo conservar los
-      // importes históricos ya calculados y pagados.
-      setExpensas((anteriores) =>
-        anteriores.map((expensa) => {
-          if (
-            expensa.montoRestante + expensa.moraRestante <= 0
-          ) {
-            return expensa;
-          }
-
-          const moraBruta = moraCalculada(
-            expensa.periodo,
-            expensa.monto,
-            nueva
-          );
-
-          return {
-            ...expensa,
-            moraRestante: Math.max(
-              0,
-              r2(moraBruta - expensa.moraPagada)
-            ),
-            vencida: moraBruta > 0,
-          };
-        })
-      );
+      // La mora la recalcula el backend: se vuelven a pedir las deudas
+      const datos = await cargarPagosApi();
+      setExpensas(datos.expensas);
 
       setReglaOpen(false);
       setExito(`Reglas actualizadas: ${textoRegla(nueva)}.`);
@@ -864,7 +800,7 @@ export default function PagosPage() {
 
   // Datos para registrar pago
   const deptoPago =
-    DEPARTAMENTOS.find(
+    departamentos.find(
       (depto) => String(depto.numero) === pagoDepto
     ) ?? null;
 
@@ -905,7 +841,7 @@ export default function PagosPage() {
 
   // Datos para anticipo
   const deptoAnt =
-    DEPARTAMENTOS.find(
+    departamentos.find(
       (depto) => String(depto.numero) === antDepto
     ) ?? null;
 
@@ -1097,6 +1033,7 @@ export default function PagosPage() {
 
     try {
       const respuesta = await registrarAnticipoApi({
+        idDepartamento: deptoAnt.id,
         departamento: deptoAnt.numero,
         monto: antMontoNum,
         fecha: antFecha,
@@ -1324,6 +1261,15 @@ export default function PagosPage() {
         </div>
       </div>
 
+      {errorCarga && (
+        <div
+          className="alert alert-error"
+          style={{ marginBottom: 16 }}
+        >
+          {errorCarga}
+        </div>
+      )}
+
       {exito && (
         <div
           className="alert alert-success"
@@ -1395,7 +1341,7 @@ export default function PagosPage() {
                 }
               >
                 <option value="">Todos los períodos</option>
-                {PERIODOS.map((periodo) => (
+                {periodos.map((periodo) => (
                   <option key={periodo} value={periodo}>
                     {nombrePeriodo(periodo)}
                   </option>
@@ -1833,7 +1779,7 @@ export default function PagosPage() {
                 onChange={(e) => elegirDeptoPago(e.target.value)}
               >
                 <option value="">Selecciona un departamento</option>
-                {DEPARTAMENTOS.map((depto) => (
+                {departamentos.map((depto) => (
                   <option
                     key={depto.numero}
                     value={String(depto.numero)}
@@ -2178,7 +2124,7 @@ export default function PagosPage() {
               }}
             >
               <option value="">Selecciona un departamento</option>
-              {DEPARTAMENTOS.map((depto) => (
+              {departamentos.map((depto) => (
                 <option
                   key={depto.numero}
                   value={String(depto.numero)}
@@ -2198,7 +2144,7 @@ export default function PagosPage() {
 
               <div style={FILA}>
                 <span>Expensa mensual</span>
-                <strong>{bs(TARIFA[deptoAnt.categoria])}</strong>
+                <strong>{bs(deptoAnt.tarifa)}</strong>
               </div>
 
               <div style={FILA}>

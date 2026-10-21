@@ -1,7 +1,7 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -62,6 +62,56 @@ const MESES = [
 ];
 
 const ANIO_INICIO = 2025;
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:3001";
+
+async function pedir<T>(ruta: string, opciones?: RequestInit): Promise<T> {
+  const token = sessionStorage.getItem("token");
+  const res = await fetch(`${API_URL}${ruta}`, {
+    ...opciones,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...opciones?.headers,
+    },
+  });
+
+  if (!res.ok) {
+    const cuerpo = await res.json().catch(() => null);
+    const mensaje = Array.isArray(cuerpo?.message)
+      ? cuerpo.message.join(". ")
+      : cuerpo?.message;
+    throw new Error(mensaje || "No se pudo completar la operación.");
+  }
+
+  return res.json();
+}
+
+// BACKEND: GET /expensas/departamentos
+const cargarDepartamentosApi = () =>
+  pedir<Departamento[]>("/expensas/departamentos");
+
+// BACKEND: GET /expensas/mensuales
+const cargarExpensasApi = () => pedir<Expensa[]>("/expensas/mensuales");
+
+// BACKEND: POST /expensas/extras
+function generarExpensasApi(
+  periodo: string,
+  extras: ExtraDepartamento[]
+): Promise<Resultado> {
+  return pedir<Resultado>("/expensas/extras", {
+    method: "POST",
+    body: JSON.stringify({
+      periodo,
+      extras: extras.map(({ departamento, concepto, monto }) => ({
+        departamento,
+        concepto,
+        monto,
+      })),
+    }),
+  });
+}
+
 
 // DATOS SIMULADOS: BACKEND GET /expensas/tarifas
 const TARIFAS: Record<Categoria, Concepto[]> = {
@@ -159,54 +209,6 @@ const EXPENSAS_INICIALES: Expensa[] = [
 ];
 
 // SIMULACIÓN DEL SERVICIO. El backend implementará POST /expensas/generar.
-async function generarExpensasApi(
-  periodo: string,
-  existentes: Expensa[],
-  tarifas: Record<Categoria, Concepto[]>,
-  extras: ExtraDepartamento[]
-): Promise<Resultado> {
-  await new Promise((resolve) => setTimeout(resolve, 500));
-
-  const yaExistian = existentes.filter(
-    (expensa) => expensa.periodo === periodo
-  ).length;
-
-  const generadas: Expensa[] = [];
-  const omitidos: Omitido[] = [];
-
-  for (const departamento of DEPARTAMENTOS) {
-    if (!departamento.ocupado) continue;
-
-    if (!departamento.categoria) {
-      omitidos.push({
-        departamento: departamento.numero,
-        motivo: "No tiene una categoría asignada.",
-      });
-      continue;
-    }
-
-    const yaExiste = existentes.some(
-      (expensa) =>
-        expensa.periodo === periodo &&
-        expensa.departamento === departamento.numero
-    );
-
-    if (yaExiste) continue;
-
-    generadas.push(
-      crear(
-        departamento.numero,
-        departamento.categoria,
-        periodo,
-        "Pendiente",
-        tarifas,
-        extras
-      )
-    );
-  }
-
-  return { periodo, generadas, omitidos, yaExistian };
-}
 
 function bs(monto: number) {
   return (
@@ -251,7 +253,14 @@ export default function ExpensasPage() {
   const [rol] = useState(readRol);
   const esAdmin = rol.startsWith("ADMIN");
 
-  const [expensas, setExpensas] = useState<Expensa[]>(EXPENSAS_INICIALES);
+  const [expensas, setExpensas] = useState<Expensa[]>([]);
+  const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
+
+  // Mismo nombre que antes, para no tocar el JSX
+  const ELEGIBLES = departamentos.filter(
+    (d): d is Departamento & { categoria: Categoria } =>
+      d.ocupado && d.categoria !== null
+  );
 
   // Tarifas editables por categoría.
   const [tarifasEditables, setTarifasEditables] = useState<
@@ -283,6 +292,20 @@ export default function ExpensasPage() {
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState("");
 
+  useEffect(() => {
+    cargarExpensasApi()
+      .then((data) => {
+        setExpensas(data);
+        const ultimo = Array.from(new Set(data.map((e) => e.periodo)))
+          .sort()
+          .pop();
+        if (ultimo) setPeriodoVista(ultimo);
+      })
+      .catch(console.error);
+
+    cargarDepartamentosApi().then(setDepartamentos).catch(console.error);
+  }, []);
+
   const hoy = new Date();
   const anioActual = hoy.getFullYear();
   const mesActual = hoy.getMonth() + 1;
@@ -312,16 +335,7 @@ export default function ExpensasPage() {
     ? expensas.filter((e) => e.periodo === periodoSel).length
     : 0;
 
-  const faltantes = periodoSel
-    ? ELEGIBLES.filter(
-        (d) =>
-          !expensas.some(
-            (e) =>
-              e.periodo === periodoSel &&
-              e.departamento === d.numero
-          )
-      ).length
-    : 0;
+  const faltantes = periodoSel ? extras.length : 0;
 
   const periodos = Array.from(
     new Set(expensas.map((e) => e.periodo))
@@ -435,14 +449,14 @@ export default function ExpensasPage() {
     setError("");
 
     try {
-      const res = await generarExpensasApi(
-        periodoSel,
-        expensas,
-        tarifasEditables,
-        extras
-      );
+      const res = await generarExpensasApi(periodoSel, extras);
 
-      setExpensas((prev) => [...prev, ...res.generadas]);
+      // El backend devuelve las filas actualizadas: se reemplazan, no se agregan
+      setExpensas((prev) => {
+        const ids = new Set(res.generadas.map((e) => e.id));
+        return [...prev.filter((e) => !ids.has(e.id)), ...res.generadas];
+      });
+
       setPeriodoVista(periodoSel);
       setResultado(res);
       setModalOpen(false);
