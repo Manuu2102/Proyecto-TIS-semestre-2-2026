@@ -87,7 +87,7 @@ type BancosProps = {
   irACaja: () => void;
 };
 
-type NuevoMovCaja = { fecha: string; tipo: TipoCaja; monto: number; concepto: string; origen: OrigenCaja };
+type PuntoSaldo = { fecha: string; saldo: number };
 
 type ResultadoSaldo = {
   inicial: number;
@@ -97,9 +97,8 @@ type ResultadoSaldo = {
   calculadoEn: string;
   periodo: MovCaja[];
   ultimos: MovCaja[];
+  serie: PuntoSaldo[]; // evolución del saldo en el período
 };
-
-type FormMovimiento = { fecha: string; tipo: "" | TipoCaja; monto: string; concepto: string };
 
 // =====================================================================
 // 2. CONSTANTES
@@ -237,13 +236,7 @@ const MENSAJES = {
   conceptoLongitud: "El concepto debe tener entre 10 y 255 caracteres.",
   motivoLongitud: "El motivo debe tener entre 10 y 255 caracteres.",
   motivoObligatorio: "El motivo de anulación es obligatorio.",
-  salidaExcede: (saldo: number) => `El monto supera el saldo de caja (${bs(saldo)}).`,
-  saldoInsuficiente: (disponible: number, monto: number) =>
-    `Saldo insuficiente en caja. Disponible: ${bs(disponible)}; la salida es de ${bs(monto)}.`,
-  confirmarMovimiento: (tipo: TipoCaja, monto: number) =>
-    `¿Registrar ${tipo === "ENTRADA" ? "entrada" : "salida"} de caja por ${bs(monto)}?`,
   saldoDespues: (saldo: number) => `Saldo después del movimiento: ${bs(saldo)}`,
-  movimientoRegistrado: (numero: string, saldo: number) => `Movimiento ${numero} registrado. Saldo de caja: ${bs(saldo)}.`,
   confirmarAnulacion: (numero: string, monto: number, saldo: number) =>
     `¿Anular el movimiento ${numero} de ${bs(monto)}? Se creará un movimiento contrario y el saldo de caja será ${bs(saldo)}.`,
   movimientoAnulado: (numero: string) => `Movimiento ${numero} anulado.`,
@@ -313,28 +306,6 @@ async function abrirCajaApi(monto: number, fecha: string, caja: Caja): Promise<C
   return { abierta: true, fecha, monto };
 }
 
-async function registrarMovCajaApi(nuevo: NuevoMovCaja, caja: Caja, movs: MovCaja[]): Promise<MovCaja> {
-  await esperar(900);
-  // BACKEND: POST /caja/movimientos  { fecha, tipo, monto, concepto }
-  //   403 → "Acceso denegado."  ·  422 → mensaje del servidor  ·  5xx → "Fallo del servicio. Intenta nuevamente."
-  if (!caja.abierta) throw new Error("La caja aún no ha sido abierta. Regístrate primero con el monto inicial.");
-  if (nuevo.fecha < caja.fecha) throw new Error("La fecha del movimiento no puede ser anterior a la apertura de caja.");
-  if (nuevo.fecha > hoyISO()) throw new Error("La fecha del movimiento no puede ser posterior a la fecha actual.");
-  const saldo = saldoVigente(caja.monto, movs);
-  if (nuevo.tipo === "SALIDA" && nuevo.monto > saldo) throw new Error(MENSAJES.saldoInsuficiente(saldo, nuevo.monto));
-  return {
-    numero: siguienteNumero("CAJ", movs.map((m) => m.numero)),
-    fecha: nuevo.fecha,
-    hora: horaTxt(),
-    tipo: nuevo.tipo,
-    monto: nuevo.monto,
-    concepto: nuevo.concepto,
-    origen: nuevo.origen,
-    saldoPosterior: r2(saldo + (nuevo.tipo === "ENTRADA" ? nuevo.monto : -nuevo.monto)),
-    usuario: readNombre(),
-  };
-}
-
 async function anularMovCajaApi(numero: string, motivo: string, caja: Caja, movs: MovCaja[]) {
   await esperar(800);
   // BACKEND: POST /caja/movimientos/{numero}/anular  { motivo }
@@ -373,6 +344,20 @@ async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs:
   const vigentes = delPeriodo.filter(esVigente);
   const entradas = r2(vigentes.filter((m) => m.tipo === "ENTRADA").reduce((s, m) => s + m.monto, 0));
   const salidas = r2(vigentes.filter((m) => m.tipo === "SALIDA").reduce((s, m) => s + m.monto, 0));
+
+  // BACKEND: el servidor también devuelve la serie de saldos (un punto por fecha con movimientos vigentes)
+  const porFecha = new Map<string, number>();
+  for (const m of vigentes) {
+    porFecha.set(m.fecha, (porFecha.get(m.fecha) ?? 0) + (m.tipo === "ENTRADA" ? m.monto : -m.monto));
+  }
+  const serie: PuntoSaldo[] = [{ fecha: inicio, saldo: inicial }];
+  let acumulado = inicial;
+  for (const fecha of Array.from(porFecha.keys()).sort()) {
+    acumulado = r2(acumulado + (porFecha.get(fecha) ?? 0));
+    serie.push({ fecha, saldo: acumulado });
+  }
+  if (serie[serie.length - 1].fecha !== corte) serie.push({ fecha: corte, saldo: acumulado });
+
   return {
     inicial,
     entradas,
@@ -381,6 +366,7 @@ async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs:
     calculadoEn: ahoraTxt(),
     periodo: [...delPeriodo].sort(masAntiguos),
     ultimos: movs.filter((m) => m.fecha <= corte).sort(masRecientes).slice(0, 10),
+    serie,
   };
 }
 
@@ -459,7 +445,95 @@ function TarjetaSaldo({ etiqueta, monto, detalle, nota, insignia, accion }: {
     </section>
   );
 }
+/** Gráfico de líneas en escalera: cómo cambia el saldo de caja a lo largo del período consultado. */
+function GraficoEvolucionSaldo({ serie }: { serie: PuntoSaldo[] }) {
+  if (serie.length < 2 || serie[0].fecha === serie[serie.length - 1].fecha) {
+    return <div className="empty-state">Elige un período de más de un día para ver la evolución del saldo.</div>;
+  }
 
+  const ancho = 640;
+  const alto = 230;
+  const izq = 62;
+  const der = 18;
+  const arriba = 16;
+  const abajo = 30;
+
+  const dia = (iso: string) => {
+    const [a, m, d] = iso.split("-").map(Number);
+    return Math.round(Date.UTC(a, m - 1, d) / 86400000);
+  };
+  const isoDeDia = (n: number) => new Date(n * 86400000).toISOString().slice(0, 10);
+
+  const d0 = dia(serie[0].fecha);
+  const span = Math.max(dia(serie[serie.length - 1].fecha) - d0, 1);
+  const saldos = serie.map((p) => p.saldo);
+  const minS = Math.min(...saldos);
+  const maxS = Math.max(...saldos);
+  const relleno = Math.max((maxS - minS) * 0.15, 50);
+  const yMin = Math.max(minS - relleno, 0);
+  const yMax = maxS + relleno;
+
+  const x = (iso: string) => izq + ((dia(iso) - d0) / span) * (ancho - izq - der);
+  const y = (v: number) => arriba + (1 - (v - yMin) / (yMax - yMin)) * (alto - arriba - abajo);
+  const base = alto - abajo;
+
+  let trazo = `M ${x(serie[0].fecha)} ${y(serie[0].saldo)}`;
+  for (let i = 1; i < serie.length; i++) {
+    trazo += ` L ${x(serie[i].fecha)} ${y(serie[i - 1].saldo)} L ${x(serie[i].fecha)} ${y(serie[i].saldo)}`;
+  }
+  const area = `${trazo} L ${x(serie[serie.length - 1].fecha)} ${base} L ${x(serie[0].fecha)} ${base} Z`;
+
+  const puntoMin = serie.reduce((a, b) => (b.saldo < a.saldo ? b : a));
+  const puntoMax = serie.reduce((a, b) => (b.saldo > a.saldo ? b : a));
+
+  return (
+    <>
+      <svg viewBox={`0 0 ${ancho} ${alto}`} width="100%" role="img" aria-label="Evolución del saldo de caja">
+        {[0, 1, 2, 3].map((i) => {
+          const v = yMin + ((yMax - yMin) * i) / 3;
+          return (
+            <g key={`y-${i}`}>
+              <line x1={izq} x2={ancho - der} y1={y(v)} y2={y(v)} stroke="#F0EAE5" />
+              <text x={izq - 8} y={y(v) + 4} textAnchor="end" fontSize="11" fill="#9A918B">
+                {v.toLocaleString("es-BO", { maximumFractionDigits: 0 })}
+              </text>
+            </g>
+          );
+        })}
+
+        <path d={area} fill="rgba(193,51,51,0.08)" />
+        <path d={trazo} fill="none" stroke="#C13333" strokeWidth="2" strokeLinejoin="round" />
+
+        {serie.map((p, i) => (
+          <circle key={`p-${i}`} cx={x(p.fecha)} cy={y(p.saldo)} r="3.5" fill="#fff" stroke="#C13333" strokeWidth="2">
+            <title>{`${fechaCorta(p.fecha)}: ${bs(p.saldo)}`}</title>
+          </circle>
+        ))}
+
+        {[0, 1, 2, 3].map((i) => {
+          const iso = isoDeDia(Math.round(d0 + (span * i) / 3));
+          return (
+            <text
+              key={`x-${i}`}
+              x={x(iso)}
+              y={alto - 8}
+              textAnchor={i === 0 ? "start" : i === 3 ? "end" : "middle"}
+              fontSize="11"
+              fill="#9A918B"
+            >
+              {fechaCorta(iso).slice(0, 5)}
+            </text>
+          );
+        })}
+      </svg>
+
+      <div style={{ display: "flex", gap: 24, flexWrap: "wrap", fontSize: 12, color: "#766E69", marginTop: 8 }}>
+        <span>Saldo más alto: <strong>{bs(puntoMax.saldo)}</strong> ({fechaCorta(puntoMax.fecha)})</span>
+        <span>Saldo más bajo: <strong>{bs(puntoMin.saldo)}</strong> ({fechaCorta(puntoMin.fecha)})</span>
+      </div>
+    </>
+  );
+}
 // =====================================================================
 // 9. PESTAÑA "SALDO DE CAJA"
 // =====================================================================
@@ -469,8 +543,9 @@ type RespuestaSaldo = { clave: string; datos: ResultadoSaldo | null };
 function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
   esAdmin: boolean; caja: Caja; cajaMovs: MovCaja[]; irAMovimientos: () => void;
 }) {
-  const [corte, setCorte] = useState(hoyISO());
-  const [desde, setDesde] = useState("");
+  // Sin el panel de consulta, el corte es siempre hoy y el período arranca en la apertura de caja
+  const [corte] = useState(hoyISO());
+  const [desde] = useState("");
   const [intento, setIntento] = useState(0);
   const [respuesta, setRespuesta] = useState<RespuestaSaldo | null>(null);
 
@@ -572,33 +647,9 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
 
   return (
     <>
-      <section className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-toolbar">
-          <div>
-            <h3>Consulta de saldo</h3>
-            <p>Selecciona la fecha de corte. Opcionalmente, indica desde qué fecha deseas consultar el período.</p>
-          </div>
-        </div>
-        <div className="modal-form" style={{ paddingTop: 8 }}>
-          <div className="form-grid">
-            <label className="field">
-              <span>Fecha de corte</span>
-              <input type="date" min={caja.fecha} max={hoyISO()} value={corte} onChange={(e) => setCorte(e.target.value)} />
-            </label>
-            <label className="field">
-              <span>Desde (opcional)</span>
-              <input type="date" min={caja.fecha} max={corte || hoyISO()} value={desde} onChange={(e) => setDesde(e.target.value)} />
-            </label>
-          </div>
-          <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
-            <button className="btn btn-secondary" onClick={() => { setCorte(hoyISO()); setIntento((n) => n + 1); }}>Hoy</button>
-            {desde !== "" && <button className="btn btn-secondary" onClick={() => setDesde("")}>Quitar fecha inicial</button>}
-          </div>
-          {errorFecha && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorFecha}</div>}
-        </div>
-      </section>
-
-      {errorFecha ? null : cargando ? (
+      {errorFecha ? (
+        <div className="alert alert-error" style={{ marginBottom: 20 }}>{errorFecha}</div>
+      ) : cargando ? (
         <div className="panel"><div className="empty-state">{MENSAJES.cargandoSaldo}</div></div>
       ) : datos === null ? (
         <div className="panel">
@@ -647,6 +698,17 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
           </div>
 
           {/* COMPLEMENTO: flujo de caja del período. Se puede eliminar esta sección. */}
+          <section className="panel" style={{ margin: "20px 0" }}>
+  <div className="panel-toolbar">
+    <div>
+      <h3>Evolución del saldo</h3>
+      <p>Saldo de caja a lo largo del período consultado, sin contar movimientos anulados.</p>
+    </div>
+  </div>
+  <div style={{ padding: "12px 20px 20px" }}>
+    <GraficoEvolucionSaldo serie={datos.serie} />
+  </div>
+</section>
           <section className="panel" style={{ margin: "20px 0" }}>
             <div className="panel-toolbar">
               <div>
@@ -715,8 +777,6 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
 // 10. PESTAÑA "MOVIMIENTOS DE CAJA"
 // =====================================================================
 
-const formVacio = (): FormMovimiento => ({ fecha: hoyISO(), tipo: "", monto: "", concepto: "" });
-
 function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABancos }: {
   esAdmin: boolean;
   caja: Caja;
@@ -741,14 +801,6 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
   const [aIntentado, setAIntentado] = useState(false);
   const [aGuardando, setAGuardando] = useState(false);
   const [aServidor, setAServidor] = useState("");
-
-  // Registro de movimiento
-  const [movAbierto, setMovAbierto] = useState(false);
-  const [paso, setPaso] = useState<"formulario" | "confirmar">("formulario");
-  const [form, setForm] = useState<FormMovimiento>(formVacio());
-  const [intentado, setIntentado] = useState(false);
-  const [guardando, setGuardando] = useState(false);
-  const [errorServidor, setErrorServidor] = useState("");
 
   // Anulación
   const [objetivo, setObjetivo] = useState<MovCaja | null>(null);
@@ -776,67 +828,6 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
       setAServidor(e instanceof Error ? e.message : "No se pudo abrir la caja. Intenta nuevamente.");
     } finally {
       setAGuardando(false);
-    }
-  }
-
-  // ---------- Registro de movimiento ----------
-  const monto = validarMonto(form.monto, "monto");
-  const errores = {
-    fecha:
-      form.fecha === ""
-        ? MENSAJES.campoObligatorio("fecha")
-        : form.fecha > hoyISO()
-        ? "La fecha no puede ser futura."
-        : form.fecha < caja.fecha
-        ? `La fecha no puede ser anterior a la apertura de caja (${fechaCorta(caja.fecha)}).`
-        : "",
-    tipo: form.tipo === "" ? MENSAJES.campoObligatorio("tipo") : "",
-    monto: monto.error,
-    concepto: validarConcepto(form.concepto),
-  };
-  const hayErrores = Object.values(errores).some(Boolean);
-  const excedeSaldo = form.tipo === "SALIDA" && monto.valor !== null && monto.valor > saldoActual;
-  const saldoNuevo =
-    monto.valor !== null && form.tipo !== "" ? r2(saldoActual + (form.tipo === "ENTRADA" ? monto.valor : -monto.valor)) : saldoActual;
-  const mostrarError = (campo: keyof FormMovimiento) => intentado || form[campo] !== "";
-
-  function abrirFormulario() {
-    setForm(formVacio());
-    setPaso("formulario");
-    setIntentado(false);
-    setErrorServidor("");
-    setAviso(null);
-    setMovAbierto(true);
-  }
-  function cerrarFormulario() {
-    if (guardando) return;
-    setMovAbierto(false);
-  }
-  function continuar() {
-    setIntentado(true);
-    if (hayErrores || excedeSaldo) return;
-    setPaso("confirmar");
-  }
-  async function confirmarMovimiento() {
-    if (guardando || form.tipo === "" || monto.valor === null) return;
-    setGuardando(true);
-    setErrorServidor("");
-    try {
-      const nuevo = await registrarMovCajaApi(
-        { fecha: form.fecha, tipo: form.tipo, monto: monto.valor, concepto: form.concepto.trim(), origen: "Manual" },
-        caja,
-        cajaMovs
-      );
-      setCajaMovs((prev) => [...prev, nuevo]);
-      setMovAbierto(false);
-      setPagina(1);
-      setAviso({ tipo: "ok", texto: MENSAJES.movimientoRegistrado(nuevo.numero, nuevo.saldoPosterior) });
-    } catch (e) {
-      // Se muestra el mensaje recibido y se conservan los datos ingresados
-      setErrorServidor(e instanceof Error ? e.message : "No se pudo registrar el movimiento. Intenta nuevamente.");
-      setPaso("formulario");
-    } finally {
-      setGuardando(false);
     }
   }
 
@@ -945,18 +936,11 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
     <>
       {bannerAviso}
 
-      {/* Saldo destacado. El botón solo se muestra al administrador. */}
+      {/* Saldo destacado */}
       <TarjetaSaldo
         etiqueta="Saldo de caja"
         monto={bs(saldoActual)}
         detalle={`Caja abierta el ${fechaCorta(caja.fecha)}`}
-        accion={
-          esAdmin ? (
-            <button className="btn btn-primary" onClick={abrirFormulario}>
-              <PlusIcon size={16} /> Registrar movimiento
-            </button>
-          ) : undefined
-        }
       />
 
       <section className="panel" style={{ marginBottom: 20 }}>
@@ -1060,67 +1044,6 @@ function PestanaMovCaja({ esAdmin, caja, setCaja, cajaMovs, setCajaMovs, irABanc
           </>
         )}
       </section>
-
-      {/* ---------- Registro de movimiento ---------- */}
-      {esAdmin && (
-        <Modal open={movAbierto} title="Registrar movimiento de caja" onClose={cerrarFormulario}>
-          {paso === "formulario" ? (
-            <div className="modal-form">
-              <p style={{ ...MUTED, margin: "0 0 12px" }}>Saldo actual de caja: <strong>{bs(saldoActual)}</strong></p>
-              <div className="form-grid">
-                <label className="field">
-                  <span>Fecha <b>*</b></span>
-                  <input type="date" min={caja.fecha} max={hoyISO()} value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-                  {mostrarError("fecha") && errores.fecha && <small style={ERR}>{errores.fecha}</small>}
-                </label>
-                <label className="field">
-                  <span>Tipo <b>*</b></span>
-                  <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value as "" | TipoCaja })}>
-                    <option value="">Selecciona el tipo</option>
-                    <option value="ENTRADA">Entrada</option>
-                    <option value="SALIDA">Salida</option>
-                  </select>
-                  {mostrarError("tipo") && errores.tipo && <small style={ERR}>{errores.tipo}</small>}
-                </label>
-                <label className="field">
-                  <span>Monto (Bs.) <b>*</b></span>
-                  <input value={form.monto} inputMode="decimal" onChange={(e) => setForm({ ...form, monto: e.target.value })} placeholder="Ej. 150,00" />
-                  {mostrarError("monto") && errores.monto && <small style={ERR}>{errores.monto}</small>}
-                </label>
-              </div>
-              <label className="field" style={{ marginTop: 12 }}>
-                <span>Concepto <b>*</b></span>
-                <input value={form.concepto} maxLength={300} onChange={(e) => setForm({ ...form, concepto: e.target.value })} placeholder="Describe el movimiento (10 a 255 caracteres)" />
-                <small style={MUTED}>{form.concepto.trim().length}/255 caracteres</small>
-                {mostrarError("concepto") && errores.concepto && <small style={ERR}>{errores.concepto}</small>}
-              </label>
-
-              {excedeSaldo && (
-                <p style={{ color: "#9F2727", fontSize: 12, fontWeight: 600, marginTop: 12 }}>{MENSAJES.salidaExcede(saldoActual)}</p>
-              )}
-              {errorServidor && <div className="alert alert-error" style={{ marginTop: 12 }}>{errorServidor}</div>}
-
-              <div className="modal-actions">
-                <button className="btn btn-secondary" onClick={cerrarFormulario}>Cancelar</button>
-                <button className="btn btn-primary" disabled={excedeSaldo} onClick={continuar}>Guardar</button>
-              </div>
-            </div>
-          ) : (
-            <div className="modal-form">
-              <p style={{ fontSize: 15, fontWeight: 600, margin: "0 0 8px" }}>
-                {form.tipo !== "" && monto.valor !== null ? MENSAJES.confirmarMovimiento(form.tipo, monto.valor) : ""}
-              </p>
-              <p style={{ fontSize: 13, color: "#766E69", margin: 0 }}>{MENSAJES.saldoDespues(saldoNuevo)}</p>
-              <div className="modal-actions">
-                <button className="btn btn-secondary" disabled={guardando} onClick={() => setPaso("formulario")}>Cancelar</button>
-                <button className="btn btn-primary" disabled={guardando} onClick={confirmarMovimiento}>
-                  {guardando ? "Guardando…" : "Confirmar"}
-                </button>
-              </div>
-            </div>
-          )}
-        </Modal>
-      )}
 
       {/* ---------- Anulación ---------- */}
       {esAdmin && (
