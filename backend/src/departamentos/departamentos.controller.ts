@@ -24,7 +24,7 @@ export class DepartamentosController {
 
   @Post()
   @Roles('ADMINISTRADOR')
-  crear(@Body() dto: CrearDepartamentoDto, @CurrentUser('id') adminId: string,) {
+  crear(@Body() dto: CrearDepartamentoDto, @CurrentUser('id') adminId: string) {
     return this.departamentosService.crear(dto, adminId);
   }
 
@@ -52,7 +52,7 @@ export class DepartamentosController {
 
   @Delete(':id')
   @Roles('ADMINISTRADOR')
-  eliminar(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') adminId: string,) {
+  eliminar(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') adminId: string) {
     return this.departamentosService.eliminar(BigInt(id), adminId);
   }
 }
