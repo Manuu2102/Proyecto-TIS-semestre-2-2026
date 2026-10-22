@@ -257,9 +257,10 @@ export default function ExpensasPage() {
   const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
 
   // Mismo nombre que antes, para no tocar el JSX
+  // Igual que el backend: se cobra a todo departamento activo con tipo A, B o C,
+  // esté ocupado o no (la expensa la paga el propietario aunque la unidad esté libre)
   const ELEGIBLES = departamentos.filter(
-    (d): d is Departamento & { categoria: Categoria } =>
-      d.ocupado && d.categoria !== null
+    (d): d is Departamento & { categoria: Categoria } => d.categoria !== null
   );
 
   // Tarifas editables por categoría.

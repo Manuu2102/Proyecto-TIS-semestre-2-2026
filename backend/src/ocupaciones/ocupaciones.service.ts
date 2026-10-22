@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CrearOcupacionDto } from './dto/crear-ocupacion.dto.js';
+import { ocuparDepartamento } from './asignacion.js';
 
 @Injectable()
 export class OcupacionesService {
@@ -44,24 +45,27 @@ export class OcupacionesService {
     }
 
     const ocupacion = await this.prisma.conUsuario(adminId, async (tx) => {
-      const nuevaOcupacion = await tx.departamento_usuario.create({
+      // Si ya vivió ahí antes se reactiva esa fila (la clave es departamento + usuario)
+      await ocuparDepartamento(
+        tx,
+        data.id_copropietario,
+        BigInt(data.id_departamento),
+        new Date(data.fecha_ocupacion),
+      );
+
+      return tx.departamento_usuario.update({
+        where: {
+          id_departamento_id_usuario: {
+            id_departamento: BigInt(data.id_departamento),
+            id_usuario: data.id_copropietario,
+          },
+        },
         data: {
-          id_usuario: data.id_copropietario,
-          id_departamento: BigInt(data.id_departamento),
-          fecha_ocupacion: new Date(data.fecha_ocupacion),
           fecha_fin_ocupacion: data.fecha_fin_ocupacion
             ? new Date(data.fecha_fin_ocupacion)
             : null,
-          estatus: true,
         },
       });
-
-      await tx.departamento.update({
-        where: { id: BigInt(data.id_departamento) },
-        data: { libre: false },
-      });
-
-      return nuevaOcupacion;
     });
 
     return {

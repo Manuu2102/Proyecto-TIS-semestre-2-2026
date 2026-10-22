@@ -25,6 +25,19 @@ const serialize = <T>(data: T): T =>
     JSON.stringify(data, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
   );
 
+/**
+ * Como Promise.all, pero espera las consultas una tras otra. Las consultas de Prisma no
+ * empiezan hasta que se esperan, así que cada pantalla ocupa una sola conexión a la vez
+ * (el pooler de Supabase en modo session admite pocas para todo el equipo).
+ */
+const enOrden = async <T extends readonly unknown[] | []>(
+  consultas: T,
+): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> => {
+  const resultados: unknown[] = [];
+  for (const consulta of consultas) resultados.push(await consulta);
+  return resultados as { -readonly [K in keyof T]: Awaited<T[K]> };
+};
+
 const sumarMeses = (mes: Date, n: number) =>
   new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + n, 1));
 
@@ -709,7 +722,7 @@ export class ExpensasService {
    * expensa mensual de su tipo, las deudas sin pagar y el saldo a favor de cada uno.
    */
   async resumenPagos() {
-    const [departamentos, tipos, expensas, deudas, fondos] = await Promise.all([
+    const [departamentos, tipos, expensas, deudas, fondos] = await enOrden([
       this.prisma.departamento.findMany({
         where: { estatus: true },
         select: { id: true, numero: true, tipo_departamento: true },
@@ -789,7 +802,7 @@ export class ExpensasService {
     const nombreDe = (u: { nombres: string; apellido_paterno: string } | null) =>
       u ? `${u.nombres} ${u.apellido_paterno}` : 'Sistema (fondos)';
 
-    const [facturas, depositos] = await Promise.all([
+    const [facturas, depositos] = await enOrden([
       this.prisma.factura_pago_expensa.findMany({
         select: {
           id: true,
@@ -1066,7 +1079,7 @@ export class ExpensasService {
 
   /** Departamentos activos, con la forma que usa el front. */
   async listarDepartamentos() {
-    const [departamentos, tipos] = await Promise.all([
+    const [departamentos, tipos] = await enOrden([
       this.prisma.departamento.findMany({
         where: { estatus: true },
         select: { numero: true, libre: true, tipo_departamento: true },
@@ -1095,7 +1108,7 @@ export class ExpensasService {
       throw new BadRequestException('Periodo inválido: usa el formato YYYY-MM');
     }
 
-    const [pagos, tipos] = await Promise.all([
+    const [pagos, tipos] = await enOrden([
       this.prisma.pago_expensa.findMany({
         where: periodo
           ? { fecha_vencimiento: vencimientosDelMes(primerDiaDelMes(`${periodo}-01`)) }

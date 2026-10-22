@@ -34,6 +34,13 @@ export class DepartamentosController {
     return this.departamentosService.listar();
   }
 
+  /** Tipos de departamento (A, B, C). Va antes de ':id'. */
+  @Get('tipos')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  listarTipos() {
+    return this.departamentosService.listarTipos();
+  }
+
   @Get(':id')
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
   buscarPorId(@Param('id', ParseIntPipe) id: number) {

@@ -6,7 +6,9 @@ import { DashboardLayout } from "../../../components/DashboardLayout";
 type Estado = "Activo" | "Inactivo";
 
 type Copropietario = {
-  id: number;
+  id: string;
+  idDepartamento: string;
+  idsDepartamentos: string[];
   nombres: string;
   apellidoPaterno: string;
   apellidoMaterno: string;
@@ -20,21 +22,31 @@ type Copropietario = {
 };
 
 type CopropietarioAPI = {
-  id: number;
+  id: string;
+  id_departamento?: string | null;
+  departamentos?: { id: string }[];
   nombres: string;
   apellido_paterno?: string;
   apellido_materno?: string;
   email: string;
   ci: string;
   telefono?: string;
-  departamento?: string;
+  departamento?: string | null;
   estatus?: boolean;
   sexo?: string;
   fecha_de_nacimiento?: string | Date;
 };
 
 type DepartamentoAPI = {
-  descripcion?: string;
+  id: string;
+  numeroCompleto: string;
+  libre: boolean;
+};
+
+type DepartamentoOpcion = {
+  id: string;
+  codigo: string;
+  libre: boolean;
 };
 
 type CopropietariosResponse = {
@@ -58,6 +70,8 @@ const getToken = () => sessionStorage.getItem("token") ?? "";
 
 const adaptar = (u: CopropietarioAPI): Copropietario => ({
   id: u.id,
+  idDepartamento: u.id_departamento ?? "",
+  idsDepartamentos: (u.departamentos ?? []).map((d) => d.id),
   nombres: u.nombres,
   apellidoPaterno: u.apellido_paterno ?? "",
   apellidoMaterno: u.apellido_materno ?? "",
@@ -74,10 +88,11 @@ const adaptar = (u: CopropietarioAPI): Copropietario => ({
 
 export default function CopropietariosPage() {
   const [copropietarios, setCopropietarios] = useState<Copropietario[]>([]);
-  const [departamentosDisponibles, setDepartamentosDisponibles] = useState<string[]>([]);
+  const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
   const [busqueda, setBusqueda] = useState("");
   const [mostrarFormulario, setMostrarFormulario] = useState(false);
-  const [editando, setEditando] = useState<number | null>(null);
+  const [editando, setEditando] = useState<string | null>(null);
+  const [deptoOriginal, setDeptoOriginal] = useState("");
   const [errores, setErrores] = useState<string[]>([]);
   const [cargando, setCargando] = useState(true);
   const [mensajeExito, setMensajeExito] = useState("");
@@ -95,17 +110,35 @@ export default function CopropietariosPage() {
     fecha_de_nacimiento: "",
   });
 
-  // Cargar copropietarios al montar
+  const recargarCopropietarios = async () => {
+    const res = await fetch(`${API_URL}/copropietarios`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: CopropietariosResponse = await res.json();
+    setCopropietarios(data.copropietarios.map(adaptar));
+  };
+
+  // Los departamentos cambian de libre a ocupado al asignar, por eso se recargan junto con la lista
+  const recargarDepartamentos = async () => {
+    const res = await fetch(`${API_URL}/departamentos`, {
+      headers: { Authorization: `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data: DepartamentosResponse = await res.json();
+    setDepartamentos(
+      data.departamentos.map((d) => ({ id: String(d.id), codigo: d.numeroCompleto, libre: d.libre }))
+    );
+  };
+
+  const recargarTodo = () => Promise.all([recargarCopropietarios(), recargarDepartamentos()]);
+
+  // Cargar copropietarios y departamentos al montar
   useEffect(() => {
     const cargar = async () => {
       try {
         setCargando(true);
-        const res = await fetch(`${API_URL}/copropietarios`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: CopropietariosResponse = await res.json();
-        setCopropietarios(data.copropietarios.map(adaptar));
+        await recargarTodo();
       } catch (e) {
         console.error("Error cargando copropietarios:", e);
       } finally {
@@ -113,31 +146,17 @@ export default function CopropietariosPage() {
       }
     };
     cargar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cargar departamentos disponibles
-  useEffect(() => {
-    const cargarDepartamentos = async () => {
-      try {
-        const res = await fetch(`${API_URL}/departamentos`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data: DepartamentosResponse = await res.json();
-        const codigos = data.departamentos
-          .map((d) => {
-            const desc = d.descripcion ?? "";
-            const match = desc.match(/^\[([^\]]+)\]/);
-            return match ? match[1] : "";
-          })
-          .filter((c) => c.length > 0);
-        setDepartamentosDisponibles(codigos);
-      } catch (e) {
-        console.error("Error cargando departamentos:", e);
-      }
-    };
-    cargarDepartamentos();
-  }, []);
+  // Se ofrecen los que no tienen copropietario (pueden tener inquilino), más el que ya
+  // tiene asignado quien se está editando
+  const departamentosDisponibles = useMemo(() => {
+    const conDueno = new Set(
+      copropietarios.filter((c) => c.id !== editando).flatMap((c) => c.idsDepartamentos)
+    );
+    return departamentos.filter((d) => !conDueno.has(d.id) || d.id === deptoOriginal);
+  }, [departamentos, copropietarios, editando, deptoOriginal]);
 
   const total = copropietarios.length;
   const activos = copropietarios.filter((item) => item.estado === "Activo").length;
@@ -165,6 +184,7 @@ export default function CopropietariosPage() {
       sexo: "", fecha_de_nacimiento: "",
     });
     setEditando(null);
+    setDeptoOriginal("");
     setErrores([]);
   };
 
@@ -252,6 +272,8 @@ export default function CopropietariosPage() {
             telefono: form.telefono.trim(),
             sexo: form.sexo,
             fecha_de_nacimiento: form.fecha_de_nacimiento,
+            estatus: form.estado === "Activo",
+            id_departamento: Number(form.departamento),
           }),
         });
 
@@ -262,11 +284,7 @@ export default function CopropietariosPage() {
           return;
         }
 
-        const refresh = await fetch(`${API_URL}/copropietarios`, {
-          headers: { Authorization: `Bearer ${getToken()}` },
-        });
-        const lista: CopropietariosResponse = await refresh.json();
-        setCopropietarios(lista.copropietarios.map(adaptar));
+        await recargarTodo();
 
         setMensajeExito(`Cambios de "${nombreCompleto}" guardados correctamente.`);
         cancelar();
@@ -290,6 +308,7 @@ export default function CopropietariosPage() {
           telefono: form.telefono.trim(),
           sexo: form.sexo,
           fecha_de_nacimiento: form.fecha_de_nacimiento,
+          id_departamento: Number(form.departamento),
         }),
       });
 
@@ -300,11 +319,7 @@ export default function CopropietariosPage() {
         return;
       }
 
-      const refresh = await fetch(`${API_URL}/copropietarios`, {
-        headers: { Authorization: `Bearer ${getToken()}` },
-      });
-      const lista: CopropietariosResponse = await refresh.json();
-      setCopropietarios(lista.copropietarios.map(adaptar));
+      await recargarTodo();
 
       setMensajeExito(`Copropietario "${nombreCompleto}" registrado correctamente.`);
       cancelar();
@@ -322,34 +337,57 @@ export default function CopropietariosPage() {
       ci: item.ci,
       correo: item.correo,
       telefono: item.telefono,
-      departamento: item.departamento,
+      departamento: item.idDepartamento,
       estado: item.estado,
       sexo: (item.sexo as "" | "M" | "F") || "",
       fecha_de_nacimiento: item.fecha_de_nacimiento || "",
     });
     setEditando(item.id);
+    setDeptoOriginal(item.idDepartamento);
     setErrores([]);
     setMostrarFormulario(true);
   };
 
-  const eliminar = (id: number) => {
+  // Baja lógica primero (cierra su ocupación y conserva el historial); solo se
+  // borra de forma permanente si ya estaba Inactivo.
+  const eliminar = async (id: string) => {
     const item = copropietarios.find((c) => c.id === id);
     if (!item) return;
 
-    if (item.estado === "Activo") {
-      const confirmar = window.confirm(
-        `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Su historial se conservará.`
+    const activo = item.estado === "Activo";
+    const confirmar = window.confirm(
+      activo
+        ? `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Su historial se conservará.`
+        : `Este copropietario ya está Inactivo. ¿Eliminar el registro de forma permanente?`
+    );
+    if (!confirmar) return;
+
+    try {
+      const res = await fetch(`${API_URL}/copropietarios/${id}`, {
+        method: activo ? "PATCH" : "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        ...(activo && { body: JSON.stringify({ estatus: false }) }),
+      });
+
+      if (!res.ok) {
+        const data: ApiErrorResponse = await res.json();
+        const mensaje = Array.isArray(data.message) ? data.message.join(" ") : data.message;
+        window.alert(mensaje ?? "No se pudo completar la acción.");
+        return;
+      }
+
+      await recargarTodo();
+      setMensajeExito(
+        activo
+          ? `"${item.nombres} ${item.apellidoPaterno}" marcado como Inactivo.`
+          : `"${item.nombres} ${item.apellidoPaterno}" eliminado definitivamente.`
       );
-      if (!confirmar) return;
-      setCopropietarios((lista) =>
-        lista.map((c) => (c.id === id ? { ...c, estado: "Inactivo" } : c))
-      );
-    } else {
-      const confirmar = window.confirm(
-        `Este copropietario ya está Inactivo. ¿Eliminar el registro de forma permanente?`
-      );
-      if (!confirmar) return;
-      setCopropietarios((lista) => lista.filter((c) => c.id !== id));
+      setTimeout(() => setMensajeExito(""), 4000);
+    } catch (e) {
+      window.alert(`Error: ${(e as Error).message}`);
     }
   };
 
@@ -569,7 +607,7 @@ export default function CopropietariosPage() {
                           : "Selecciona un departamento"}
                       </option>
                       {departamentosDisponibles.map((dep) => (
-                        <option key={dep} value={dep}>{dep}</option>
+                        <option key={dep.id} value={dep.id}>{dep.codigo}</option>
                       ))}
                     </select>
                     <p className="mt-1 text-[7px] text-[#a09891]">
