@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -192,6 +191,51 @@ function crear(
   };
 }
 
+// Suma al desglose y al total los gastos adicionales (agua, extras) que la
+// respuesta no haya incluido ya (misma descripción e importe).
+function aplicarExtras(
+  lista: Expensa[],
+  extras: ExtraDepartamento[]
+): Expensa[] {
+  return lista.map((e) => {
+    const faltan = extras.filter(
+      (x) =>
+        x.departamento === e.departamento &&
+        !e.desglose.some(
+          (c) => c.concepto === x.concepto && c.monto === x.monto
+        )
+    );
+    if (faltan.length === 0) return e;
+
+    const desglose = [
+      ...e.desglose,
+      ...faltan.map(({ concepto, monto }) => ({ concepto, monto })),
+    ];
+    return { ...e, desglose, total: totalDe(desglose) };
+  });
+}
+
+// TEMPORAL (solo visual, no se envía al backend): si a una expensa le faltan
+// los conceptos fijos de su categoría, se anteponen al desglose y se recalcula
+// el total. Borrar cuando el backend devuelva las expensas completas.
+function completarTarifas(
+  lista: Expensa[],
+  tarifas: Record<Categoria, Concepto[]>
+): Expensa[] {
+  return lista.map((e) => {
+    const fijos = tarifas[e.categoria];
+    if (!fijos) return e;
+
+    const faltan = fijos.filter(
+      (f) => !e.desglose.some((c) => c.concepto === f.concepto)
+    );
+    if (faltan.length === 0) return e;
+
+    const desglose = [...faltan.map((f) => ({ ...f })), ...e.desglose];
+    return { ...e, desglose, total: totalDe(desglose) };
+  });
+}
+
 // DATOS SIMULADOS: BACKEND GET /expensas?periodo=YYYY-MM
 const EXPENSAS_INICIALES: Expensa[] = [
   ...ELEGIBLES.map((d) =>
@@ -271,7 +315,7 @@ export default function ExpensasPage() {
     C: TARIFAS.C.map((c) => ({ ...c })),
   }));
 
-  // Gastos extraordinarios para la generación del período seleccionado.
+  // Gastos extraordinarios (agua, extras) para la generación del período seleccionado.
   const [extras, setExtras] = useState<ExtraDepartamento[]>([]);
   const [extraDepartamento, setExtraDepartamento] = useState("");
   const [extraConcepto, setExtraConcepto] = useState("");
@@ -281,6 +325,10 @@ export default function ExpensasPage() {
     useState<Categoria>("A");
   const [tarifaConcepto, setTarifaConcepto] = useState("");
   const [tarifaMonto, setTarifaMonto] = useState("");
+
+  // Modal independiente para configurar tarifas
+  const [tarifasOpen, setTarifasOpen] = useState(false);
+  const [errorTarifa, setErrorTarifa] = useState("");
 
   const [periodoVista, setPeriodoVista] = useState("2026-09");
   const [resultado, setResultado] = useState<Resultado | null>(null);
@@ -295,7 +343,8 @@ export default function ExpensasPage() {
   useEffect(() => {
     cargarExpensasApi()
       .then((data) => {
-        setExpensas(data);
+        // TEMPORAL: completa visualmente los conceptos fijos de la categoría
+        setExpensas(completarTarifas(data, TARIFAS));
         const ultimo = Array.from(new Set(data.map((e) => e.periodo)))
           .sort()
           .pop();
@@ -335,7 +384,18 @@ export default function ExpensasPage() {
     ? expensas.filter((e) => e.periodo === periodoSel).length
     : 0;
 
-  const faltantes = periodoSel ? extras.length : 0;
+  // Departamentos elegibles que aún no tienen expensa en el período elegido.
+  const faltantes = periodoSel
+    ? ELEGIBLES.filter(
+        (d) =>
+          !expensas.some(
+            (e) => e.periodo === periodoSel && e.departamento === d.numero
+          )
+      ).length
+    : 0;
+
+  // Se puede continuar si hay expensas por crear o gastos adicionales por aplicar.
+  const puedeContinuar = periodoValido && (faltantes > 0 || extras.length > 0);
 
   const periodos = Array.from(
     new Set(expensas.map((e) => e.periodo))
@@ -350,8 +410,6 @@ export default function ExpensasPage() {
     setExtraDepartamento("");
     setExtraConcepto("");
     setExtraMonto("");
-    setTarifaConcepto("");
-    setTarifaMonto("");
     setPaso("form");
     setMes("");
     setAnio("");
@@ -371,6 +429,20 @@ export default function ExpensasPage() {
     setExtraDepartamento("");
     setExtraConcepto("");
     setExtraMonto("");
+  }
+
+  function abrirTarifas() {
+    setTarifaConcepto("");
+    setTarifaMonto("");
+    setErrorTarifa("");
+    setTarifasOpen(true);
+  }
+
+  function cerrarTarifas() {
+    setTarifasOpen(false);
+    setTarifaConcepto("");
+    setTarifaMonto("");
+    setErrorTarifa("");
   }
 
   function cambiarAnio(valor: string) {
@@ -396,7 +468,7 @@ export default function ExpensasPage() {
       !Number.isFinite(importe) ||
       importe < 0
     ) {
-      setError("Introduce un importe válido para actualizar la tarifa.");
+      setErrorTarifa("Introduce un importe válido para actualizar la tarifa.");
       return;
     }
 
@@ -409,7 +481,7 @@ export default function ExpensasPage() {
 
     setTarifaConcepto("");
     setTarifaMonto("");
-    setError("");
+    setErrorTarifa("");
   }
 
   function agregarExtra() {
@@ -443,7 +515,7 @@ export default function ExpensasPage() {
   }
 
   async function confirmarGeneracion() {
-    if (generando || !periodoValido || faltantes <= 0) return;
+    if (generando || !puedeContinuar) return;
 
     setGenerando(true);
     setError("");
@@ -451,14 +523,21 @@ export default function ExpensasPage() {
     try {
       const res = await generarExpensasApi(periodoSel, extras);
 
+      // Agua / extras sumados al desglose, y (TEMPORAL) conceptos fijos de la
+      // categoría completados en pantalla. Nada de esto se envía al backend.
+      const generadas = completarTarifas(
+        aplicarExtras(res.generadas, extras),
+        tarifasEditables
+      );
+
       // El backend devuelve las filas actualizadas: se reemplazan, no se agregan
       setExpensas((prev) => {
-        const ids = new Set(res.generadas.map((e) => e.id));
-        return [...prev.filter((e) => !ids.has(e.id)), ...res.generadas];
+        const ids = new Set(generadas.map((e) => e.id));
+        return [...prev.filter((e) => !ids.has(e.id)), ...generadas];
       });
 
       setPeriodoVista(periodoSel);
-      setResultado(res);
+      setResultado({ ...res, generadas });
       setModalOpen(false);
       setPaso("form");
       setMes("");
@@ -484,13 +563,22 @@ export default function ExpensasPage() {
         </div>
 
         {esAdmin && (
-          <button
-            className="btn btn-primary"
-            onClick={abrirModal}
-            disabled={generando}
-          >
-            <PlusIcon size={16} /> Generar expensas
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              className="btn btn-secondary"
+              onClick={abrirTarifas}
+              disabled={generando}
+            >
+              Configurar tarifas
+            </button>
+            <button
+              className="btn btn-primary"
+              onClick={abrirModal}
+              disabled={generando}
+            >
+              <PlusIcon size={16} /> Generar expensas
+            </button>
+          </div>
         )}
       </div>
 
@@ -642,6 +730,132 @@ export default function ExpensasPage() {
         )}
       </section>
 
+      {/* MODAL: CONFIGURAR TARIFAS */}
+      {esAdmin && (
+        <Modal
+          open={tarifasOpen}
+          title="Tarifas por categoría"
+          onClose={cerrarTarifas}
+        >
+          <div className="modal-form">
+            <div className="form-grid">
+              <label className="field">
+                <span>Categoría</span>
+                <select
+                  value={tarifaCategoriaActiva}
+                  onChange={(e) => {
+                    setTarifaCategoriaActiva(e.target.value as Categoria);
+                    setTarifaConcepto("");
+                    setErrorTarifa("");
+                  }}
+                >
+                  {(["A", "B", "C"] as Categoria[]).map((cat) => (
+                    <option key={cat} value={cat}>
+                      Categoría {cat}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Concepto a editar</span>
+                <select
+                  value={tarifaConcepto}
+                  onChange={(e) => setTarifaConcepto(e.target.value)}
+                >
+                  <option value="">Selecciona un concepto</option>
+                  {tarifasEditables[tarifaCategoriaActiva].map((c) => (
+                    <option key={c.concepto} value={c.concepto}>
+                      {c.concepto}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Nuevo importe (Bs.)</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={tarifaMonto}
+                  onChange={(e) => setTarifaMonto(e.target.value)}
+                  placeholder="Ej. 200"
+                />
+              </label>
+
+              <div style={{ display: "flex", alignItems: "end" }}>
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  disabled={
+                    !tarifaConcepto ||
+                    tarifaMonto.trim() === "" ||
+                    !Number.isFinite(Number(tarifaMonto)) ||
+                    Number(tarifaMonto) < 0
+                  }
+                  onClick={actualizarTarifa}
+                >
+                  Actualizar tarifa
+                </button>
+              </div>
+            </div>
+
+            <div className="table-wrap" style={{ marginTop: 12 }}>
+              <table>
+                <thead>
+                  <tr>
+                    <th>Categoría</th>
+                    <th>Conceptos</th>
+                    <th>Total base</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["A", "B", "C"] as Categoria[]).map((cat) => (
+                    <tr key={cat}>
+                      <td>
+                        <span className="tag">Categoría {cat}</span>
+                      </td>
+                      <td>
+                        {tarifasEditables[cat].map((c) => (
+                          <div
+                            key={c.concepto}
+                            style={{ fontSize: 11, color: "#766E69" }}
+                          >
+                            {c.concepto}: {bs(c.monto)}
+                          </div>
+                        ))}
+                      </td>
+                      <td>
+                        <strong>{bs(totalDe(tarifasEditables[cat]))}</strong>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
+              Los cambios de tarifa se aplican a las nuevas expensas que se
+              generen. Las expensas anteriores conservan sus importes.
+            </p>
+
+            {errorTarifa && (
+              <div className="alert alert-error" style={{ marginTop: 12 }}>
+                {errorTarifa}
+              </div>
+            )}
+
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={cerrarTarifas}>
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: GENERAR EXPENSAS */}
       {esAdmin && (
         <Modal
           open={modalOpen}
@@ -713,109 +927,8 @@ export default function ExpensasPage() {
                 </div>
               )}
 
-              <h3 style={{ fontSize: 13, margin: "18px 0 8px" }}>
-                Tarifas editables por categoría
-              </h3>
-
-              <div className="form-grid">
-                <label className="field">
-                  <span>Categoría</span>
-                  <select
-                    value={tarifaCategoriaActiva}
-                    onChange={(e) =>
-                      setTarifaCategoriaActiva(
-                        e.target.value as Categoria
-                      )
-                    }
-                  >
-                    {(["A", "B", "C"] as Categoria[]).map((cat) => (
-                      <option key={cat} value={cat}>
-                        Categoría {cat}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>Concepto a editar</span>
-                  <select
-                    value={tarifaConcepto}
-                    onChange={(e) => setTarifaConcepto(e.target.value)}
-                  >
-                    <option value="">Selecciona un concepto</option>
-                    {tarifasEditables[tarifaCategoriaActiva].map((c) => (
-                      <option key={c.concepto} value={c.concepto}>
-                        {c.concepto}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>Nuevo importe (Bs.)</span>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={tarifaMonto}
-                    onChange={(e) => setTarifaMonto(e.target.value)}
-                    placeholder="Ej. 200"
-                  />
-                </label>
-
-                <div style={{ display: "flex", alignItems: "end" }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    disabled={
-                      !tarifaConcepto ||
-                      tarifaMonto.trim() === "" ||
-                      !Number.isFinite(Number(tarifaMonto)) ||
-                      Number(tarifaMonto) < 0
-                    }
-                    onClick={actualizarTarifa}
-                  >
-                    Actualizar tarifa
-                  </button>
-                </div>
-              </div>
-
-              <div className="table-wrap" style={{ marginTop: 12 }}>
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Categoría</th>
-                      <th>Conceptos</th>
-                      <th>Total base</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {(["A", "B", "C"] as Categoria[]).map((cat) => (
-                      <tr key={cat}>
-                        <td>
-                          <span className="tag">Categoría {cat}</span>
-                        </td>
-                        <td>
-                          {tarifasEditables[cat].map((c) => (
-                            <div
-                              key={c.concepto}
-                              style={{ fontSize: 11, color: "#766E69" }}
-                            >
-                              {c.concepto}: {bs(c.monto)}
-                            </div>
-                          ))}
-                        </td>
-                        <td>
-                          <strong>{bs(totalDe(tarifasEditables[cat]))}</strong>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-
               <h3 style={{ fontSize: 13, margin: "20px 0 8px" }}>
-                Gasto adicional por departamento
+                Registro de agua y gastos adicionales
               </h3>
 
               <div className="form-grid">
@@ -840,7 +953,7 @@ export default function ExpensasPage() {
                     value={extraConcepto}
                     onChange={(e) => setExtraConcepto(e.target.value)}
                     maxLength={100}
-                    placeholder="Ej. Reparación de puerta"
+                    placeholder="Ej. Agua"
                   />
                 </label>
 
@@ -922,7 +1035,7 @@ export default function ExpensasPage() {
                       <th>Departamento</th>
                       <th>Categoría</th>
                       <th>Tarifa base</th>
-                      <th>Extras</th>
+                      <th>Agua y extras</th>
                       <th>Total estimado</th>
                     </tr>
                   </thead>
@@ -950,10 +1063,11 @@ export default function ExpensasPage() {
               </div>
 
               <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
-                Los cambios de tarifa se aplican a las nuevas expensas que se
-                generen. Los gastos adicionales afectan únicamente al
-                departamento seleccionado. Las expensas anteriores conservan
-                sus importes.
+                Cada departamento usa el monto fijo de su categoría. El agua y
+                los gastos adicionales se suman únicamente al departamento
+                seleccionado. Las expensas anteriores conservan sus importes.
+                Para cambiar las tarifas base usa el botón - Configurar
+                tarifas.
               </p>
 
               {error && (
@@ -978,7 +1092,7 @@ export default function ExpensasPage() {
                     setError("");
                     setPaso("confirmar");
                   }}
-                  disabled={!periodoValido || faltantes <= 0}
+                  disabled={!puedeContinuar}
                 >
                   Continuar
                 </button>
@@ -992,9 +1106,9 @@ export default function ExpensasPage() {
               </p>
 
               <p style={{ fontSize: 12, color: "#766E69", margin: 0 }}>
-                Se crearán {faltantes}{" "}
-                {plural(faltantes, "expensa", "expensas")} nuevas. Las
-                expensas ya existentes no se duplicarán.
+                {faltantes > 0
+                  ? `Se crearán ${faltantes} ${plural(faltantes, "expensa", "expensas")} nuevas. Las expensas ya existentes no se duplicarán.`
+                  : "No hay expensas nuevas por crear; se aplicarán los gastos adicionales indicados."}
               </p>
 
               <div className="modal-actions">
