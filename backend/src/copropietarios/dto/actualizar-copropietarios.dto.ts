@@ -6,7 +6,10 @@ import {
   IsDateString,
   IsNumberString,
   IsBoolean,
+  IsInt,
+  Min,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class ActualizarCopropietarioDto {
   @IsOptional()
@@ -44,4 +47,11 @@ export class ActualizarCopropietarioDto {
   @IsOptional()
   @IsBoolean()
   estatus?: boolean;
+
+  // Cambia el departamento asignado (cierra la ocupación anterior)
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  id_departamento?: number;
 }

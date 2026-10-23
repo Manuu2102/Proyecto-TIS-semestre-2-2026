@@ -1,14 +1,16 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { api } from "../../../lib/api";
 
 type EstadoDepartamento = "Ocupado" | "Disponible";
 
 type Departamento = {
   id: number;
-  codigo: string;
+  codigo: string; // "A-101"
+  numero: number; // 101
   piso: number;
   tipo: string;
   superficie: number;
@@ -26,90 +28,64 @@ type TipoDepartamento = {
   activo: boolean;
 };
 
-const departamentosIniciales: Departamento[] = [
-  {
-    id: 1,
-    codigo: "A-101",
-    piso: 1,
-    tipo: "Grande",
-    superficie: 82,
-    ocupante: "María F. Rojas",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 2,
-    codigo: "A-202",
-    piso: 2,
-    tipo: "Pequeño",
-    superficie: 82,
-    ocupante: "Carlos A. Pérez",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 3,
-    codigo: "B-301",
-    piso: 3,
-    tipo: "Grande",
-    superficie: 105,
-    ocupante: "Sofía V. Cruz",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 4,
-    codigo: "B-402",
-    piso: 4,
-    tipo: "Pequeño",
-    superficie: 105,
-    ocupante: "Disponible",
-    expensa: 650,
-    estado: "Disponible",
-  },
-  {
-    id: 5,
-    codigo: "A-105",
-    piso: 1,
-    tipo: "Grande",
-    superficie: 210,
-    ocupante: "Rodrigo Quispe",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 6,
-    codigo: "A-106",
-    piso: 2,
-    tipo: "Grande",
-    superficie: 150,
-    ocupante: "Alejandra Guzmán",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 7,
-    codigo: "B-202",
-    piso: 3,
-    tipo: "Pequeño",
-    superficie: 250,
-    ocupante: "Luz Maida V.",
-    expensa: 650,
-    estado: "Ocupado",
-  },
-  {
-    id: 8,
-    codigo: "B-205",
-    piso: 4,
-    tipo: "Grande",
-    superficie: 300,
-    ocupante: "Andrea Lautaro",
-    expensa: 650,
-    estado: "Disponible",
-  },
-];
+// ============================================================
+// LLAMADAS AL BACKEND
+// ============================================================
 
-// Lista de personas ya registradas en Copropietarios / Inquilinos.
+type TipoApi = { id: string; nombre: string }; // A, B, C
+
+type DepartamentoApi = {
+  id: string;
+  numero: number;
+  numeroCompleto: string; // "A-101"
+  piso: number;
+  superficie_m2: number;
+  libre: boolean;
+  tipo: string | null;
+  ocupante: string | null;
+  expensa: number;
+};
+
+// BACKEND: GET /departamentos/tipos
+const cargarTiposApi = () => api<TipoApi[]>("/departamentos/tipos");
+
+// BACKEND: GET /departamentos
+async function cargarDepartamentosApi(): Promise<Departamento[]> {
+  const { departamentos } = await api<{ departamentos: DepartamentoApi[] }>(
+    "/departamentos"
+  );
+  return departamentos.map((d) => ({
+    id: Number(d.id),
+    codigo: d.numeroCompleto,
+    numero: d.numero,
+    piso: d.piso,
+    tipo: d.tipo ?? "-",
+    superficie: d.superficie_m2,
+    ocupante: d.libre ? "Disponible" : d.ocupante ?? "Sin ocupante",
+    expensa: d.expensa,
+    estado: d.libre ? "Disponible" : "Ocupado",
+  }));
+}
+
+type DepartamentoEntrada = {
+  numero: number;
+  piso: number;
+  superficie_m2: number;
+  id_tipo_departamento: number;
+};
+
+// BACKEND: POST /departamentos y PATCH /departamentos/{id}
+// El código (A, B o C) lo pone el backend según el tipo.
+const guardarDepartamentoApi = (datos: DepartamentoEntrada, id?: number) =>
+  api(id ? `/departamentos/${id}` : "/departamentos", {
+    method: id ? "PATCH" : "POST",
+    body: JSON.stringify(datos),
+  });
+
+// BACKEND: DELETE /departamentos/{id}
+const eliminarDepartamentoApi = (id: number) =>
+  api(`/departamentos/${id}`, { method: "DELETE" });
+
 const personasRegistradas: string[] = [
   "María Fernanda Rojas",
   "Carlos Andrés Pérez",
@@ -161,7 +137,30 @@ export default function DepartamentosPage() {
   const [tab, setTab] = useState<"unidades" | "tipos">("unidades");
 
   const [departamentos, setDepartamentos] =
-    useState<Departamento[]>(departamentosIniciales);
+    useState<Departamento[]>([]);
+
+  // Tipos A, B, C de la base (para el formulario de unidades)
+  const [tiposApi, setTiposApi] = useState<TipoApi[]>([]);
+
+  const recargarDepartamentos = () =>
+    cargarDepartamentosApi()
+      .then(setDepartamentos)
+      .catch((e) =>
+        alert(e instanceof Error ? e.message : "No se pudieron cargar los departamentos.")
+      );
+
+  useEffect(() => {
+    cargarDepartamentosApi()
+      .then(setDepartamentos)
+      .catch((e) =>
+        alert(e instanceof Error ? e.message : "No se pudieron cargar los departamentos.")
+      );
+    cargarTiposApi()
+      .then(setTiposApi)
+      .catch((e) =>
+        alert(e instanceof Error ? e.message : "No se pudieron cargar los tipos.")
+      );
+  }, []);
 
   const [tipos, setTipos] =
     useState<TipoDepartamento[]>(tiposIniciales);
@@ -181,10 +180,10 @@ export default function DepartamentosPage() {
     useState<TipoDepartamento | null>(null);
 
   const [formDepartamento, setFormDepartamento] = useState({
-    codigo: "",
+    numero: "",
     piso: "",
-    tipo: "",
-    estado: "Ocupado" as EstadoDepartamento,
+    tipo: "", // "A", "B" o "C"
+    estado: "Disponible" as EstadoDepartamento,
     ocupante: "",
     ocupanteRespaldo: "",
     superficie: "",
@@ -250,11 +249,12 @@ export default function DepartamentosPage() {
   const abrirNuevoDepartamento = () => {
     setEditandoDepartamento(null);
 
+    // Un departamento nuevo se registra libre (el ocupante se asigna en Asociaciones)
     setFormDepartamento({
-      codigo: "",
+      numero: "",
       piso: "",
       tipo: "",
-      estado: "Ocupado",
+      estado: "Disponible",
       ocupante: "",
       ocupanteRespaldo: "",
       superficie: "",
@@ -270,7 +270,7 @@ export default function DepartamentosPage() {
       d.estado === "Disponible" ? "" : d.ocupante;
 
     setFormDepartamento({
-      codigo: d.codigo,
+      numero: d.numero.toString(),
       piso: d.piso.toString(),
       tipo: d.tipo,
       estado: d.estado,
@@ -282,9 +282,9 @@ export default function DepartamentosPage() {
     setModalDepartamento(true);
   };
 
-  const guardarDepartamento = () => {
+  const guardarDepartamento = async () => {
     if (
-      !formDepartamento.codigo ||
+      !formDepartamento.numero ||
       !formDepartamento.piso ||
       !formDepartamento.tipo ||
       !formDepartamento.superficie
@@ -303,64 +303,41 @@ export default function DepartamentosPage() {
       return;
     }
 
-    const existe = departamentos.some(
-      (d) =>
-        d.codigo.toLowerCase() ===
-          formDepartamento.codigo.toLowerCase() &&
-        d.id !== editandoDepartamento?.id
-    );
-
-    if (existe) {
-      alert("Ya existe un departamento con ese código.");
+    const tipo = tiposApi.find((t) => t.nombre === formDepartamento.tipo);
+    if (!tipo) {
+      alert("Selecciona un tipo de departamento válido.");
       return;
     }
 
-    const departamento: Departamento = {
-      id: editandoDepartamento?.id ?? Date.now(),
-      codigo: formDepartamento.codigo.toUpperCase(),
-      piso: Number(formDepartamento.piso),
-      tipo: formDepartamento.tipo,
-      superficie: Number(formDepartamento.superficie),
-
-      ocupante:
-        formDepartamento.estado === "Disponible"
-          ? "Disponible"
-          : formDepartamento.ocupante || "Sin ocupante",
-
-      /*
-       * Se conserva el comportamiento actual de los datos.
-       * La lógica de selección de tipos del nuevo formulario
-       * no modifica los departamentos ya registrados.
-       */
-      expensa: 650,
-
-      estado: formDepartamento.estado,
-    };
-
-    if (editandoDepartamento) {
-      setDepartamentos((actuales) =>
-        actuales.map((d) =>
-          d.id === editandoDepartamento.id ? departamento : d
-        )
+    try {
+      // El duplicado (A-101) lo valida el backend
+      await guardarDepartamentoApi(
+        {
+          numero: Number(formDepartamento.numero),
+          piso: Number(formDepartamento.piso),
+          superficie_m2: Number(formDepartamento.superficie),
+          id_tipo_departamento: Number(tipo.id),
+        },
+        editandoDepartamento?.id
       );
-
-      alert(
-        "Los datos del departamento se actualizaron correctamente."
-      );
-    } else {
-      setDepartamentos((actuales) => [
-        ...actuales,
-        departamento,
-      ]);
-
-      alert("El departamento se registró correctamente.");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo guardar el departamento.");
+      return;
     }
+
+    await recargarDepartamentos();
+
+    alert(
+      editandoDepartamento
+        ? "Los datos del departamento se actualizaron correctamente."
+        : "El departamento se registró correctamente."
+    );
 
     setModalDepartamento(false);
     setEditandoDepartamento(null);
   };
 
-  const eliminarDepartamento = (id: number) => {
+  const eliminarDepartamento = async (id: number) => {
     if (
       !window.confirm(
         "¿Deseas eliminar este departamento?"
@@ -369,9 +346,14 @@ export default function DepartamentosPage() {
       return;
     }
 
-    setDepartamentos((actuales) =>
-      actuales.filter((d) => d.id !== id)
-    );
+    try {
+      await eliminarDepartamentoApi(id);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo eliminar el departamento.");
+      return;
+    }
+
+    await recargarDepartamentos();
 
     alert("El departamento se eliminó correctamente.");
   };
@@ -936,14 +918,15 @@ export default function DepartamentosPage() {
                   <div className="grid grid-cols-2 gap-5">
 
                     <ElegantInput
-                      label="Número / código"
+                      label="Número"
                       required
-                      placeholder="Ej. A-103"
-                      value={formDepartamento.codigo}
+                      placeholder="Ej. 101"
+                      type="number"
+                      value={formDepartamento.numero}
                       onChange={(value) =>
                         setFormDepartamento({
                           ...formDepartamento,
-                          codigo: value,
+                          numero: value,
                         })
                       }
                     />
@@ -967,14 +950,8 @@ export default function DepartamentosPage() {
                       required
                       value={formDepartamento.tipo}
                       placeholder="Seleccionar tipo"
-                      options={tipos
-                        .filter(
-                          (t) =>
-                            t.activo ||
-                            t.nombre ===
-                              formDepartamento.tipo
-                        )
-                        .map((t) => t.nombre)}
+                      // Tipos A, B, C de la base: el departamento queda como A-101
+                      options={tiposApi.map((t) => t.nombre)}
                       onChange={(value) =>
                         setFormDepartamento({
                           ...formDepartamento,

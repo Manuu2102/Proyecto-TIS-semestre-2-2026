@@ -671,6 +671,8 @@ model departamento {
   tipo_departamento                                                   BigInt?
   codigo                                                              String                 @db.VarChar(5)
   tipo_departamento_departamento_tipo_departamentoTotipo_departamento tipo_departamento?     @relation("departamento_tipo_departamentoTotipo_departamento", fields: [tipo_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_tipo_departamento")
+  departamento_baulera                                                departamento_baulera[]
+  departamento_parqueo                                                departamento_parqueo[]
   departamento_usuario                                                departamento_usuario[]
 
   @@schema("public")
@@ -680,7 +682,8 @@ model departamento {
 model departamento_baulera {
   id_baulera      BigInt
   id_departamento BigInt
-  baulera         baulera @relation(fields: [id_baulera], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_baulera_foreign")
+  baulera         baulera      @relation(fields: [id_baulera], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_baulera_id_baulera_foreign")
+  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_baulera_departamento")
 
   @@id([id_departamento, id_baulera])
   @@schema("public")
@@ -690,7 +693,8 @@ model departamento_baulera {
 model departamento_parqueo {
   id_parqueo      BigInt
   id_departamento BigInt
-  parqueo         parqueo @relation(fields: [id_parqueo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_parqueo_foreign")
+  parqueo         parqueo      @relation(fields: [id_parqueo], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_parqueo_id_parqueo_foreign")
+  departamento    departamento @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_parqueo_departamento")
 
   @@id([id_departamento, id_parqueo])
   @@schema("public")
@@ -703,10 +707,13 @@ model departamento_usuario {
   fecha_ocupacion     DateTime     @db.Date
   fecha_fin_ocupacion DateTime?    @db.Date
   estatus             Boolean
+  id                  BigInt       @id @default(autoincrement())
   usuario             usuario      @relation(fields: [id_usuario], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "departamento_usuario_id_copropietario_foreign")
   departamento        departamento @relation(fields: [id_departamento], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_usuario_departamento")
 
-  @@id([id_departamento, id_usuario])
+  @@unique([id_departamento, id_usuario], map: "uq_departamento_usuario_activa", where: raw("(estatus = true)"))
+  @@index([id_departamento], map: "idx_departamento_usuario_departamento")
+  @@index([id_usuario], map: "idx_departamento_usuario_usuario")
   @@schema("public")
 }
 
