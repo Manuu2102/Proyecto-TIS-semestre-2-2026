@@ -1066,8 +1066,8 @@ export default function ExpensasPage() {
                 Cada departamento usa el monto fijo de su categoría. El agua y
                 los gastos adicionales se suman únicamente al departamento
                 seleccionado. Las expensas anteriores conservan sus importes.
-                Para cambiar las tarifas base usa el botón "Configurar
-                tarifas".
+                Para cambiar las tarifas base usa el botón - Configurar
+                tarifas.
               </p>
 
               {error && (
