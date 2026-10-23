@@ -188,12 +188,7 @@ export class InquilinosService {
       } else if (fechaInicio && actual && data.estatus !== false) {
         // Mismo departamento: solo se corrige la fecha de inicio
         await tx.departamento_usuario.update({
-          where: {
-            id_departamento_id_usuario: {
-              id_departamento: actual.id_departamento,
-              id_usuario: id,
-            },
-          },
+          where: { id: actual.id },
           data: { fecha_ocupacion: fechaInicio },
         });
       }

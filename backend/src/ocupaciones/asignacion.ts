@@ -4,6 +4,10 @@ import { Prisma } from '../generated/prisma/client.js';
 /**
  * Ayudas compartidas por copropietarios e inquilinos para manejar la ocupación
  * de un departamento (tabla departamento_usuario) dentro de una transacción.
+ *
+ * Cada estadía es una fila propia (clave `id`): al ocupar se crea una fila nueva y
+ * al salir se cierra (estatus = false + fecha_fin), así queda el historial completo.
+ * La base garantiza una sola fila ACTIVA por departamento y usuario.
  */
 
 /** Ocupación activa de un usuario, con su departamento (o null si no tiene). */
@@ -21,54 +25,48 @@ export async function cerrarOcupaciones(tx: Prisma.TransactionClient, idUsuario:
   });
 
   for (const o of activas) {
-    await tx.departamento_usuario.update({
-      where: {
-        id_departamento_id_usuario: {
-          id_departamento: o.id_departamento,
-          id_usuario: idUsuario,
-        },
-      },
-      data: { estatus: false, fecha_fin_ocupacion: new Date() },
-    });
+    await cerrarOcupacion(tx, o);
+  }
+}
 
-    const quedan = await tx.departamento_usuario.count({
-      where: { id_departamento: o.id_departamento, estatus: true },
+/** Cierra una estadía y libera el departamento si ya no queda nadie viviendo ahí. */
+export async function cerrarOcupacion(
+  tx: Prisma.TransactionClient,
+  ocupacion: { id: bigint; id_departamento: bigint },
+) {
+  await tx.departamento_usuario.update({
+    where: { id: ocupacion.id },
+    data: { estatus: false, fecha_fin_ocupacion: new Date() },
+  });
+
+  const quedan = await tx.departamento_usuario.count({
+    where: { id_departamento: ocupacion.id_departamento, estatus: true },
+  });
+  if (quedan === 0) {
+    await tx.departamento.update({
+      where: { id: ocupacion.id_departamento },
+      data: { libre: true },
     });
-    if (quedan === 0) {
-      await tx.departamento.update({
-        where: { id: o.id_departamento },
-        data: { libre: true },
-      });
-    }
   }
 }
 
 /**
- * Asocia el usuario al departamento y lo marca como ocupado. Si el usuario ya
- * vivió ahí antes, se reactiva esa fila (la clave es departamento + usuario).
+ * Asocia el usuario al departamento con una estadía nueva y lo marca como ocupado.
+ * Quien llama debe haber cerrado antes la ocupación activa que tuviera ahí.
  */
 export async function ocuparDepartamento(
   tx: Prisma.TransactionClient,
   idUsuario: string,
   idDepartamento: bigint,
   fecha: Date,
+  fechaFin: Date | null = null,
 ) {
-  await tx.departamento_usuario.upsert({
-    where: {
-      id_departamento_id_usuario: {
-        id_departamento: idDepartamento,
-        id_usuario: idUsuario,
-      },
-    },
-    create: {
+  const ocupacion = await tx.departamento_usuario.create({
+    data: {
       id_usuario: idUsuario,
       id_departamento: idDepartamento,
       fecha_ocupacion: fecha,
-      estatus: true,
-    },
-    update: {
-      fecha_ocupacion: fecha,
-      fecha_fin_ocupacion: null,
+      fecha_fin_ocupacion: fechaFin,
       estatus: true,
     },
   });
@@ -77,6 +75,8 @@ export async function ocuparDepartamento(
     where: { id: idDepartamento },
     data: { libre: false },
   });
+
+  return ocupacion;
 }
 
 /** Busca un departamento activo; lanza 400 si no existe. */

@@ -4,6 +4,7 @@ import { ChangeEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { api } from "../../../lib/api";
 import {
   BellIcon, BuildingIcon, CameraIcon, CheckIcon, CreditCardIcon, FileIcon,
   HomeIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon,
@@ -27,12 +28,81 @@ const adminActions: Action[] = [
   ["Nube y respaldos", "Copias y protección de datos", "/respaldo", ShieldIcon],
 ];
 
-const adminCards = [
-  ["Copropietarios", "24", "Registros activos", UsersIcon],
-  ["Departamentos", "32", "Unidades registradas", BuildingIcon],
-  ["Expensas", "Bs. 18.450", "Recaudación del mes", WalletIcon],
-  ["Documentos", "86", "Archivos almacenados", FileIcon],
-] as const;
+// Cifras reales del edificio, leídas de la API
+type ResumenEdificio = {
+  copropietarios: number;
+  departamentos: number;
+  recaudacionMes: number;
+  documentos: number;
+  inquilinos: number;
+  deptosConDeudaVencida: number;
+  espaciosSinAsignar: number;
+};
+
+// null = esa cifra no se pudo cargar (p. ej. el rol no tiene acceso)
+type Resumen = { [K in keyof ResumenEdificio]: number | null };
+
+const MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"];
+
+const formatoBs = (monto: number) =>
+  `Bs. ${monto.toLocaleString("es-BO", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+// "…" mientras carga, "—" si no se pudo obtener
+const mostrar = (valor: number | null | undefined, formato: (n: number) => string = String) =>
+  valor === undefined ? "…" : valor === null ? "—" : formato(valor);
+
+/**
+ * Lee las cifras del panel. Las consultas van una tras otra para no ocupar varias
+ * conexiones del pooler de Supabase a la vez, y si una falla las demás se muestran igual.
+ */
+function useResumenEdificio() {
+  const [resumen, setResumen] = useState<Partial<Resumen>>({});
+
+  useEffect(() => {
+    const cargar = async () => {
+      const mesActual = new Date().toISOString().slice(0, 7);
+      const activos = (lista: { estatus?: boolean }[]) => lista.filter((x) => x.estatus !== false).length;
+
+      // Cada consulta pide su ruta y calcula una cifra
+      const consulta = <T,>(ruta: string, calcular: (data: T) => number) =>
+        async () => calcular(await api<T>(ruta));
+
+      const consultas: [keyof ResumenEdificio, string, () => Promise<number>][] = [
+        ["copropietarios", "/copropietarios",
+          consulta<{ copropietarios: { estatus?: boolean }[] }>("/copropietarios", (d) => activos(d.copropietarios))],
+        ["departamentos", "/departamentos",
+          consulta<{ total: number }>("/departamentos", (d) => d.total)],
+        // Pagos de expensas y pagos anticipados registrados este mes
+        ["recaudacionMes", "/expensas/pagos/historial",
+          consulta<{ fecha: string; monto: number }[]>("/expensas/pagos/historial", (d) =>
+            d.filter((m) => m.fecha.startsWith(mesActual)).reduce((total, m) => total + m.monto, 0))],
+        ["documentos", "/documentos",
+          consulta<{ total: number }>("/documentos", (d) => d.total)],
+        ["inquilinos", "/inquilinos",
+          consulta<{ inquilinos: { estatus?: boolean }[] }>("/inquilinos", (d) => activos(d.inquilinos))],
+        ["deptosConDeudaVencida", "/expensas/pagos/resumen",
+          consulta<{ deudas: { vencida: boolean; departamento: number }[] }>("/expensas/pagos/resumen", (d) =>
+            new Set(d.deudas.filter((x) => x.vencida).map((x) => x.departamento)).size)],
+        ["espaciosSinAsignar", "/espacios",
+          consulta<{ total: number; asignados: number }>("/espacios", (d) => d.total - d.asignados)],
+      ];
+
+      for (const [clave, ruta, obtener] of consultas) {
+        let valor: number | null;
+        try {
+          valor = await obtener();
+        } catch (e) {
+          console.error(`Dashboard: no se pudo cargar ${ruta}`, e);
+          valor = null;
+        }
+        setResumen((actual) => ({ ...actual, [clave]: valor }));
+      }
+    };
+    cargar();
+  }, []);
+
+  return resumen;
+}
 
 function normalizeRole(value: string | null): Role {
   const role = (value || "").toUpperCase();
@@ -57,12 +127,22 @@ function RoleHero({ eyebrow, title, text, icon = BuildingIcon }: { eyebrow: stri
 }
 
 function AdminDashboard({ name }: { name: string }) {
+  const r = useResumenEdificio();
+  const mes = MESES[new Date().getMonth()];
+  const adminCards = [
+    ["Copropietarios", mostrar(r.copropietarios), "Registros activos", UsersIcon],
+    ["Departamentos", mostrar(r.departamentos), "Unidades registradas", BuildingIcon],
+    ["Expensas", mostrar(r.recaudacionMes, formatoBs), `Recaudación de ${mes}`, WalletIcon],
+    ["Documentos", mostrar(r.documentos), "Archivos almacenados", FileIcon],
+  ] as const;
+  const alDia = r.deptosConDeudaVencida === 0;
+
   return <>
     <div className="page-heading"><div><span className="eyebrow">ADMINISTRACIÓN</span><h1>Panel administrativo</h1><p>Gestiona de forma centralizada la administración del edificio.</p></div></div>
     <section className="welcome-banner"><div><span className="eyebrow">RESUMEN GENERAL</span><h2>Hola, {name.split(" ")[0]} 👋</h2><p>Supervisa personas, unidades, finanzas, documentos, mantenimiento y seguridad desde un solo lugar.</p></div><div className="banner-orb"><BuildingIcon size={54} /></div></section>
     <div className="metric-grid">{adminCards.map(([label, value, note, Icon]) => <Metric key={label} icon={Icon} label={label} value={value} note={note} />)}</div>
     <section className="dashboard-modules"><div className="section-heading"><div><h2>Módulos de administración</h2><p>Todos los módulos administrativos están disponibles directamente en la barra lateral.</p></div></div><div className="admin-action-grid">{adminActions.map(([label, description, href, Icon]) => <Link href={href} className="admin-action-card" key={label}><div className="admin-action-icon"><Icon size={24} /></div><div><strong>{label}</strong><span>{description}</span></div><b>→</b></Link>)}</div></section>
-    <section className="dashboard-bottom"><div className="panel"><div className="panel-heading"><div><h3>Actividad del edificio</h3><p>Indicadores que requieren seguimiento administrativo.</p></div></div><div className="role-list"><div><CheckIcon size={18}/><span>Recaudación de expensas del mes actualizada</span><b>Al día</b></div><div><FileIcon size={18}/><span>Documentos pendientes de clasificación</span><b>4</b></div><div><WrenchIcon size={18}/><span>Solicitudes de mantenimiento abiertas</span><b>8</b></div></div></div><div className="panel"><div className="panel-heading"><div><h3>Seguridad y auditoría</h3><p>Control de accesos y actividad reciente.</p></div></div><div className="audit-highlight"><ShieldIcon size={26}/><div><strong>Sesión administrativa activa</strong><p>Rol con acceso completo a los módulos de gestión.</p></div></div></div></section>
+    <section className="dashboard-bottom"><div className="panel"><div className="panel-heading"><div><h3>Actividad del edificio</h3><p>Indicadores que requieren seguimiento administrativo.</p></div></div><div className="role-list"><div><CheckIcon size={18}/><span>{alDia ? "Expensas del edificio al día" : "Departamentos con expensas vencidas"}</span><b>{alDia ? "Al día" : mostrar(r.deptosConDeudaVencida)}</b></div><div><HomeIcon size={18}/><span>Inquilinos activos</span><b>{mostrar(r.inquilinos)}</b></div><div><BuildingIcon size={18}/><span>Parqueos y bauleras sin asignar</span><b>{mostrar(r.espaciosSinAsignar)}</b></div></div></div><div className="panel"><div className="panel-heading"><div><h3>Seguridad y auditoría</h3><p>Control de accesos y actividad reciente.</p></div></div><div className="audit-highlight"><ShieldIcon size={26}/><div><strong>Sesión administrativa activa</strong><p>Rol con acceso completo a los módulos de gestión.</p></div></div></div></section>
   </>;
 }
 
@@ -119,7 +199,8 @@ function GenericDashboard({ role, name }: { role: Role; name: string }) {
     CONSULTA: ["Panel de consulta", "Consulta únicamente la información autorizada del edificio."],
   };
   const [title, subtitle] = labels[role] || ["Panel", "Información del edificio."];
-  return <><div className="page-heading"><div><span className="eyebrow">{role}</span><h1>{title}</h1><p>{subtitle}</p></div></div><RoleHero eyebrow="RESUMEN" title={<>Hola, {name.split(" ")[0]} <span>👋</span></>} text={subtitle} /><div className="metric-grid"><Metric icon={BuildingIcon} label="Departamentos" value="32" note="Unidades registradas"/><Metric icon={FileIcon} label="Documentos" value="18" note="Disponibles"/><Metric icon={BellIcon} label="Comunicados" value="6" note="Avisos recientes"/><Metric icon={ShieldIcon} label="Estado" value="Activo" note="Operación normal"/></div></>;
+  const r = useResumenEdificio();
+  return <><div className="page-heading"><div><span className="eyebrow">{role}</span><h1>{title}</h1><p>{subtitle}</p></div></div><RoleHero eyebrow="RESUMEN" title={<>Hola, {name.split(" ")[0]} <span>👋</span></>} text={subtitle} /><div className="metric-grid"><Metric icon={BuildingIcon} label="Departamentos" value={mostrar(r.departamentos)} note="Unidades registradas"/><Metric icon={FileIcon} label="Documentos" value={mostrar(r.documentos)} note="Disponibles"/><Metric icon={UsersIcon} label="Copropietarios" value={mostrar(r.copropietarios)} note="Registros activos"/><Metric icon={ShieldIcon} label="Estado" value="Activo" note="Operación normal"/></div></>;
 }
 
 type DashboardSession = { role: Role; name: string; unit: string };
