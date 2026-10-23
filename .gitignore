@@ -47,3 +47,13 @@ reporte.xlsx
 prueba.pdf
 descargado.pdf
 *.pdf
+
+# Respaldos de base de datos: nunca subir copias reales
+backups/
+*.dump
+*.backup
+
+# Permitir el script de respaldo manual del entregable DevOps
+!scripts/
+scripts/*
+!scripts/backup-db.sh
