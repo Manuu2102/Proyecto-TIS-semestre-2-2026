@@ -109,7 +109,7 @@ export class DocumentosService {
       ];
     }
 
-    // 🚀 RÁPIDO: Usamos select para NO traer el PDF pesado al cargar la lista
+  // RÁPIDO: Usamos select para NO traer el PDF pesado al cargar la lista
     const documentos = await this.prisma.documento.findMany({
       where,
       select: {
