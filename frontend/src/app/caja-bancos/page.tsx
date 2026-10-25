@@ -14,8 +14,8 @@
  *   - Demás roles:           acceso denegado.
  * Los permisos también deben validarse en el backend.
  *
- * Datos: simulados dentro de este archivo. Cada punto de integración está
- * marcado con "BACKEND:" e indica el endpoint esperado.
+ * Datos: vienen del backend. Las llamadas y la conversión de los datos
+ * están en lib/caja-bancos.ts.
  */
 
 import { useEffect, useState } from "react";
@@ -23,57 +23,35 @@ import Link from "next/link";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import { BuildingIcon, CheckIcon, FileIcon, PlusIcon, WalletIcon } from "../../../components/Icons";
+import {
+  cargarTodo,
+  abrirCaja as abrirCajaEnServidor,
+  anularMovCaja,
+  listarMovCaja,
+  listarMovBanco,
+  crearCuenta,
+  actualizarCuenta,
+  desactivarCuenta,
+  crearMovBanco,
+  anularMovBanco,
+  conciliarMovBanco,
+} from "@/lib/caja-bancos";
+import type {
+  Caja,
+  Cuenta,
+  MovBanco,
+  MovCaja,
+  OrigenCaja,
+  TipoBanco,
+  TipoCaja,
+} from "@/lib/caja-bancos";
 
 // =====================================================================
 // 1. TIPOS
 // =====================================================================
 
 type Vista = "saldo" | "caja" | "cuentas" | "bancos";
-type TipoCaja = "ENTRADA" | "SALIDA";
-type OrigenCaja = "Manual" | "Ingreso" | "Gasto" | "Banco" | "Anulación";
 type Aviso = { tipo: "ok" | "error"; texto: string };
-type Anulacion = { motivo: string; usuario: string; fecha: string; contrario: string };
-
-type Caja = { abierta: boolean; fecha: string; monto: number };
-
-type MovCaja = {
-  numero: string; // CAJ-AAAA-000001
-  fecha: string; // AAAA-MM-DD
-  hora: string;
-  tipo: TipoCaja;
-  monto: number;
-  concepto: string;
-  origen: OrigenCaja;
-  saldoPosterior: number;
-  usuario: string;
-  anulado?: Anulacion; // presente cuando el movimiento fue anulado
-  anulaA?: string; // presente en el movimiento contrario que genera una anulación
-};
-
-type TipoBanco = "Depósito" | "Retiro" | "Transferencia recibida" | "Transferencia enviada" | "Comisión" | "Ajuste";
-type OrigenBanco = "Manual" | "QR de expensas" | "Ingreso" | "Gasto" | "Caja";
-
-type Cuenta = { id: number; banco: string; numero: string; titular: string; apertura: number; activa: boolean };
-
-type MovBanco = {
-  numero: string; // BAN-AAAA-000001
-  cuentaId: number;
-  fecha: string;
-  hora: string;
-  tipo: TipoBanco;
-  monto: number;
-  signo: 1 | -1; // +1 incrementa el saldo, -1 lo disminuye
-  referencia: string;
-  concepto: string;
-  origen: OrigenBanco;
-  saldoPosterior: number;
-  usuario: string;
-  conciliado: boolean;
-  vinculoCaja?: string;
-  adjunto?: string | null;
-  anulado?: Anulacion;
-  anulaA?: string;
-};
 
 type BancosProps = {
   esAdmin: boolean;
@@ -117,53 +95,11 @@ const ERR = { color: "#9F2727", fontSize: 11, marginTop: 4 } as const;
 const AVISO = { background: "#fbf1df", color: "#a16d25", border: "1px solid #f0dcb4" };
 
 // =====================================================================
-// 3. DATOS DE EJEMPLO (los reemplaza el backend)
-// =====================================================================
-
-/** BACKEND: GET /caja */
-const CAJA_INICIAL: Caja = { abierta: true, fecha: "2026-08-01", monto: 2000 };
-
-/** BACKEND: GET /caja/movimientos. Coherente con /ingresos-egresos (movimientos en efectivo). */
-const CAJA_MOVS_INICIALES: MovCaja[] = [
-  { numero: "CAJ-2026-000001", fecha: "2026-08-05", hora: "09:10", tipo: "ENTRADA", monto: 1500, concepto: "Retiro desde la cuenta bancaria", origen: "Banco", saldoPosterior: 3500, usuario: "Administrador" },
-  { numero: "CAJ-2026-000002", fecha: "2026-08-20", hora: "17:40", tipo: "ENTRADA", monto: 300, concepto: "Alquiler del salón de eventos", origen: "Ingreso", saldoPosterior: 3800, usuario: "Administrador" },
-  { numero: "CAJ-2026-000003", fecha: "2026-09-10", hora: "15:20", tipo: "SALIDA", monto: 180, concepto: "Insumos de limpieza", origen: "Gasto", saldoPosterior: 3620, usuario: "Administrador" },
-  { numero: "CAJ-2026-000004", fecha: "2026-09-14", hora: "19:05", tipo: "ENTRADA", monto: 150, concepto: "Multa por ruido fuera de horario", origen: "Ingreso", saldoPosterior: 3770, usuario: "Administrador" },
-  { numero: "CAJ-2026-000005", fecha: "2026-09-18", hora: "11:30", tipo: "SALIDA", monto: 200, concepto: "Compra de útiles de oficina", origen: "Manual", saldoPosterior: 3570, usuario: "Administrador" },
-  { numero: "CAJ-2026-000006", fecha: "2026-10-02", hora: "08:45", tipo: "SALIDA", monto: 450, concepto: "Compra de repuestos para la bomba de agua", origen: "Manual", saldoPosterior: 3120, usuario: "Administrador" },
-  { numero: "CAJ-2026-000007", fecha: "2026-10-08", hora: "08:10", tipo: "ENTRADA", monto: 250, concepto: "Ingreso registrado por error", origen: "Ingreso", saldoPosterior: 3370, usuario: "Administrador", anulado: { motivo: "Registrado por error: el monto correspondía a otro edificio.", usuario: "Administrador", fecha: "09/10/2026 08:40", contrario: "CAJ-2026-000008" } },
-  { numero: "CAJ-2026-000008", fecha: "2026-10-09", hora: "08:40", tipo: "SALIDA", monto: 250, concepto: "Anulación de CAJ-2026-000007", origen: "Anulación", saldoPosterior: 3120, usuario: "Administrador", anulaA: "CAJ-2026-000007" },
-];
-
-/** BACKEND: GET /cuentas-bancarias */
-const CUENTAS_INICIALES: Cuenta[] = [
-  { id: 1, banco: "Banco Nacional de Bolivia", numero: "1000-123456", titular: "Edificio Central", apertura: 12170, activa: true },
-  { id: 2, banco: "Banco Mercantil Santa Cruz", numero: "4020-998877", titular: "Edificio Central", apertura: 5200, activa: true },
-];
-
-/** BACKEND: GET /bancos/movimientos. Montos QR calculados con las tarifas A=400, B=450, C=500. */
-const MOV_BANCO_INICIALES: MovBanco[] = [
-  { numero: "BAN-2026-000001", cuentaId: 1, fecha: "2026-08-05", hora: "09:00", tipo: "Retiro", monto: 1500, signo: -1, referencia: "RET-0001", concepto: "Retiro hacia caja (CAJ-2026-000001)", origen: "Manual", saldoPosterior: 10670, usuario: "Administrador", conciliado: true, vinculoCaja: "CAJ-2026-000001" },
-  { numero: "BAN-2026-000002", cuentaId: 1, fecha: "2026-08-12", hora: "10:15", tipo: "Transferencia enviada", monto: 1200, signo: -1, referencia: "TRF-0812", concepto: "Reparación de ascensor", origen: "Gasto", saldoPosterior: 9470, usuario: "Administrador", conciliado: true },
-  { numero: "BAN-2026-000003", cuentaId: 1, fecha: "2026-08-31", hora: "18:00", tipo: "Depósito", monto: 2650, signo: 1, referencia: "QR-AGO", concepto: "Pagos por QR de expensas de agosto", origen: "QR de expensas", saldoPosterior: 12120, usuario: "Sistema", conciliado: true },
-  { numero: "BAN-2026-000004", cuentaId: 1, fecha: "2026-09-05", hora: "11:02", tipo: "Transferencia enviada", monto: 620, signo: -1, referencia: "TRF-0905", concepto: "Electricidad de áreas comunes", origen: "Gasto", saldoPosterior: 11500, usuario: "Administrador", conciliado: true },
-  { numero: "BAN-2026-000005", cuentaId: 1, fecha: "2026-09-22", hora: "16:30", tipo: "Transferencia enviada", monto: 900, signo: -1, referencia: "TRF-0922", concepto: "Servicio de vigilancia", origen: "Gasto", saldoPosterior: 10600, usuario: "Administrador", conciliado: true },
-  { numero: "BAN-2026-000006", cuentaId: 1, fecha: "2026-09-30", hora: "18:00", tipo: "Depósito", monto: 2700, signo: 1, referencia: "QR-SEP", concepto: "Pagos por QR de expensas de septiembre", origen: "QR de expensas", saldoPosterior: 13300, usuario: "Sistema", conciliado: true },
-  { numero: "BAN-2026-000007", cuentaId: 1, fecha: "2026-10-04", hora: "10:20", tipo: "Depósito", monto: 500, signo: 1, referencia: "QR-1001", concepto: "Pago QR · Dpto. 301", origen: "QR de expensas", saldoPosterior: 13800, usuario: "Sistema", conciliado: false },
-  { numero: "BAN-2026-000008", cuentaId: 1, fecha: "2026-10-06", hora: "09:15", tipo: "Depósito", monto: 400, signo: 1, referencia: "QR-1002", concepto: "Pago QR · Dpto. 102", origen: "QR de expensas", saldoPosterior: 14200, usuario: "Sistema", conciliado: false },
-  { numero: "BAN-2026-000009", cuentaId: 1, fecha: "2026-10-06", hora: "09:30", tipo: "Depósito", monto: 500, signo: 1, referencia: "DEP-1006", concepto: "Aporte para jardinería", origen: "Ingreso", saldoPosterior: 14700, usuario: "Administrador", conciliado: false },
-  { numero: "BAN-2026-000010", cuentaId: 1, fecha: "2026-10-08", hora: "12:00", tipo: "Depósito", monto: 300, signo: 1, referencia: "QR-ANT-0001", concepto: "Pago anticipado QR · Dpto. 101", origen: "QR de expensas", saldoPosterior: 15000, usuario: "Sistema", conciliado: false },
-];
-
-// =====================================================================
 // 4. UTILIDADES
 // =====================================================================
 
 function r2(n: number) {
   return Math.round(n * 100) / 100;
-}
-function esperar(ms: number) {
-  return new Promise<void>((resolver) => setTimeout(resolver, ms));
 }
 function bs(n: number) {
   return "Bs. " + n.toLocaleString("es-BO", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -279,7 +215,7 @@ function validarMotivo(valor: string) {
 }
 
 // =====================================================================
-// 7. SIMULACIÓN DEL BACKEND (se reemplaza por los fetch reales)
+// 7. LLAMADAS AL BACKEND (las funciones reales están en lib/caja-bancos.ts)
 // =====================================================================
 
 /** Un movimiento anulado y su contrario no forman parte del saldo. */
@@ -291,25 +227,15 @@ function saldoVigente(montoInicial: number, movs: MovCaja[], hasta?: string) {
     .reduce((s, m) => s + (m.tipo === "ENTRADA" ? m.monto : -m.monto), 0);
   return r2(montoInicial + suma);
 }
-function siguienteNumero(prefijo: "CAJ" | "BAN", existentes: string[]) {
-  const mayor = existentes.reduce((max, n) => Math.max(max, Number(n.split("-")[2]) || 0), 0);
-  return `${prefijo}-${new Date().getFullYear()}-${String(mayor + 1).padStart(6, "0")}`;
-}
 const masRecientes = (a: MovCaja, b: MovCaja) => b.fecha.localeCompare(a.fecha) || b.numero.localeCompare(a.numero);
 const masAntiguos = (a: MovCaja, b: MovCaja) => a.fecha.localeCompare(b.fecha) || a.numero.localeCompare(b.numero);
 
 async function abrirCajaApi(monto: number, fecha: string, caja: Caja): Promise<Caja> {
-  await esperar(800);
-  // BACKEND: POST /caja/apertura  { monto, fecha }
-  //   403 → "Acceso denegado. Solo el administrador puede abrir la caja."
   if (caja.abierta) throw new Error(MENSAJES.cajaYaAbierta(caja.fecha));
-  return { abierta: true, fecha, monto };
+  return abrirCajaEnServidor(monto, fecha);
 }
 
 async function anularMovCajaApi(numero: string, motivo: string, caja: Caja, movs: MovCaja[]) {
-  await esperar(800);
-  // BACKEND: POST /caja/movimientos/{numero}/anular  { motivo }
-  //   Crea el movimiento contrario y registra la operación en auditoría.
   const mov = movs.find((x) => x.numero === numero);
   if (!mov) throw new Error("El movimiento no existe.");
   if (mov.anulado) throw new Error(MENSAJES.yaAnulado(mov.numero, mov.anulado.fecha.slice(0, 10)));
@@ -318,25 +244,21 @@ async function anularMovCajaApi(numero: string, motivo: string, caja: Caja, movs
   }
   const resultante = r2(saldoVigente(caja.monto, movs) + (mov.tipo === "ENTRADA" ? -mov.monto : mov.monto));
   if (resultante < 0) throw new Error(MENSAJES.anulacionNegativa(mov.numero, resultante));
-  const contrario: MovCaja = {
-    numero: siguienteNumero("CAJ", movs.map((x) => x.numero)),
-    fecha: hoyISO(),
-    hora: horaTxt(),
-    tipo: mov.tipo === "ENTRADA" ? "SALIDA" : "ENTRADA",
-    monto: mov.monto,
-    concepto: `Anulación de ${mov.numero}`,
-    origen: "Anulación",
-    saldoPosterior: resultante,
-    usuario: readNombre(),
-    anulaA: mov.numero,
-  };
-  const anulado: Anulacion = { motivo, usuario: readNombre(), fecha: ahoraTxt(), contrario: contrario.numero };
+
+  await anularMovCaja(numero, motivo);
+
+  // Se recarga la lista para obtener el original anulado y su contrario ya adaptados.
+  const lista = await listarMovCaja();
+  const anulado = lista.find((x) => x.numero === numero)?.anulado;
+  const contrario = lista.find((x) => x.anulaA === numero);
+  if (!anulado || !contrario) {
+    throw new Error("La anulación se registró, pero no se pudo actualizar la lista. Recarga la página.");
+  }
   return { anulado, contrario };
 }
 
 async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs: MovCaja[]): Promise<ResultadoSaldo> {
-  await esperar(700);
-  // BACKEND: GET /caja/saldo?corte=AAAA-MM-DD&desde=AAAA-MM-DD  (el servidor calcula todos los valores)
+  // El backend no tiene /caja/saldo: el saldo se calcula aquí con los movimientos reales.
   if (FALLA_SIMULADA) throw new Error("Fallo del servicio.");
   const inicio = desde || caja.fecha;
   const inicial = desde ? saldoVigente(caja.monto, movs, diaAnterior(desde)) : caja.monto;
@@ -345,7 +267,7 @@ async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs:
   const entradas = r2(vigentes.filter((m) => m.tipo === "ENTRADA").reduce((s, m) => s + m.monto, 0));
   const salidas = r2(vigentes.filter((m) => m.tipo === "SALIDA").reduce((s, m) => s + m.monto, 0));
 
-  // BACKEND: el servidor también devuelve la serie de saldos (un punto por fecha con movimientos vigentes)
+  // Serie de saldos: un punto por fecha con movimientos vigentes
   const porFecha = new Map<string, number>();
   for (const m of vigentes) {
     porFecha.set(m.fecha, (porFecha.get(m.fecha) ?? 0) + (m.tipo === "ENTRADA" ? m.monto : -m.monto));
@@ -1156,15 +1078,6 @@ const OPCIONES_TIPO: { valor: string; tipo: TipoBanco; signo: 1 | -1; texto: str
   { valor: "ajuste-menos", tipo: "Ajuste", signo: -1, texto: "Ajuste (disminuye el saldo)" },
 ];
 
-const TIPO_CONTRARIO: Record<TipoBanco, TipoBanco> = {
-  "Depósito": "Retiro",
-  "Retiro": "Depósito",
-  "Transferencia recibida": "Transferencia enviada",
-  "Transferencia enviada": "Transferencia recibida",
-  "Comisión": "Ajuste",
-  "Ajuste": "Ajuste",
-};
-
 const formCuentaVacio = (): FormCuenta => ({ banco: "", numero: "", titular: "", apertura: "" });
 const formBancoVacio = (cuentaId: string): FormBanco => ({
   cuentaId, fecha: hoyISO(), opcion: "", monto: "", referencia: "", concepto: "", enCaja: false, adjunto: null,
@@ -1189,12 +1102,9 @@ function estadoDe(m: MovBanco): "Anulado" | "Conciliado" | "Pendiente" {
   return m.conciliado ? "Conciliado" : "Pendiente";
 }
 
-// ---------- Simulación del backend (bancos) ----------
+// ---------- Llamadas al backend (bancos) ----------
 
 async function guardarCuentaApi(datos: DatosCuenta, editId: number | null, cuentas: Cuenta[]): Promise<Cuenta> {
-  await esperar(700);
-  // BACKEND: POST /cuentas-bancarias  ·  PUT /cuentas-bancarias/{id}
-  //   403 → "Acceso denegado. Solo el administrador puede gestionar cuentas bancarias."
   const duplicada = cuentas.some(
     (c) =>
       c.id !== editId &&
@@ -1202,20 +1112,16 @@ async function guardarCuentaApi(datos: DatosCuenta, editId: number | null, cuent
       c.numero.trim().toLowerCase() === datos.numero.trim().toLowerCase()
   );
   if (duplicada) throw new Error(MENSAJES_BANCO.cuentaDuplicada(datos.numero, datos.banco));
-  if (editId !== null) {
-    const actual = cuentas.find((c) => c.id === editId);
-    if (!actual) throw new Error("La cuenta no existe.");
-    return { ...actual, banco: datos.banco, numero: datos.numero, titular: datos.titular };
-  }
-  return { id: Date.now(), ...datos, activa: true };
+
+  if (editId !== null) return actualizarCuenta(editId, datos);
+  return crearCuenta(datos);
 }
 
-async function registrarMovBancoApi(n: NuevoMovBanco, cuentas: Cuenta[], movs: MovBanco[], caja: Caja, cajaMovs: MovCaja[]) {
-  await esperar(900);
-  // BACKEND: POST /bancos/movimientos  { cuentaId, fecha, tipo, monto, referencia, concepto, registrarEnCaja, adjunto }
-  //   El traspaso con caja se guarda en una sola transacción: si algo falla, no se guarda nada.
-  //   403 → "Acceso denegado. Solo el administrador puede registrar movimientos bancarios."
-  //   422 → mensaje del servidor  ·  5xx → "Fallo del servicio. Intenta nuevamente."
+async function registrarMovBancoApi(
+  n: NuevoMovBanco,
+  cuentas: Cuenta[],
+  movs: MovBanco[]
+): Promise<{ mov: MovBanco; cajaMov: MovCaja | null }> {
   const cuenta = cuentas.find((c) => c.id === n.cuentaId);
   if (!cuenta) throw new Error("La cuenta seleccionada no existe.");
   if (!cuenta.activa) throw new Error(MENSAJES_BANCO.cuentaInactiva);
@@ -1231,56 +1137,24 @@ async function registrarMovBancoApi(n: NuevoMovBanco, cuentas: Cuenta[], movs: M
     throw new Error(MENSAJES_BANCO.saldoInsuficiente(etiquetaCuenta(cuenta), saldo, n.monto));
   }
 
-  const numeroBan = siguienteNumero("BAN", movs.map((m) => m.numero));
-  let cajaMov: MovCaja | null = null;
-
-  if (n.enCaja && (n.tipo === "Retiro" || n.tipo === "Depósito")) {
-    if (!caja.abierta) throw new Error("La caja aún no ha sido abierta. Regístrate primero con el monto inicial.");
-    if (n.fecha < caja.fecha) throw new Error("La fecha del movimiento no puede ser anterior a la apertura de caja.");
-    const saldoCajaActual = saldoVigente(caja.monto, cajaMovs);
-    const tipoCaja: TipoCaja = n.tipo === "Retiro" ? "ENTRADA" : "SALIDA";
-    if (tipoCaja === "SALIDA" && n.monto > saldoCajaActual) throw new Error(MENSAJES_BANCO.cajaInsuficiente(saldoCajaActual));
-    cajaMov = {
-      numero: siguienteNumero("CAJ", cajaMovs.map((m) => m.numero)),
-      fecha: n.fecha,
-      hora: horaTxt(),
-      tipo: tipoCaja,
-      monto: n.monto,
-      concepto:
-        n.tipo === "Retiro"
-          ? `Retiro desde la cuenta ${etiquetaCuenta(cuenta)} (${numeroBan})`
-          : `Depósito hacia la cuenta ${etiquetaCuenta(cuenta)} (${numeroBan})`,
-      origen: "Banco",
-      saldoPosterior: r2(saldoCajaActual + (tipoCaja === "ENTRADA" ? n.monto : -n.monto)),
-      usuario: readNombre(),
-    };
+  // El backend todavía ignora "enCaja": se bloquea para no dejar caja y banco descuadrados.
+  if (n.enCaja) {
+    throw new Error("El traspaso automático con la caja aún no está disponible en el servidor. Desmarca esa opción.");
   }
 
-  const mov: MovBanco = {
-    numero: numeroBan,
+  const mov = await crearMovBanco({
     cuentaId: n.cuentaId,
     fecha: n.fecha,
-    hora: horaTxt(),
     tipo: n.tipo,
-    monto: n.monto,
     signo: n.signo,
+    monto: n.monto,
     referencia,
     concepto: n.concepto.trim(),
-    origen: "Manual",
-    saldoPosterior: r2(saldo + n.signo * n.monto),
-    usuario: readNombre(),
-    conciliado: false,
-    vinculoCaja: cajaMov?.numero,
-    adjunto: n.adjunto,
-  };
-  return { mov, cajaMov };
+  });
+  return { mov: { ...mov, usuario: readNombre() }, cajaMov: null };
 }
 
-async function anularMovBancoApi(numero: string, motivo: string, cuentas: Cuenta[], movs: MovBanco[], caja: Caja, cajaMovs: MovCaja[]) {
-  await esperar(800);
-  // BACKEND: POST /bancos/movimientos/{numero}/anular  { motivo }
-  //   Crea el movimiento contrario y registra la operación en auditoría.
-  //   Si el movimiento tiene un movimiento de caja vinculado, ambos se anulan en la misma transacción.
+async function anularMovBancoApi(numero: string, motivo: string, cuentas: Cuenta[], movs: MovBanco[]) {
   const mov = movs.find((x) => x.numero === numero);
   if (!mov) throw new Error("El movimiento no existe.");
   if (mov.anulado) throw new Error(MENSAJES.yaAnulado(mov.numero, mov.anulado.fecha.slice(0, 10)));
@@ -1290,51 +1164,24 @@ async function anularMovBancoApi(numero: string, motivo: string, cuentas: Cuenta
   if (!cuenta.activa) throw new Error(MENSAJES_BANCO.cuentaInactiva);
 
   const resultante = r2(saldoCuenta(cuenta, movs) - mov.signo * mov.monto);
-  if (resultante < 0) throw new Error(MENSAJES_BANCO.anulacionNegativa(mov.numero, etiquetaCuenta(cuenta), resultante));
-
-  const fechaAnulacion = ahoraTxt();
-  const numeroContrario = siguienteNumero("BAN", movs.map((x) => x.numero));
-  const contrario: MovBanco = {
-    numero: numeroContrario,
-    cuentaId: mov.cuentaId,
-    fecha: hoyISO(),
-    hora: horaTxt(),
-    tipo: TIPO_CONTRARIO[mov.tipo],
-    monto: mov.monto,
-    signo: mov.signo === 1 ? -1 : 1,
-    referencia: `ANU-${mov.numero}`,
-    concepto: `Anulación de ${mov.numero}`,
-    origen: "Manual",
-    saldoPosterior: resultante,
-    usuario: readNombre(),
-    conciliado: true,
-    anulaA: mov.numero,
-  };
-  const anulado: Anulacion = { motivo, usuario: readNombre(), fecha: fechaAnulacion, contrario: numeroContrario };
-
-  let cajaAnulado: { numero: string; anulado: Anulacion } | null = null;
-  let cajaContrario: MovCaja | null = null;
-  const vinculado = mov.vinculoCaja ? cajaMovs.find((x) => x.numero === mov.vinculoCaja) : undefined;
-  if (vinculado && !vinculado.anulado) {
-    const saldoCajaActual = saldoVigente(caja.monto, cajaMovs);
-    const cajaResultante = r2(saldoCajaActual + (vinculado.tipo === "ENTRADA" ? -vinculado.monto : vinculado.monto));
-    if (cajaResultante < 0) throw new Error(MENSAJES.anulacionNegativa(vinculado.numero, cajaResultante));
-    const numeroCaja = siguienteNumero("CAJ", cajaMovs.map((x) => x.numero));
-    cajaContrario = {
-      numero: numeroCaja,
-      fecha: hoyISO(),
-      hora: horaTxt(),
-      tipo: vinculado.tipo === "ENTRADA" ? "SALIDA" : "ENTRADA",
-      monto: vinculado.monto,
-      concepto: `Anulación de ${vinculado.numero}`,
-      origen: "Anulación",
-      saldoPosterior: cajaResultante,
-      usuario: readNombre(),
-      anulaA: vinculado.numero,
-    };
-    cajaAnulado = { numero: vinculado.numero, anulado: { motivo, usuario: readNombre(), fecha: fechaAnulacion, contrario: numeroCaja } };
+  if (resultante < 0) {
+    throw new Error(MENSAJES_BANCO.anulacionNegativa(mov.numero, etiquetaCuenta(cuenta), resultante));
   }
-  return { anulado, contrario, cajaAnulado, cajaContrario };
+
+  await anularMovBanco(numero, motivo);
+
+  const lista = await listarMovBanco();
+  const anulado = lista.find((x) => x.numero === numero)?.anulado;
+  const contrario = lista.find((x) => x.anulaA === numero);
+  if (!anulado || !contrario) {
+    throw new Error("La anulación se registró, pero no se pudo actualizar la lista. Recarga la página.");
+  }
+  return {
+    anulado,
+    contrario,
+    cajaAnulado: null as MovCaja | null,
+    cajaContrario: null as MovCaja | null,
+  };
 }
 
 // ---------- Presentación ----------
@@ -1431,12 +1278,16 @@ function PestanaCuentas({ esAdmin, cuentas, setCuentas, movBanco }: BancosProps)
     }
   }
 
-  function desactivar(cuenta: Cuenta) {
+  async function desactivar(cuenta: Cuenta) {
     // Confirmación antes de desactivar
     if (!window.confirm(MENSAJES_BANCO.confirmarDesactivar(etiquetaCuenta(cuenta)))) return;
-    // BACKEND: PATCH /cuentas-bancarias/{id}/desactivar  (una cuenta con movimientos no se elimina, solo se desactiva)
-    setCuentas((prev) => prev.map((c) => (c.id === cuenta.id ? { ...c, activa: false } : c)));
-    setAviso({ tipo: "ok", texto: MENSAJES_BANCO.cuentaDesactivada(etiquetaCuenta(cuenta)) });
+    try {
+      await desactivarCuenta(cuenta.id);
+      setCuentas((prev) => prev.map((c) => (c.id === cuenta.id ? { ...c, activa: false } : c)));
+      setAviso({ tipo: "ok", texto: MENSAJES_BANCO.cuentaDesactivada(etiquetaCuenta(cuenta)) });
+    } catch (e) {
+      setAviso({ tipo: "error", texto: e instanceof Error ? e.message : "No se pudo desactivar la cuenta." });
+    }
   }
 
   return (
@@ -1682,9 +1533,7 @@ function PestanaMovBanco({ esAdmin, caja, cajaMovs, setCajaMovs, cuentas, movBan
           adjunto: form.adjunto ? form.adjunto.name : null,
         },
         cuentas,
-        movBanco,
-        caja,
-        cajaMovs
+        movBanco
       );
       setMovBanco((prev) => [...prev, res.mov]);
       if (res.cajaMov) {
@@ -1709,10 +1558,14 @@ function PestanaMovBanco({ esAdmin, caja, cajaMovs, setCajaMovs, cuentas, movBan
   }
 
   // ---------- Conciliación ----------
-  function conciliar(numero: string) {
-    // BACKEND: PATCH /bancos/movimientos/{numero}/conciliar
-    setMovBanco((prev) => prev.map((x) => (x.numero === numero ? { ...x, conciliado: true } : x)));
-    setAviso({ tipo: "ok", texto: `Movimiento ${numero} conciliado.` });
+  async function conciliar(numero: string) {
+    try {
+      await conciliarMovBanco(numero);
+      setMovBanco((prev) => prev.map((x) => (x.numero === numero ? { ...x, conciliado: true } : x)));
+      setAviso({ tipo: "ok", texto: `Movimiento ${numero} conciliado.` });
+    } catch (e) {
+      setAviso({ tipo: "error", texto: e instanceof Error ? e.message : "No se pudo conciliar el movimiento." });
+    }
   }
 
   // ---------- Anulación ----------
@@ -1743,7 +1596,7 @@ function PestanaMovBanco({ esAdmin, caja, cajaMovs, setCajaMovs, cuentas, movBan
     setAnulando(true);
     setErrorAnulacion("");
     try {
-      const res = await anularMovBancoApi(numero, motivo.trim(), cuentas, movBanco, caja, cajaMovs);
+      const res = await anularMovBancoApi(numero, motivo.trim(), cuentas, movBanco);
       setMovBanco((prev) => [...prev.map((x) => (x.numero === numero ? { ...x, anulado: res.anulado } : x)), res.contrario]);
       const { cajaAnulado, cajaContrario } = res;
       if (cajaAnulado && cajaContrario) {
@@ -2145,16 +1998,71 @@ export default function CajaBancosPage() {
   const puedeConsultar = esAdmin || rol.startsWith("DIRECTORIO") || rol.startsWith("CONSULTA");
 
   const [vista, setVista] = useState<Vista>("saldo");
-  const [caja, setCaja] = useState<Caja>(CAJA_INICIAL);
-  const [cajaMovs, setCajaMovs] = useState<MovCaja[]>(CAJA_MOVS_INICIALES);
-  const [cuentas, setCuentas] = useState<Cuenta[]>(CUENTAS_INICIALES);
-  const [movBanco, setMovBanco] = useState<MovBanco[]>(MOV_BANCO_INICIALES);
+  const [caja, setCaja] = useState<Caja>({ abierta: false, fecha: "", monto: 0 });
+  const [cajaMovs, setCajaMovs] = useState<MovCaja[]>([]);
+  const [cuentas, setCuentas] = useState<Cuenta[]>([]);
+  const [movBanco, setMovBanco] = useState<MovBanco[]>([]);
+  const [cargando, setCargando] = useState(true);
+  const [errorCarga, setErrorCarga] = useState("");
+  const [recarga, setRecarga] = useState(0);
+
+  // Carga inicial desde el backend (y cada vez que se pulsa "Reintentar")
+  useEffect(() => {
+    if (!puedeConsultar) return;
+    let activo = true;
+    cargarTodo()
+      .then((d) => {
+        if (!activo) return;
+        setCaja(d.caja);
+        setCajaMovs(d.cajaMovs);
+        setCuentas(d.cuentas);
+        setMovBanco(d.movBanco);
+      })
+      .catch((e) => {
+        if (activo) setErrorCarga(e instanceof Error ? e.message : "No se pudieron cargar los datos.");
+      })
+      .finally(() => {
+        if (activo) setCargando(false);
+      });
+    return () => {
+      activo = false;
+    };
+  }, [puedeConsultar, recarga]);
+
+  function reintentar() {
+    setCargando(true);
+    setErrorCarga("");
+    setRecarga((n) => n + 1);
+  }
 
   if (!puedeConsultar) {
     return (
       <DashboardLayout active="caja-bancos">
         <div className="panel">
           <div className="empty-state">Acceso denegado. No tienes permiso para consultar caja y bancos.</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (cargando) {
+    return (
+      <DashboardLayout active="caja-bancos">
+        <div className="panel">
+          <div className="empty-state">Cargando caja y bancos…</div>
+        </div>
+      </DashboardLayout>
+    );
+  }
+
+  if (errorCarga) {
+    return (
+      <DashboardLayout active="caja-bancos">
+        <div className="panel">
+          <div className="empty-state">
+            <p>{errorCarga}</p>
+            <button className="btn btn-primary" onClick={reintentar}>Reintentar</button>
+          </div>
         </div>
       </DashboardLayout>
     );
