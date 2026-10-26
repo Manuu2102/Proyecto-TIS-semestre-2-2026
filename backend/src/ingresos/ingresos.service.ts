@@ -8,7 +8,11 @@ import { CrearIngresoDto } from './dto/crear-ingreso.dto.js';
 import { ConsultarIngresosDto } from './dto/consultar-ingresos.dto.js';
 import { AnularIngresoDto } from './dto/anular-ingreso.dto.js';
 import { CajaService } from '../caja/caja.service.js';
-import { Prisma } from '../generated/prisma/client.js';
+import { BancosService } from '../bancos/bancos.service.js';
+import { registrarAuditoria } from '../lib/auditoria.js';
+import { bs, fechaCorta, isoDia, aFecha } from '../lib/formato.js';
+import { leerTexto } from '../lib/validacion.js';
+import { anularFlujoEnTx, conContexto, leerRegistro, registrarFlujoEnTx } from '../lib/flujo-fondos.js';
 
 const serialize = <T>(data: T): T =>
   JSON.parse(
@@ -23,40 +27,65 @@ const TIPOS_PERMITIDOS = [
 ];
 const TAMANO_MAXIMO = 5 * 1024 * 1024; // 5 MB
 
+const usuarioSelect = { select: { nombres: true, apellido_paterno: true } } as const;
+
+// Datos que devuelve la API (sin el contenido del comprobante)
+const incluir = {
+  categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
+  cuenta_bancaria: { select: { id: true, nombre: true, banco: true, numero_cuenta: true } },
+  usuario: usuarioSelect,
+  usuario_ingreso_id_usuario_anuloTousuario: usuarioSelect,
+  movimiento_caja: { select: { numero: true } },
+  movimiento_banco: { select: { numero: true } },
+} as const;
+
+const nombreDe = (u: { nombres: string; apellido_paterno: string } | null) =>
+  u ? `${u.nombres} ${u.apellido_paterno}`.trim() : null;
+
+/**
+ * HU-15: ingresos extraordinarios. Al registrar, el dinero entra a caja (efectivo) o a la
+ * cuenta bancaria (transferencia o depósito) en la misma transacción; si ese movimiento
+ * no se puede generar, el ingreso tampoco se guarda. No se eliminan: se anulan con motivo,
+ * revirtiendo caja o banco, y todo queda en auditoría.
+ */
 @Injectable()
 export class IngresosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly caja: CajaService,
+    private readonly bancos: BancosService,
   ) {}
 
-  private async validarCategoria(idCategoria: bigint) {
-    const categoria = await this.prisma.categoria_movimiento.findUnique({
-      where: { id: idCategoria },
+  private formatear(i: {
+    comprobante_contenido?: unknown;
+    categoria_movimiento: unknown;
+    usuario: { nombres: string; apellido_paterno: string };
+    usuario_ingreso_id_usuario_anuloTousuario: { nombres: string; apellido_paterno: string } | null;
+    movimiento_caja: { numero: string } | null;
+    movimiento_banco: { numero: string } | null;
+    [k: string]: unknown;
+  }) {
+    const {
+      comprobante_contenido,
+      categoria_movimiento,
+      cuenta_bancaria,
+      usuario,
+      usuario_ingreso_id_usuario_anuloTousuario: anulo,
+      movimiento_caja,
+      movimiento_banco,
+      ...resto
+    } = i;
+    void comprobante_contenido;
+    return serialize({
+      ...resto,
+      // En el schema la relación se llama categoria_movimiento; la API responde "categoria"
+      categoria: categoria_movimiento,
+      cuenta: cuenta_bancaria ?? null,
+      registrado_por: nombreDe(usuario),
+      anulado_por: nombreDe(anulo),
+      // Movimiento de caja o banco que generó el ingreso
+      movimiento: movimiento_caja?.numero ?? movimiento_banco?.numero ?? null,
     });
-    if (!categoria) {
-      throw new NotFoundException(
-        `Categoría con id ${idCategoria} no encontrada`,
-      );
-    }
-    if (categoria.tipo !== 'ingreso') {
-      throw new BadRequestException(
-        'La categoría seleccionada no es de tipo "ingreso"',
-      );
-    }
-    if (!categoria.activa) {
-      throw new BadRequestException('La categoría seleccionada está inactiva');
-    }
-    return categoria;
-  }
-
-  private validarFecha(fechaStr: string) {
-    const fecha = new Date(fechaStr);
-    const hoy = new Date();
-    hoy.setHours(23, 59, 59, 999);
-    if (fecha > hoy) {
-      throw new BadRequestException('La fecha no puede ser futura');
-    }
   }
 
   async crear(
@@ -64,189 +93,130 @@ export class IngresosService {
     archivo: Express.Multer.File | undefined,
     idUsuario: string,
   ) {
-    this.validarFecha(dto.fecha);
-    const categoriaIngreso = await this.validarCategoria(BigInt(dto.id_categoria));
+    const datos = await leerRegistro(this.prisma, this.bancos, dto as Record<string, unknown>, 'ingreso');
 
-    let comprobante: {
-  nombre: string;
-  contenido: Buffer;
-  mime: string;
-  peso: bigint;
-} | null = null;
-    
     if (archivo) {
       if (!TIPOS_PERMITIDOS.includes(archivo.mimetype)) {
-        throw new BadRequestException(
-          'Formato no permitido. Solo PDF, JPG, JPEG, PNG',
-        );
+        throw new BadRequestException('Formato no permitido. Solo PDF, JPG, JPEG, PNG');
       }
       if (archivo.size > TAMANO_MAXIMO) {
         throw new BadRequestException('El archivo supera los 5 MB');
       }
-      comprobante = {
-  nombre: archivo.originalname,
-  contenido: archivo.buffer,
-  mime: archivo.mimetype,
-  peso: BigInt(archivo.size),
-};
     }
 
-    if (dto.metodo !== 'efectivo' && !dto.id_cuenta) {
-      throw new BadRequestException(
-        'Debes seleccionar una cuenta bancaria para transferencia o depósito',
-      );
-    }
-
-    // El ingreso y, si es en efectivo, su entrada en caja se guardan juntos (HU-20 #10)
-    const creado = await this.prisma.$transaction(async (tx) => {
+    const { ingreso, movimiento } = await this.prisma.$transaction(async (tx) => {
       const nuevo = await tx.ingreso.create({
         data: {
-          fecha: new Date(dto.fecha),
-          monto: dto.monto.toFixed(2),
-          id_categoria: BigInt(dto.id_categoria),
-          descripcion: dto.descripcion?.trim() || null,
-          metodo: dto.metodo,
-          id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
+          fecha: aFecha(datos.fecha),
+          monto: datos.monto,
+          id_categoria: datos.idCategoria,
+          descripcion: datos.descripcion,
+          metodo: datos.metodo,
+          id_cuenta: datos.idCuenta,
           id_usuario: idUsuario,
-          comprobante_nombre: comprobante?.nombre ?? null,
-          comprobante_contenido: comprobante
-            ? Buffer.from(comprobante.contenido)
-            : null,
-          comprobante_mime: comprobante?.mime ?? null,
-          comprobante_peso: comprobante?.peso ?? null,
-        },
-        include: {
-          categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
+          comprobante_nombre: archivo?.originalname ?? null,
+          comprobante_contenido: archivo ? Buffer.from(archivo.buffer) : null,
+          comprobante_mime: archivo?.mimetype ?? null,
+          comprobante_peso: archivo ? BigInt(archivo.size) : null,
         },
       });
 
-      if (dto.metodo === 'efectivo') {
-        await this.caja.registrarEnTx(tx, {
-          tipo: 'ENTRADA',
-          monto: new Prisma.Decimal(dto.monto.toFixed(2)),
-          fecha: dto.fecha.slice(0, 10),
-          concepto: `Ingreso #${nuevo.id}: ${categoriaIngreso.nombre}${nuevo.descripcion ? ` - ${nuevo.descripcion}` : ''}`,
-          origen: 'Ingreso',
-          idIngreso: nuevo.id,
-          idUsuario,
-        });
+      // HU-15 #6 y #7: el dinero entra a caja o banco en la misma operación
+      let movimiento: Awaited<ReturnType<typeof registrarFlujoEnTx>>;
+      try {
+        movimiento = await registrarFlujoEnTx(tx, { caja: this.caja, bancos: this.bancos }, { tipo: 'ingreso', id: nuevo.id, datos, idUsuario });
+      } catch (e) {
+        conContexto(e, 'El ingreso no pudo registrarse');
       }
-      return nuevo;
+
+      await registrarAuditoria(tx, {
+        tabla: 'ingreso',
+        registroId: nuevo.id,
+        accion: 'CREAR',
+        despues: { ...nuevo, comprobante_contenido: undefined },
+        usuarioId: idUsuario,
+      });
+
+      return {
+        ingreso: await tx.ingreso.findUniqueOrThrow({ where: { id: nuevo.id }, include: incluir }),
+        movimiento,
+      };
     });
-    // En el schema la relación se llama categoria_movimiento; la API sigue respondiendo "categoria"
-    const { categoria_movimiento: categoria, ...resto } = creado;
-    const ingreso = { ...resto, categoria };
 
-    await this.registrarAuditoria(ingreso.id, 'CREAR', null, ingreso, idUsuario);
-
-    return serialize(ingreso);
+    const destino = movimiento.medio === 'caja' ? 'Caja' : 'Cuenta bancaria';
+    return {
+      ...this.formatear(ingreso),
+      message: `Ingreso registrado por ${bs(datos.monto)}. ${destino}: movimiento ${movimiento.numero}.`,
+    };
   }
 
   async listar(filtros: ConsultarIngresosDto) {
-    const where: Record<string, unknown> = {};
-
-    if (filtros.fecha_desde || filtros.fecha_hasta) {
-      where.fecha = {};
-      if (filtros.fecha_desde) {
-        (where.fecha as Record<string, Date>).gte = new Date(filtros.fecha_desde);
-      }
-      if (filtros.fecha_hasta) {
-        (where.fecha as Record<string, Date>).lte = new Date(filtros.fecha_hasta);
-      }
-    }
-    if (filtros.id_categoria) {
-      where.id_categoria = BigInt(filtros.id_categoria);
-    }
-    if (filtros.anulado !== undefined) {
-      where.anulado = filtros.anulado;
-    }
-
     const ingresos = await this.prisma.ingreso.findMany({
-      where,
-      include: {
-        categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
+      where: {
+        ...((filtros.fecha_desde || filtros.fecha_hasta) && {
+          fecha: {
+            ...(filtros.fecha_desde && { gte: new Date(filtros.fecha_desde) }),
+            ...(filtros.fecha_hasta && { lte: new Date(filtros.fecha_hasta) }),
+          },
+        }),
+        ...(filtros.id_categoria && { id_categoria: BigInt(filtros.id_categoria) }),
+        ...(filtros.anulado !== undefined && { anulado: filtros.anulado }),
       },
-      orderBy: { fecha: 'desc' },
-    });
-
-    const ingresosSinContenido = ingresos.map((i) => {
-      const { comprobante_contenido, categoria_movimiento, ...resto } = i;
-      void comprobante_contenido;
-      return { ...resto, categoria: categoria_movimiento };
+      include: incluir,
+      orderBy: [{ fecha: 'desc' }, { id: 'desc' }],
     });
 
     return {
       total: ingresos.length,
-      ingresos: ingresosSinContenido.map(serialize),
+      ingresos: ingresos.map((i) => this.formatear(i)),
     };
   }
 
+  /** HU-15 #8: anular con motivo, revertir caja o banco y registrar en auditoría. */
   async anular(id: bigint, dto: AnularIngresoDto, idUsuario: string) {
-    const ingreso = await this.prisma.ingreso.findUnique({ where: { id } });
-    if (!ingreso) {
-      throw new NotFoundException(`Ingreso con id ${id} no encontrado`);
-    }
-    if (ingreso.anulado) {
-      throw new BadRequestException('El ingreso ya está anulado');
-    }
+    const motivo = leerTexto(
+      dto.motivo_anulacion ?? dto.motivo,
+      'motivo de anulación',
+      'El motivo de anulación debe tener entre 10 y 255 caracteres.',
+    );
 
-    // Si el ingreso entró a caja, su movimiento se anula en la misma operación.
-    // Si la caja quedara en negativo se rechaza todo y el ingreso sigue vigente.
-    const anulado = await this.prisma.$transaction(async (tx) => {
-      const actualizado = await tx.ingreso.update({
+    const ingreso = await this.prisma.$transaction(async (tx) => {
+      const actual = await tx.ingreso.findUnique({ where: { id } });
+      if (!actual) throw new NotFoundException(`El ingreso #${id} no existe.`);
+      if (actual.anulado) {
+        const fecha = actual.fecha_anulacion ?? actual.updated_at;
+        throw new BadRequestException(`El ingreso #${id} ya fue anulado el ${fechaCorta(isoDia(fecha))}.`);
+      }
+
+      const anulado = await tx.ingreso.update({
         where: { id },
         data: {
           anulado: true,
-          motivo_anulacion: dto.motivo_anulacion.trim(),
+          motivo_anulacion: motivo,
+          fecha_anulacion: new Date(),
+          id_usuario_anulo: idUsuario,
           updated_at: new Date(),
         },
       });
-      await this.caja.anularPorOrigenEnTx(
-        tx,
-        { idIngreso: id },
-        `Anulación del ingreso #${id}: ${dto.motivo_anulacion.trim()}`,
-        idUsuario,
-      );
-      return actualizado;
+
+      try {
+        await anularFlujoEnTx(tx, { caja: this.caja, bancos: this.bancos }, { tipo: 'ingreso', id, motivo, idUsuario });
+      } catch (e) {
+        conContexto(e, 'El ingreso no pudo anularse');
+      }
+
+      await registrarAuditoria(tx, {
+        tabla: 'ingreso',
+        registroId: id,
+        accion: 'ANULAR',
+        antes: { ...actual, comprobante_contenido: undefined },
+        despues: { ...anulado, comprobante_contenido: undefined },
+        usuarioId: idUsuario,
+      });
+
+      return tx.ingreso.findUniqueOrThrow({ where: { id }, include: incluir });
     });
 
-    await this.registrarAuditoria(id, 'ANULAR', ingreso, anulado, idUsuario);
-
-    return serialize(anulado);
-  }
-
-  private async registrarAuditoria(
-    registroId: bigint,
-    accion: string,
-    datosAnteriores: unknown,
-    datosNuevos: unknown,
-    idUsuario: string,
-  ) {
-    try {
-      await this.prisma.auditoria.create({
-        data: {
-          usuario_id: idUsuario,
-          tabla_afectada: 'ingreso',
-          registro_id: registroId.toString(),
-          accion,
-          datos_anteriores: datosAnteriores
-            ? JSON.parse(
-                JSON.stringify(datosAnteriores, (_, v) =>
-                  typeof v === 'bigint' ? v.toString() : v,
-                ),
-              )
-            : null,
-          datos_nuevos: datosNuevos
-            ? JSON.parse(
-                JSON.stringify(datosNuevos, (_, v) =>
-                  typeof v === 'bigint' ? v.toString() : v,
-                ),
-              )
-            : null,
-        },
-      });
-    } catch (e) {
-      console.error('Error al registrar auditoría:', e);
-    }
+    return { ...this.formatear(ingreso), message: `Ingreso #${id} anulado.` };
   }
 }

@@ -93,6 +93,9 @@ const cargarDepartamentosApi = () =>
 // BACKEND: GET /expensas/mensuales
 const cargarExpensasApi = () => pedir<Expensa[]>("/expensas/mensuales");
 
+// BACKEND: GET /expensas/tarifas → conceptos y montos de cada categoría (tabla expensa)
+const cargarTarifasApi = () => pedir<Record<Categoria, Concepto[]>>("/expensas/tarifas");
+
 // BACKEND: POST /expensas/extras
 function generarExpensasApi(
   periodo: string,
@@ -342,16 +345,19 @@ export default function ExpensasPage() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    cargarExpensasApi()
-      .then((data) => {
-        // TEMPORAL: completa visualmente los conceptos fijos de la categoría
-        setExpensas(completarTarifas(data, TARIFAS));
-        const ultimo = Array.from(new Set(data.map((e) => e.periodo)))
-          .sort()
-          .pop();
-        if (ultimo) setPeriodoVista(ultimo);
-      })
-      .catch(console.error);
+    // Las tarifas reales vienen del backend; se cargan antes que las expensas
+    // porque completan su desglose
+    const cargar = async () => {
+      const tarifas = await cargarTarifasApi();
+      setTarifasEditables(tarifas);
+      const data = await cargarExpensasApi();
+      setExpensas(completarTarifas(data, tarifas));
+      const ultimo = Array.from(new Set(data.map((e) => e.periodo)))
+        .sort()
+        .pop();
+      if (ultimo) setPeriodoVista(ultimo);
+    };
+    cargar().catch(console.error);
 
     cargarDepartamentosApi().then(setDepartamentos).catch(console.error);
   }, []);

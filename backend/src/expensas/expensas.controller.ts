@@ -114,6 +114,13 @@ export class ExpensasController {
     return this.expensas.listarDepartamentos();
   }
 
+  /** Conceptos y montos de expensa por categoría (A, B, C). */
+  @Get('tarifas')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  listarTarifas() {
+    return this.expensas.listarTarifas();
+  }
+
   /** Departamentos para el buscador del estado de cuenta. */
   @Get('estado-cuenta')
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
