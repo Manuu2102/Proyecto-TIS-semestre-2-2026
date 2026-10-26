@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { api } from "../../../lib/api";
+import { api, apiDescargar } from "../../../lib/api";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -1070,118 +1070,30 @@ export default function PagosPage() {
     }
   }
 
-  // Exportación CSV para Excel
-  function exportarExcel() {
+  // El backend genera el PDF y el Excel (.xlsx) con los mismos filtros y orden de la tabla
+  const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null);
+
+  async function exportar(formato: "pdf" | "excel") {
+    if (exportando) return;
     if (filtradas.length === 0) {
       alert("No hay datos para exportar.");
       return;
     }
 
-    const lineas: (string | number)[][] = [
-      ["Saldos pendientes"],
-      [`Filtros aplicados: ${filtrosTxt}`],
-      [`Regla de mora vigente: ${textoRegla(regla)}`],
-      [],
-      [
-        "Departamento",
-        "Responsable",
-        "Categoría",
-        "Expensas sin pagar",
-        "Monto adeudado",
-        "Mora acumulada",
-        "Saldo total",
-        "Estado",
-      ],
-      ...filtradas.map((fila) => [
-        fila.depto.numero,
-        fila.depto.responsable,
-        fila.depto.categoria,
-        fila.sinPagar,
-        fila.adeudado,
-        fila.mora,
-        fila.saldoTotal,
-        fila.estado,
-      ]),
-      [],
-      [
-        "Total",
-        "",
-        "",
-        "",
-        sumar(filtradas, "adeudado"),
-        sumar(filtradas, "mora"),
-        sumar(filtradas, "saldoTotal"),
-        "",
-      ],
-    ];
+    const q = new URLSearchParams({ formato, orden: orden.campo, dir: orden.dir });
+    if (periodoF) q.set("periodo", periodoF);
+    if (categoriaF) q.set("categoria", categoriaF);
+    if (estadoF) q.set("estado", estadoF);
+    if (busqueda.trim()) q.set("busqueda", busqueda.trim());
 
-    const csv = lineas
-      .map((linea) =>
-        linea
-          .map(
-            (celda) =>
-              `"${String(celda).replace(/"/g, '""')}"`
-          )
-          .join(";")
-      )
-      .join("\r\n");
-
-    descargar(
-      "saldos-pendientes.csv",
-      "\uFEFF" + csv,
-      "text/csv;charset=utf-8"
-    );
-  }
-
-  function exportarPdf() {
-    if (filtradas.length === 0) {
-      alert("No hay datos para exportar.");
-      return;
+    setExportando(formato);
+    try {
+      await apiDescargar(`/expensas/pagos/resumen/exportar?${q}`, `saldos-pendientes.${formato === "pdf" ? "pdf" : "xlsx"}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo exportar. Intenta nuevamente.");
+    } finally {
+      setExportando(null);
     }
-
-    const filas = filtradas
-      .map(
-        (fila) => `
-          <tr>
-            <td>${fila.depto.numero}</td>
-            <td>${fila.depto.responsable}</td>
-            <td>${fila.depto.categoria}</td>
-            <td>${fila.sinPagar}</td>
-            <td>${bs(fila.adeudado)}</td>
-            <td>${bs(fila.mora)}</td>
-            <td>${bs(fila.saldoTotal)}</td>
-            <td>${fila.estado}</td>
-          </tr>
-        `
-      )
-      .join("");
-
-    imprimirHtml(
-      "Saldos pendientes",
-      `
-        <h2>Saldos pendientes</h2>
-        <p>Filtros aplicados: ${filtrosTxt}</p>
-        <p>Regla de mora vigente: ${textoRegla(regla)}</p>
-        <table>
-          <thead>
-            <tr>
-              <th>Dpto.</th>
-              <th>Responsable</th>
-              <th>Cat.</th>
-              <th>Sin pagar</th>
-              <th>Adeudado</th>
-              <th>Mora</th>
-              <th>Saldo total</th>
-              <th>Estado</th>
-            </tr>
-          </thead>
-          <tbody>${filas}</tbody>
-        </table>
-        <p><b>Total adeudado:</b> ${bs(
-          sumar(filtradas, "adeudado")
-        )}</p>
-      `
-    );
   }
 
   function imprimirRecibo(reciboActual: Recibo) {
@@ -1408,16 +1320,18 @@ export default function PagosPage() {
           <div style={{ display: "flex", gap: 8 }}>
             <button
               className="btn btn-secondary"
-              onClick={exportarPdf}
+              disabled={exportando !== null}
+              onClick={() => exportar("pdf")}
             >
-              <FileIcon size={16} /> Exportar PDF
+              <FileIcon size={16} /> {exportando === "pdf" ? "Generando…" : "Exportar PDF"}
             </button>
 
             <button
               className="btn btn-secondary"
-              onClick={exportarExcel}
+              disabled={exportando !== null}
+              onClick={() => exportar("excel")}
             >
-              <FileIcon size={16} /> Exportar Excel
+              <FileIcon size={16} /> {exportando === "excel" ? "Generando…" : "Exportar Excel"}
             </button>
           </div>
         </div>

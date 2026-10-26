@@ -1,9 +1,10 @@
-import { IsNotEmpty, IsString, MaxLength, MinLength } from 'class-validator';
+import { Allow } from 'class-validator';
 
+/** El front envía `motivo`; también se acepta `motivo_anulacion` como en ingresos y gastos. */
 export class AnularMovimientoDto {
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(10)
-  @MaxLength(255)
-  motivo_anulacion: string;
+  @Allow()
+  motivo?: string;
+
+  @Allow()
+  motivo_anulacion?: string;
 }
