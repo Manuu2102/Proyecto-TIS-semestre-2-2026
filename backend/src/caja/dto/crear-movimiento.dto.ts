@@ -1,26 +1,19 @@
-import {
-  IsIn,
-  IsNotEmpty,
-  IsNumber,
-  IsPositive,
-  IsString,
-  MaxLength,
-  MinLength,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+import { Allow } from 'class-validator';
 
+/**
+ * Movimiento manual de caja. Los campos se validan en el servicio para responder
+ * con los mensajes exactos de la HU-20 ("El campo {campo} es obligatorio.", etc.).
+ */
 export class CrearMovimientoDto {
-  @IsIn(['ENTRADA', 'SALIDA'])
-  tipo: 'ENTRADA' | 'SALIDA';
+  @Allow()
+  fecha?: string;
 
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @IsPositive()
-  monto: number;
+  @Allow()
+  tipo?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  @MinLength(10)
-  @MaxLength(255)
-  concepto: string;
+  @Allow()
+  monto?: number | string;
+
+  @Allow()
+  concepto?: string;
 }

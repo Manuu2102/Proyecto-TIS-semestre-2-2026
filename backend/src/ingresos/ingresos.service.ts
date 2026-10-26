@@ -7,6 +7,8 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { CrearIngresoDto } from './dto/crear-ingreso.dto.js';
 import { ConsultarIngresosDto } from './dto/consultar-ingresos.dto.js';
 import { AnularIngresoDto } from './dto/anular-ingreso.dto.js';
+import { CajaService } from '../caja/caja.service.js';
+import { Prisma } from '../generated/prisma/client.js';
 
 const serialize = <T>(data: T): T =>
   JSON.parse(
@@ -23,7 +25,10 @@ const TAMANO_MAXIMO = 5 * 1024 * 1024; // 5 MB
 
 @Injectable()
 export class IngresosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly caja: CajaService,
+  ) {}
 
   private async validarCategoria(idCategoria: bigint) {
     const categoria = await this.prisma.categoria_movimiento.findUnique({
@@ -60,7 +65,7 @@ export class IngresosService {
     idUsuario: string,
   ) {
     this.validarFecha(dto.fecha);
-    await this.validarCategoria(BigInt(dto.id_categoria));
+    const categoriaIngreso = await this.validarCategoria(BigInt(dto.id_categoria));
 
     let comprobante: {
   nombre: string;
@@ -92,25 +97,41 @@ export class IngresosService {
       );
     }
 
-    const creado = await this.prisma.ingreso.create({
-      data: {
-        fecha: new Date(dto.fecha),
-        monto: dto.monto.toFixed(2),
-        id_categoria: BigInt(dto.id_categoria),
-        descripcion: dto.descripcion?.trim() || null,
-        metodo: dto.metodo,
-        id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
-        id_usuario: idUsuario,
-        comprobante_nombre: comprobante?.nombre ?? null,
-        comprobante_contenido: comprobante
-  ? Buffer.from(comprobante.contenido)
-  : null,
-        comprobante_mime: comprobante?.mime ?? null,
-        comprobante_peso: comprobante?.peso ?? null,
-      },
-      include: {
-        categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
-      },
+    // El ingreso y, si es en efectivo, su entrada en caja se guardan juntos (HU-20 #10)
+    const creado = await this.prisma.$transaction(async (tx) => {
+      const nuevo = await tx.ingreso.create({
+        data: {
+          fecha: new Date(dto.fecha),
+          monto: dto.monto.toFixed(2),
+          id_categoria: BigInt(dto.id_categoria),
+          descripcion: dto.descripcion?.trim() || null,
+          metodo: dto.metodo,
+          id_cuenta: dto.id_cuenta ? BigInt(dto.id_cuenta) : null,
+          id_usuario: idUsuario,
+          comprobante_nombre: comprobante?.nombre ?? null,
+          comprobante_contenido: comprobante
+            ? Buffer.from(comprobante.contenido)
+            : null,
+          comprobante_mime: comprobante?.mime ?? null,
+          comprobante_peso: comprobante?.peso ?? null,
+        },
+        include: {
+          categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
+        },
+      });
+
+      if (dto.metodo === 'efectivo') {
+        await this.caja.registrarEnTx(tx, {
+          tipo: 'ENTRADA',
+          monto: new Prisma.Decimal(dto.monto.toFixed(2)),
+          fecha: dto.fecha.slice(0, 10),
+          concepto: `Ingreso #${nuevo.id}: ${categoriaIngreso.nombre}${nuevo.descripcion ? ` - ${nuevo.descripcion}` : ''}`,
+          origen: 'Ingreso',
+          idIngreso: nuevo.id,
+          idUsuario,
+        });
+      }
+      return nuevo;
     });
     // En el schema la relación se llama categoria_movimiento; la API sigue respondiendo "categoria"
     const { categoria_movimiento: categoria, ...resto } = creado;
@@ -169,13 +190,24 @@ export class IngresosService {
       throw new BadRequestException('El ingreso ya está anulado');
     }
 
-    const anulado = await this.prisma.ingreso.update({
-      where: { id },
-      data: {
-        anulado: true,
-        motivo_anulacion: dto.motivo_anulacion.trim(),
-        updated_at: new Date(),
-      },
+    // Si el ingreso entró a caja, su movimiento se anula en la misma operación.
+    // Si la caja quedara en negativo se rechaza todo y el ingreso sigue vigente.
+    const anulado = await this.prisma.$transaction(async (tx) => {
+      const actualizado = await tx.ingreso.update({
+        where: { id },
+        data: {
+          anulado: true,
+          motivo_anulacion: dto.motivo_anulacion.trim(),
+          updated_at: new Date(),
+        },
+      });
+      await this.caja.anularPorOrigenEnTx(
+        tx,
+        { idIngreso: id },
+        `Anulación del ingreso #${id}: ${dto.motivo_anulacion.trim()}`,
+        idUsuario,
+      );
+      return actualizado;
     });
 
     await this.registrarAuditoria(id, 'ANULAR', ingreso, anulado, idUsuario);

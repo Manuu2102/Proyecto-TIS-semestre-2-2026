@@ -7,5 +7,7 @@ import { AuthModule } from '../auth/auth.module.js';
   imports: [AuthModule],
   controllers: [CajaController],
   providers: [CajaService],
+  // Ingresos y gastos en efectivo registran su movimiento de caja (HU-20 #10)
+  exports: [CajaService],
 })
 export class CajaModule {}
