@@ -17,17 +17,17 @@ export class BancosController {
   }
 
   @Post('movimientos')
-  crear(@Body() dto: any, @CurrentUser('id') idUsuario: string) {
+  crear(@Body() dto: Record<string, unknown>, @CurrentUser('id') idUsuario: string) {
     return this.bancos.crearMovimiento(dto, idUsuario);
   }
 
   @Post('movimientos/:numero/anular')
   anular(
     @Param('numero') numero: string,
-    @Body() dto: { motivo: string },
+    @Body() dto: { motivo?: string; motivo_anulacion?: string },
     @CurrentUser('id') idUsuario: string,
   ) {
-    return this.bancos.anularMovimiento(numero, dto.motivo, idUsuario);
+    return this.bancos.anularMovimiento(numero, dto.motivo ?? dto.motivo_anulacion, idUsuario);
   }
 
   @Post('movimientos/:numero/conciliar')

@@ -10,6 +10,7 @@ import { registrarAuditoria } from '../lib/auditoria.js';
 import { generarPdf, filaTabla, ANCHO_TABLA, type LineaPdf } from '../lib/exportar.js';
 import { generarExcel } from '../lib/excel.js';
 import { datosEmision } from '../lib/emision.js';
+import { leerFecha, leerMonto, leerTexto, obligatorio } from '../lib/validacion.js';
 import {
   TIPO_XLSX,
   aFecha,
@@ -41,10 +42,6 @@ const CANDADO_CAJA = 4207001;
 const MSJ = {
   sinAbrir: 'La caja aún no ha sido abierta. Regístrate primero con el monto inicial.',
   sinAbrirConsulta: 'La caja aún no ha sido abierta.',
-  obligatorio: (campo: string) => `El campo ${campo} es obligatorio.`,
-  montoInvalido: 'El monto debe ser un número válido.',
-  montoMayorCero: 'El monto debe ser mayor a 0.',
-  montoDecimales: 'El monto admite como máximo 2 decimales.',
   concepto: 'El concepto debe tener entre 10 y 255 caracteres.',
   motivo: 'El motivo debe tener entre 10 y 255 caracteres.',
 };
@@ -55,38 +52,6 @@ const VIGENTE = { anulado: false, anula_a: null };
 const usuarioSelect = { select: { nombres: true, apellido_paterno: true } } as const;
 const nombreDe = (u: { nombres: string; apellido_paterno: string } | null | undefined) =>
   u ? `${u.nombres} ${u.apellido_paterno}`.trim() : '—';
-
-/**
- * Lee un monto: obligatorio, numérico, mayor a 0 (o >= 0 si se permite cero) y con
- * hasta 2 decimales.
- */
-function leerMonto(valor: unknown, campo: string, permitirCero = false): Prisma.Decimal {
-  if (valor === undefined || valor === null || String(valor).trim() === '') {
-    throw new BadRequestException(MSJ.obligatorio(campo));
-  }
-  const texto = String(valor).trim().replace(',', '.');
-  if (!/^-?\d+(\.\d+)?$/.test(texto)) throw new BadRequestException(MSJ.montoInvalido);
-  const monto = new Prisma.Decimal(texto);
-  if (permitirCero ? monto.lt(0) : monto.lte(0)) {
-    throw new BadRequestException(permitirCero ? 'El monto inicial no puede ser negativo.' : MSJ.montoMayorCero);
-  }
-  if (monto.decimalPlaces() > 2) throw new BadRequestException(MSJ.montoDecimales);
-  return monto;
-}
-
-function leerTexto(valor: unknown, campo: string, mensajeLongitud: string): string {
-  const texto = typeof valor === 'string' ? valor.trim() : '';
-  if (!texto) throw new BadRequestException(MSJ.obligatorio(campo));
-  if (texto.length < 10 || texto.length > 255) throw new BadRequestException(mensajeLongitud);
-  return texto;
-}
-
-function leerFecha(valor: unknown, campo: string): string {
-  const texto = typeof valor === 'string' ? valor.trim().slice(0, 10) : '';
-  if (!texto) throw new BadRequestException(MSJ.obligatorio(campo));
-  if (!esFechaISO(texto)) throw new BadRequestException(`La ${campo} no tiene un formato válido (AAAA-MM-DD).`);
-  return texto;
-}
 
 export type DatosMovimiento = {
   tipo: Tipo;
@@ -222,7 +187,7 @@ export class CajaService {
   /** Movimiento manual del administrador. */
   async crearMovimiento(dto: CrearMovimientoDto, idUsuario: string) {
     const fecha = leerFecha(dto.fecha, 'fecha');
-    if (!dto.tipo || !String(dto.tipo).trim()) throw new BadRequestException(MSJ.obligatorio('tipo'));
+    if (!dto.tipo || !String(dto.tipo).trim()) throw new BadRequestException(obligatorio('tipo'));
     const tipo = String(dto.tipo).trim().toUpperCase();
     if (tipo !== 'ENTRADA' && tipo !== 'SALIDA') {
       throw new BadRequestException('El tipo debe ser ENTRADA o SALIDA.');

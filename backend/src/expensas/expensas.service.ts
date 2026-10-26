@@ -1077,6 +1077,30 @@ export class ExpensasService {
     };
   }
 
+  /**
+   * Tarifas por categoría: las expensas configuradas para cada tipo de departamento
+   * (A, B, C), con el nombre como concepto. Reemplaza las tarifas fijas del front.
+   */
+  async listarTarifas() {
+    const [expensas, tipos] = await enOrden([
+      this.prisma.expensa.findMany({
+        where: { tipo_departamento: { not: null } },
+        select: { nombre: true, monto_total: true, tipo_departamento: true },
+        orderBy: { id: 'asc' },
+      }),
+      this.prisma.tipo_departamento.findMany({ select: { id: true, nombre: true } }),
+    ]);
+    const nombres = new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase() ?? '']));
+
+    const tarifas: Record<string, { concepto: string; monto: number }[]> = { A: [], B: [], C: [] };
+    for (const e of expensas) {
+      const categoria = nombres.get(e.tipo_departamento!);
+      if (!categoria) continue;
+      (tarifas[categoria] ??= []).push({ concepto: e.nombre, monto: e.monto_total.toNumber() });
+    }
+    return tarifas;
+  }
+
   /** Departamentos activos, con la forma que usa el front. */
   async listarDepartamentos() {
     const [departamentos, tipos] = await enOrden([

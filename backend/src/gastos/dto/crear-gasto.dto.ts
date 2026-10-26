@@ -1,46 +1,31 @@
-import {
-  IsDateString,
-  IsIn,
-  IsInt,
-  IsNumber,
-  IsOptional,
-  IsPositive,
-  IsString,
-  MaxLength,
-  Min,
-} from 'class-validator';
-import { Type } from 'class-transformer';
+import { Allow } from 'class-validator';
 
+/**
+ * Llega como multipart (puede traer comprobante), así que todo viene como texto.
+ * Se valida en el servicio para responder un mensaje claro por campo (HU-16 #2-#6).
+ */
 export class CrearGastoDto {
-  @IsDateString()
-  fecha: string;
+  @Allow()
+  fecha?: string;
 
-  @Type(() => Number)
-  @IsNumber({ maxDecimalPlaces: 2 })
-  @IsPositive()
-  monto: number;
+  @Allow()
+  monto?: string | number;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  id_categoria: number;
+  @Allow()
+  id_categoria?: string | number;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  // Proveedor o beneficiario
+  @Allow()
   proveedor?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  @Allow()
   descripcion?: string;
 
-  @IsIn(['efectivo', 'transferencia', 'deposito'])
-  metodo: 'efectivo' | 'transferencia' | 'deposito';
+  // efectivo | transferencia | deposito (si falta, efectivo)
+  @Allow()
+  metodo?: string;
 
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  id_cuenta?: number;
+  // Obligatoria para transferencia o depósito
+  @Allow()
+  id_cuenta?: string | number;
 }
