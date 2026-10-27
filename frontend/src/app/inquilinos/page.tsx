@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -14,35 +14,82 @@ import {
 type Estado = "Activo" | "Inactivo";
 
 type Inquilino = {
-  id: number;
+  id: string;
   nombres: string;
   apellidoPaterno: string;
   apellidoMaterno: string;
   ci: string;
   telefono: string;
   correo: string;
+  sexo: string;
+  fechaNacimiento: string;
+  idDepartamento: string;
   departamento: string;
   inicio: string;
   estado: Estado;
+  ocupacionActiva: boolean;
 };
 
-// Simula la lista real de departamentos (vendrá de /departamentos en el backend).
-const DEPARTAMENTOS_DISPONIBLES = [
-  "A-101", "A-102", "A-103", "A-105", "A-106",
-  "A-201", "A-202",
-  "B-201", "B-202", "B-204",
-  "B-301", "B-302", "B-402",
-];
+type InquilinoAPI = {
+  id: string;
+  nombres: string;
+  apellido_paterno?: string;
+  apellido_materno?: string | null;
+  ci: string;
+  telefono?: string;
+  email: string;
+  sexo?: string;
+  fecha_de_nacimiento?: string;
+  estatus?: boolean;
+  id_departamento?: string | null;
+  departamento?: string | null;
+  fecha_ocupacion?: string | null;
+  ocupacion_activa?: boolean;
+};
+
+type DepartamentoAPI = {
+  id: string;
+  numeroCompleto: string;
+};
+
+type DepartamentoOpcion = {
+  id: string;
+  codigo: string;
+};
+
+type ApiErrorResponse = {
+  message?: string | string[];
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const getToken = () => sessionStorage.getItem("token") ?? "";
 
 const CI_REGEX = /^[0-9]{5,10}$/;
 const TELEFONO_REGEX = /^[0-9]{7,15}$/;
 const CORREO_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-const initialData: Inquilino[] = [
-  { id: 1, nombres: "Ana Lucía", apellidoPaterno: "Vargas", apellidoMaterno: "Rocha", ci: "7012245", telefono: "72011833", correo: "ana.vargas@email.com", departamento: "A-103", inicio: "2026-02-12", estado: "Activo" },
-  { id: 2, nombres: "Diego Mauricio", apellidoPaterno: "Salazar", apellidoMaterno: "Vega", ci: "6389102", telefono: "74439022", correo: "diego.salazar@email.com", departamento: "B-204", inicio: "2026-05-03", estado: "Activo" },
-  { id: 3, nombres: "Valeria", apellidoPaterno: "Núñez", apellidoMaterno: "Castro", ci: "8190031", telefono: "70922345", correo: "valeria.nunez@email.com", departamento: "B-402", inicio: "2026-01-21", estado: "Activo" },
-];
+const soloFecha = (v?: string | null) => (v ? String(v).slice(0, 10) : "");
+
+const adaptar = (u: InquilinoAPI): Inquilino => ({
+  id: u.id,
+  nombres: u.nombres,
+  apellidoPaterno: u.apellido_paterno ?? "",
+  apellidoMaterno: u.apellido_materno ?? "",
+  ci: u.ci,
+  telefono: u.telefono ?? "",
+  correo: u.email,
+  sexo: u.sexo ?? "",
+  fechaNacimiento: soloFecha(u.fecha_de_nacimiento),
+  idDepartamento: u.id_departamento ?? "",
+  departamento: u.departamento ?? "",
+  inicio: soloFecha(u.fecha_ocupacion),
+  estado: u.estatus ? "Activo" : "Inactivo",
+  ocupacionActiva: u.ocupacion_activa ?? false,
+});
+
+const mensajeDeError = (data: ApiErrorResponse) =>
+  (Array.isArray(data.message) ? data.message.join(" ") : data.message) ??
+  "No se pudo completar la acción.";
 
 type InquilinoFormData = {
   nombres: string;
@@ -51,15 +98,53 @@ type InquilinoFormData = {
   ci: string;
   telefono: string;
   correo: string;
-  departamento: string;
+  sexo: string;
+  fechaNacimiento: string;
+  departamento: string; // id del departamento
   inicio: string;
 };
 
 export default function InquilinosPage() {
-  const [items, setItems] = useState<Inquilino[]>(initialData);
+  const [items, setItems] = useState<Inquilino[]>([]);
+  const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inquilino | null>(null);
+
+  const recargar = async () => {
+    const headers = { Authorization: `Bearer ${getToken()}` };
+    const [resInq, resDep] = await Promise.all([
+      fetch(`${API_URL}/inquilinos`, { headers }),
+      fetch(`${API_URL}/departamentos`, { headers }),
+    ]);
+    if (!resInq.ok || !resDep.ok) throw new Error("Error cargando datos");
+
+    const dataInq: { inquilinos: InquilinoAPI[] } = await resInq.json();
+    const dataDep: { departamentos: DepartamentoAPI[] } = await resDep.json();
+    setItems(dataInq.inquilinos.map(adaptar));
+    setDepartamentos(dataDep.departamentos.map((d) => ({ id: String(d.id), codigo: d.numeroCompleto })));
+  };
+
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        await recargar();
+      } catch (e) {
+        console.error("Error cargando inquilinos:", e);
+      }
+    };
+    cargar();
+  }, []);
+
+  // Un departamento con inquilino activo no se ofrece (salvo el del que se está editando)
+  const departamentosDisponibles = useMemo(() => {
+    const conInquilino = new Set(
+      items
+        .filter((x) => x.estado === "Activo" && x.ocupacionActiva && x.id !== editing?.id)
+        .map((x) => x.idDepartamento)
+    );
+    return departamentos.filter((d) => !conInquilino.has(d.id));
+  }, [departamentos, items, editing]);
 
   const filtered = useMemo(() => {
     const texto = query.toLowerCase();
@@ -97,48 +182,79 @@ export default function InquilinosPage() {
     return null;
   }
 
-  function save(data: InquilinoFormData): string | null {
+  async function save(data: InquilinoFormData): Promise<string | null> {
     const duplicadoError = validarDuplicado(data.ci, data.correo);
     if (duplicadoError) return duplicadoError;
 
-    if (editing) {
-      setItems((actuales) =>
-        actuales.map((x) => (x.id === editing.id ? { ...x, ...data } : x))
-      );
-      cerrarModal();
-    } else {
-      const nuevoInquilino: Inquilino = {
-        id: Date.now(),
-        ...data,
-        estado: "Activo",
-      };
-      setItems((actuales) => [nuevoInquilino, ...actuales]);
-      cerrarModal();
-    }
+    const body = {
+      ci: data.ci,
+      nombres: data.nombres,
+      apellido_paterno: data.apellidoPaterno,
+      apellido_materno: data.apellidoMaterno || undefined,
+      email: data.correo,
+      telefono: data.telefono,
+      sexo: data.sexo,
+      fecha_de_nacimiento: data.fechaNacimiento,
+      id_departamento: Number(data.departamento),
+      fecha_inicio: data.inicio,
+    };
 
-    return null;
+    try {
+      const res = await fetch(
+        editing ? `${API_URL}/inquilinos/${editing.id}` : `${API_URL}/inquilinos`,
+        {
+          method: editing ? "PATCH" : "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${getToken()}`,
+          },
+          // Al editar un inquilino inactivo y guardarlo, se reactiva en el departamento elegido
+          body: JSON.stringify(editing ? { ...body, estatus: true } : body),
+        }
+      );
+
+      if (!res.ok) return mensajeDeError(await res.json());
+
+      await recargar();
+      cerrarModal();
+      return null;
+    } catch (e) {
+      return `Error: ${(e as Error).message}`;
+    }
   }
 
   // Baja lógica primero (se conserva el historial de ocupación); solo se
   // borra físicamente si ya estaba Inactivo.
-  function eliminarInquilino(id: number) {
+  async function eliminarInquilino(id: string) {
     const item = items.find((x) => x.id === id);
     if (!item) return;
 
-    if (item.estado === "Activo") {
-      const confirmar = window.confirm(
-        `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Se conservará su historial de ocupación.`
-      );
-      if (!confirmar) return;
-      setItems((actuales) =>
-        actuales.map((x) => (x.id === id ? { ...x, estado: "Inactivo" } : x))
-      );
-    } else {
-      const confirmar = window.confirm(
-        "Este inquilino ya está Inactivo. ¿Eliminar el registro de forma permanente?"
-      );
-      if (!confirmar) return;
-      setItems((actuales) => actuales.filter((x) => x.id !== id));
+    const activo = item.estado === "Activo";
+    const confirmar = window.confirm(
+      activo
+        ? `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Se conservará su historial de ocupación.`
+        : "Este inquilino ya está Inactivo. ¿Eliminar el registro de forma permanente?"
+    );
+    if (!confirmar) return;
+
+    try {
+      const res = await fetch(`${API_URL}/inquilinos/${id}`, {
+        method: activo ? "PATCH" : "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${getToken()}`,
+        },
+        ...(activo && { body: JSON.stringify({ estatus: false }) }),
+      });
+
+      if (!res.ok) {
+        window.alert(mensajeDeError(await res.json()));
+        return;
+      }
+
+      await recargar();
+    } catch (e) {
+      window.alert(`Error: ${(e as Error).message}`);
     }
   }
 
@@ -253,7 +369,13 @@ export default function InquilinosPage() {
       </section>
 
       <Modal open={open} title={editing ? "Editar inquilino" : "Registrar inquilino"} onClose={cerrarModal}>
-        <InquilinoForm initial={editing} onSave={save} onCancel={cerrarModal} />
+        <InquilinoForm
+          key={editing?.id ?? "nuevo"}
+          initial={editing}
+          departamentos={departamentosDisponibles}
+          onSave={save}
+          onCancel={cerrarModal}
+        />
       </Modal>
     </DashboardLayout>
   );
@@ -261,11 +383,13 @@ export default function InquilinosPage() {
 
 function InquilinoForm({
   initial,
+  departamentos,
   onSave,
   onCancel,
 }: {
   initial: Inquilino | null;
-  onSave: (data: InquilinoFormData) => string | null;
+  departamentos: DepartamentoOpcion[];
+  onSave: (data: InquilinoFormData) => Promise<string | null>;
   onCancel: () => void;
 }) {
   const [f, setF] = useState({
@@ -275,21 +399,27 @@ function InquilinoForm({
     ci: initial?.ci ?? "",
     telefono: initial?.telefono ?? "",
     correo: initial?.correo ?? "",
-    departamento: initial?.departamento ?? "",
+    sexo: initial?.sexo ?? "",
+    fechaNacimiento: initial?.fechaNacimiento ?? "",
+    departamento: initial?.idDepartamento ?? "",
     inicio: initial?.inicio ?? "",
   });
 
   const [error, setError] = useState("");
+  const [guardando, setGuardando] = useState(false);
 
   function field(key: keyof typeof f, value: string) {
     setF((actual) => ({ ...actual, [key]: value }));
     setError("");
   }
 
-  function submit(e: React.FormEvent<HTMLFormElement>) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!f.nombres.trim() || !f.apellidoPaterno.trim() || !f.departamento || !f.inicio) {
+    if (
+      !f.nombres.trim() || !f.apellidoPaterno.trim() || !f.departamento || !f.inicio ||
+      !f.sexo || !f.fechaNacimiento
+    ) {
       setError("Completa todos los campos obligatorios.");
       return;
     }
@@ -309,16 +439,20 @@ function InquilinoForm({
       return;
     }
 
-    const errorGuardado = onSave({
+    setGuardando(true);
+    const errorGuardado = await onSave({
       nombres: f.nombres.trim(),
       apellidoPaterno: f.apellidoPaterno.trim(),
       apellidoMaterno: f.apellidoMaterno.trim(),
       ci: f.ci.trim(),
       telefono: f.telefono.trim(),
       correo: f.correo.trim(),
+      sexo: f.sexo,
+      fechaNacimiento: f.fechaNacimiento,
       departamento: f.departamento,
       inicio: f.inicio,
     });
+    setGuardando(false);
 
     if (errorGuardado) setError(errorGuardado);
   }
@@ -334,11 +468,24 @@ function InquilinoForm({
         <Field label="Correo electrónico" type="email" value={f.correo} onChange={(v) => field("correo", v)} placeholder="correo@email.com" />
 
         <label className="field">
+          <span>Sexo *</span>
+          <select value={f.sexo} onChange={(e) => field("sexo", e.target.value)}>
+            <option value="">Selecciona</option>
+            <option value="F">Femenino</option>
+            <option value="M">Masculino</option>
+          </select>
+        </label>
+
+        <Field label="Fecha de nacimiento" type="date" value={f.fechaNacimiento} onChange={(v) => field("fechaNacimiento", v)} />
+
+        <label className="field">
           <span>Departamento *</span>
           <select value={f.departamento} onChange={(e) => field("departamento", e.target.value)}>
-            <option value="">Selecciona un departamento</option>
-            {DEPARTAMENTOS_DISPONIBLES.map((dep) => (
-              <option key={dep} value={dep}>{dep}</option>
+            <option value="">
+              {departamentos.length === 0 ? "No hay departamentos disponibles" : "Selecciona un departamento"}
+            </option>
+            {departamentos.map((dep) => (
+              <option key={dep.id} value={dep.id}>{dep.codigo}</option>
             ))}
           </select>
         </label>
@@ -350,8 +497,8 @@ function InquilinoForm({
 
       <div className="modal-actions">
         <button type="button" className="btn btn-secondary" onClick={onCancel}>Cancelar</button>
-        <button type="submit" className="btn btn-primary">
-          {initial ? "Guardar cambios" : "Registrar inquilino"}
+        <button type="submit" className="btn btn-primary" disabled={guardando}>
+          {guardando ? "Guardando..." : initial ? "Guardar cambios" : "Registrar inquilino"}
         </button>
       </div>
     </form>

@@ -10,6 +10,9 @@ import { UsuariosModule } from './usuarios/usuarios.module.js';
 import { DepartamentosModule } from './departamentos/departamentos.module.js';
 import { OcupacionesModule } from './ocupaciones/ocupaciones.module.js';
 import { CopropietariosModule } from './copropietarios/copropietarios.module.js';
+import { InquilinosModule } from './inquilinos/inquilinos.module.js';
+import { EspaciosModule } from './espacios/espacios.module.js';
+import { ReportesModule } from './reportes/reportes.module.js';
 import { DocumentosModule } from './Documentos/documentos.module.js';
 import { ExpensasModule } from './expensas/expensas.module.js';
 import { CategoriasModule } from './categorias/categorias.module.js';
@@ -30,6 +33,9 @@ import { BancosModule } from './bancos/bancos.module.js';
     DepartamentosModule,
     OcupacionesModule,
     CopropietariosModule,
+    InquilinosModule,
+    EspaciosModule,
+    ReportesModule,
     AuditoriaModule,
     DocumentosModule,
     ExpensasModule,

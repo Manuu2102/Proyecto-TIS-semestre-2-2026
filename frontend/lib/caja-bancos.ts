@@ -1,4 +1,4 @@
-import { api, apiDelete, apiPatch, apiPost } from "./api";
+import { api, apiDelete, apiDescargar, apiPatch, apiPost } from "./api";
 
 // =====================================================================
 // Tipos que usa la pantalla (antes estaban dentro de page.tsx)
@@ -247,6 +247,66 @@ export async function listarMovCaja(): Promise<MovCaja[]> {
 
 export function anularMovCaja(numero: string, motivo: string) {
   return apiPost<unknown>(`/caja/movimientos/${encodeURIComponent(numero)}/anular`, { motivo });
+}
+
+/** HU-22: saldo calculado por el backend (el mismo que usa para validar salidas). */
+export type SaldoCaja = {
+  desde: string;
+  fechaCorte: string;
+  inicial: number;
+  entradas: number;
+  salidas: number;
+  final: number;
+  calculadoEn: string; // ISO
+  sinFondos: boolean;
+  saldoBajo: boolean;
+  montoMinimo: number | null;
+  /** Números de los últimos 10 movimientos hasta la fecha de corte */
+  ultimos: string[];
+};
+
+type SaldoCajaRaw = {
+  desde: string;
+  fecha_corte: string;
+  saldo_inicial: number;
+  total_entradas: number;
+  total_salidas: number;
+  saldo_final: number;
+  calculado_en: string;
+  sin_fondos: boolean;
+  saldo_bajo: boolean;
+  monto_minimo: number | null;
+  ultimos_movimientos: { numero: string }[];
+};
+
+const consultaSaldo = (corte: string, desde?: string) => {
+  const q = new URLSearchParams({ corte });
+  if (desde) q.set("desde", desde);
+  return q;
+};
+
+export async function consultarSaldoCaja(corte: string, desde?: string): Promise<SaldoCaja> {
+  const r = await api<SaldoCajaRaw>(`/caja/saldo?${consultaSaldo(corte, desde)}`);
+  return {
+    desde: r.desde,
+    fechaCorte: r.fecha_corte,
+    inicial: r.saldo_inicial,
+    entradas: r.total_entradas,
+    salidas: r.total_salidas,
+    final: r.saldo_final,
+    calculadoEn: r.calculado_en,
+    sinFondos: r.sin_fondos,
+    saldoBajo: r.saldo_bajo,
+    montoMinimo: r.monto_minimo,
+    ultimos: r.ultimos_movimientos.map((m) => m.numero),
+  };
+}
+
+/** HU-22 #9 y #10: el backend genera el PDF (con el nombre del edificio) y el .xlsx. */
+export function exportarSaldoCaja(formato: "pdf" | "excel", corte: string, desde?: string) {
+  const q = consultaSaldo(corte, desde);
+  q.set("formato", formato);
+  return apiDescargar(`/caja/saldo/exportar?${q}`, `caja-${corte}.${formato === "pdf" ? "pdf" : "xlsx"}`);
 }
 
 // =====================================================================

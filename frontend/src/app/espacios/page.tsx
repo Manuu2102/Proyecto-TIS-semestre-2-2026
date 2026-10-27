@@ -1,86 +1,159 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
-import { PlusIcon, BuildingIcon } from "../../../components/Icons";
+import { PlusIcon, BuildingIcon, EditIcon, TrashIcon } from "../../../components/Icons";
 import { Modal } from "../../../components/Modal";
+
+type Tipo = "Parqueo" | "Baulera";
 
 type Espacio = {
   id: string;
-  tipo: "Parqueo" | "Baulera";
+  tipo: Tipo;
+  identificador: string;
+  piso: number;
+  discapacitados: boolean;
+  idDepartamento: string;
   departamento: string;
   estado: "Asignado" | "Disponible";
 };
 
-const initial: Espacio[] = [
-  {
-    id: "P-14",
-    tipo: "Parqueo",
-    departamento: "A-101",
-    estado: "Asignado",
-  },
-  {
-    id: "P-15",
-    tipo: "Parqueo",
-    departamento: "A-202",
-    estado: "Asignado",
-  },
-  {
-    id: "B-08",
-    tipo: "Baulera",
-    departamento: "A-101",
-    estado: "Asignado",
-  },
-  {
-    id: "B-09",
-    tipo: "Baulera",
-    departamento: "—",
-    estado: "Disponible",
-  },
-];
+type EspacioAPI = {
+  id: string;
+  tipo: "parqueo" | "baulera";
+  identificador: string;
+  piso: number;
+  discapacitados?: boolean;
+  id_departamento: string | null;
+  departamento: string | null;
+};
 
-const departamentos = [
-  "A-101",
-  "A-202",
-  "A-303",
-  "A-404",
-  "B-101",
-  "B-202",
-  "B-303",
-  "B-404",
-];
+type DepartamentoOpcion = {
+  id: string;
+  codigo: string;
+};
+
+type ApiErrorResponse = {
+  message?: string | string[];
+};
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const getToken = () => sessionStorage.getItem("token") ?? "";
+
+const SIN_ASIGNAR = "—";
+
+// Ruta de la API según el tipo
+const RUTA: Record<Tipo, string> = { Parqueo: "parqueos", Baulera: "bauleras" };
+
+const adaptar = (e: EspacioAPI): Espacio => ({
+  id: e.id,
+  tipo: e.tipo === "parqueo" ? "Parqueo" : "Baulera",
+  identificador: e.identificador,
+  piso: e.piso,
+  discapacitados: e.discapacitados ?? false,
+  idDepartamento: e.id_departamento ?? SIN_ASIGNAR,
+  departamento: e.departamento ?? SIN_ASIGNAR,
+  estado: e.id_departamento ? "Asignado" : "Disponible",
+});
+
+const mensajeDeError = (data: ApiErrorResponse) =>
+  (Array.isArray(data.message) ? data.message.join(" ") : data.message) ??
+  "No se pudo completar la acción.";
+
+async function pedir(url: string, init?: RequestInit) {
+  const res = await fetch(`${API_URL}${url}`, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getToken()}`,
+    },
+  });
+  if (!res.ok) {
+    const data: ApiErrorResponse = await res.json().catch(() => ({}));
+    throw new Error(mensajeDeError(data));
+  }
+  return res.json();
+}
 
 export default function Espacios() {
-  const [items, setItems] = useState<Espacio[]>(initial);
+  const [items, setItems] = useState<Espacio[]>([]);
+  const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
 
   const [open, setOpen] = useState(false);
 
+  // Espacio que se está editando (null = registrando uno nuevo)
+  const [editando, setEditando] = useState<Espacio | null>(null);
+
   const [tipo, setTipo] =
-    useState<"Parqueo" | "Baulera">("Parqueo");
+    useState<Tipo>("Parqueo");
 
   const [identificador, setIdentificador] = useState("");
 
-  const [departamento, setDepartamento] = useState("—");
+  const [piso, setPiso] = useState("");
+
+  const [discapacitados, setDiscapacitados] = useState(false);
+
+  const [departamento, setDepartamento] = useState(SIN_ASIGNAR);
 
   const [error, setError] = useState("");
 
-  function abrirFormulario() {
+  const [guardando, setGuardando] = useState(false);
+
+  const recargar = async () => {
+    const [dataEsp, dataDep]: [
+      { espacios: EspacioAPI[] },
+      { departamentos: { id: string; numeroCompleto: string }[] },
+    ] = await Promise.all([pedir("/espacios"), pedir("/departamentos")]);
+
+    setItems(dataEsp.espacios.map(adaptar));
+    setDepartamentos(
+      dataDep.departamentos.map((d) => ({ id: String(d.id), codigo: d.numeroCompleto }))
+    );
+  };
+
+  useEffect(() => {
+    const cargar = async () => {
+      try {
+        await recargar();
+      } catch (e) {
+        console.error("Error cargando espacios:", e);
+      }
+    };
+    cargar();
+  }, []);
+
+  function limpiar() {
+    setEditando(null);
     setIdentificador("");
-    setDepartamento("—");
+    setPiso("");
+    setDiscapacitados(false);
+    setDepartamento(SIN_ASIGNAR);
     setTipo("Parqueo");
+    setError("");
+  }
+
+  function abrirFormulario() {
+    limpiar();
+    setOpen(true);
+  }
+
+  function abrirEdicion(espacio: Espacio) {
+    setEditando(espacio);
+    setTipo(espacio.tipo);
+    setIdentificador(espacio.identificador);
+    setPiso(String(espacio.piso));
+    setDiscapacitados(espacio.discapacitados);
+    setDepartamento(espacio.idDepartamento);
     setError("");
     setOpen(true);
   }
 
   function cerrarFormulario() {
     setOpen(false);
-    setIdentificador("");
-    setDepartamento("—");
-    setTipo("Parqueo");
-    setError("");
+    limpiar();
   }
 
-  function registrarEspacio() {
+  async function registrarEspacio() {
     const id = identificador.trim().toUpperCase();
 
     setError("");
@@ -89,18 +162,6 @@ export default function Espacios() {
     if (!id) {
       setError(
         "Ingresa un identificador para el espacio."
-      );
-      return;
-    }
-
-    // Verificar que el identificador sea único
-    const existe = items.some(
-      (item) => item.id.toUpperCase() === id
-    );
-
-    if (existe) {
-      setError(
-        "El identificador ya existe. Usa uno diferente."
       );
       return;
     }
@@ -127,34 +188,83 @@ export default function Espacios() {
       return;
     }
 
-    // Crear nuevo espacio
-    const nuevoEspacio: Espacio = {
-      id,
-      tipo,
-      departamento,
-      estado:
-        departamento === "—"
-          ? "Disponible"
-          : "Asignado",
+    // En la base el identificador es un número: "P-14" → 14
+    const numero = Number(id.slice(2));
+    if (!Number.isInteger(numero) || numero < 1) {
+      setError(
+        "Después de P- o B- debe ir un número, por ejemplo P-16."
+      );
+      return;
+    }
+
+    if (piso.trim() === "" || !Number.isInteger(Number(piso))) {
+      setError("Ingresa el piso del espacio (puede ser negativo para subsuelos).");
+      return;
+    }
+
+    // Verificar que el identificador sea único
+    const existe = items.some(
+      (item) =>
+        item.identificador.toUpperCase() === id &&
+        item.tipo === tipo &&
+        item.id !== editando?.id
+    );
+
+    if (existe) {
+      setError(
+        "El identificador ya existe. Usa uno diferente."
+      );
+      return;
+    }
+
+    const body = {
+      numero,
+      piso: Number(piso),
+      ...(tipo === "Parqueo" && { discapacitados }),
+      id_departamento: departamento === SIN_ASIGNAR ? null : Number(departamento),
     };
 
-    // Agregar el espacio a la lista
-    setItems((actuales) => [
-      nuevoEspacio,
-      ...actuales,
-    ]);
+    try {
+      setGuardando(true);
+      await pedir(
+        editando
+          ? `/espacios/${RUTA[tipo]}/${editando.id}`
+          : `/espacios/${RUTA[tipo]}`,
+        {
+          method: editando ? "PATCH" : "POST",
+          body: JSON.stringify(body),
+        }
+      );
 
-    // Cerrar el formulario
-    setOpen(false);
+      await recargar();
+      setOpen(false);
+      limpiar();
 
-    // Limpiar los campos
-    setIdentificador("");
-    setDepartamento("—");
-    setTipo("Parqueo");
-    setError("");
+      // Mostrar mensaje emergente del navegador
+      alert(
+        editando
+          ? "El espacio se actualizó correctamente."
+          : "El espacio se registró correctamente."
+      );
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setGuardando(false);
+    }
+  }
 
-    // Mostrar mensaje emergente del navegador
-    alert("El espacio se registró correctamente.");
+  async function eliminarEspacio(espacio: Espacio) {
+    const confirmar = window.confirm(
+      `¿Eliminar el ${espacio.tipo.toLowerCase()} ${espacio.identificador}? Se quitará también su asignación.`
+    );
+    if (!confirmar) return;
+
+    try {
+      await pedir(`/espacios/${RUTA[espacio.tipo]}/${espacio.id}`, { method: "DELETE" });
+      await recargar();
+    } catch (e) {
+      alert((e as Error).message);
+    }
   }
 
   return (
@@ -231,14 +341,19 @@ export default function Espacios() {
                 <th>Tipo</th>
                 <th>Departamento</th>
                 <th>Estado</th>
+                <th>Acciones</th>
               </tr>
             </thead>
 
             <tbody>
               {items.map((x) => (
-                <tr key={x.id}>
+                <tr key={`${x.tipo}-${x.id}`}>
                   <td>
-                    <strong>{x.id}</strong>
+                    <strong>{x.identificador}</strong>
+                    <small>
+                      Piso {x.piso}
+                      {x.discapacitados ? " · Discapacitados" : ""}
+                    </small>
                   </td>
 
                   <td>{x.tipo}</td>
@@ -261,8 +376,27 @@ export default function Espacios() {
                       {x.estado}
                     </span>
                   </td>
+
+                  <td>
+                    <div className="row-actions">
+                      <button className="icon-action" onClick={() => abrirEdicion(x)} title="Editar">
+                        <EditIcon size={16} />
+                      </button>
+                      <button className="icon-action danger" onClick={() => eliminarEspacio(x)} title="Eliminar">
+                        <TrashIcon size={16} />
+                      </button>
+                    </div>
+                  </td>
                 </tr>
               ))}
+
+              {items.length === 0 && (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: "30px" }}>
+                    No hay espacios registrados.
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -271,7 +405,7 @@ export default function Espacios() {
       {/* FORMULARIO DE REGISTRO */}
       <Modal
         open={open}
-        title="Registrar espacio"
+        title={editando ? "Editar espacio" : "Registrar espacio"}
         onClose={cerrarFormulario}
       >
         <div className="modal-form">
@@ -294,7 +428,7 @@ export default function Espacios() {
 
           <div className="form-grid">
 
-            {/* TIPO DE ESPACIO */}
+            {/* TIPO DE ESPACIO (no se cambia al editar) */}
             <label className="field">
               <span>
                 Tipo de espacio
@@ -302,11 +436,10 @@ export default function Espacios() {
 
               <select
                 value={tipo}
+                disabled={!!editando}
                 onChange={(e) =>
                   setTipo(
-                    e.target.value as
-                      | "Parqueo"
-                      | "Baulera"
+                    e.target.value as Tipo
                   )
                 }
               >
@@ -348,6 +481,37 @@ export default function Espacios() {
               </small>
             </label>
 
+            {/* PISO */}
+            <label className="field">
+              <span>
+                Piso
+              </span>
+
+              <input
+                type="number"
+                value={piso}
+                onChange={(e) => setPiso(e.target.value)}
+                placeholder="Ej. -1"
+              />
+            </label>
+
+            {/* DISCAPACITADOS (solo parqueos) */}
+            {tipo === "Parqueo" && (
+              <label className="field">
+                <span>
+                  Para personas con discapacidad
+                </span>
+
+                <select
+                  value={discapacitados ? "si" : "no"}
+                  onChange={(e) => setDiscapacitados(e.target.value === "si")}
+                >
+                  <option value="no">No</option>
+                  <option value="si">Sí</option>
+                </select>
+              </label>
+            )}
+
             {/* DEPARTAMENTO */}
             <label className="field">
               <span>
@@ -362,17 +526,17 @@ export default function Espacios() {
                   )
                 }
               >
-                <option value="—">
+                <option value={SIN_ASIGNAR}>
                   Sin asignar
                 </option>
 
                 {departamentos.map(
                   (dep) => (
                     <option
-                      key={dep}
-                      value={dep}
+                      key={dep.id}
+                      value={dep.id}
                     >
-                      {dep}
+                      {dep.codigo}
                     </option>
                   )
                 )}
@@ -394,8 +558,13 @@ export default function Espacios() {
               type="button"
               className="btn btn-primary"
               onClick={registrarEspacio}
+              disabled={guardando}
             >
-              Registrar espacio
+              {guardando
+                ? "Guardando..."
+                : editando
+                  ? "Guardar cambios"
+                  : "Registrar espacio"}
             </button>
           </div>
         </div>

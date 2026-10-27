@@ -5,6 +5,7 @@ import { DashboardLayout } from "../../../components/DashboardLayout";
 import { HomeIcon } from "../../../components/Icons";
 
 type Ocupante = {
+  id: string;
   nombre: string;
   rol: string;
   periodo: string;
@@ -18,22 +19,21 @@ type DepartamentoOption = {
 
 type DepartamentoAPI = {
   id: string | number;
-  descripcion?: string;
-  numero?: string | number;
-  piso?: string | number;
+  numeroCompleto: string;
 };
 
 type UsuarioHistorial = {
   nombres?: string;
   apellido_paterno?: string;
-  apellido_materno?: string;
-  rol_usuario?: Array<{ rol?: { nombre_rol?: string } }>;
+  apellido_materno?: string | null;
 };
 
 type HistorialItemAPI = {
+  id: string;
   estatus: boolean;
   fecha_ocupacion: string;
   fecha_fin_ocupacion?: string | null;
+  rol?: string;
   usuario?: UsuarioHistorial;
 };
 
@@ -49,28 +49,23 @@ type HistorialResponse = {
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const getToken = () => sessionStorage.getItem("token") ?? "";
 
-// Extrae "[A-101] descripcion" → "A-101"
-const parseCodigo = (desc: string) => {
-  const match = desc.match(/^\[([^\]]+)\]/);
-  return match ? match[1] : "";
-};
-
-// Formatea una fecha "2024-03-15" → "2024"
-const anioDe = (fecha: string | null | undefined) => {
+// Formatea una fecha "2024-03-15" → "15/03/2024"
+const fechaDe = (fecha: string | null | undefined) => {
   if (!fecha) return "";
-  return String(fecha).slice(0, 4);
+  const [anio, mes, dia] = String(fecha).slice(0, 10).split("-");
+  return `${dia}/${mes}/${anio}`;
 };
 
-// Formatea el período: "2019—2025" o "Actual · 2024—"
+// Formatea el período: "15/03/2024 — 02/07/2025" o "Desde 15/03/2024"
 const formatearPeriodo = (inicio: string, fin: string | null, actual: boolean) => {
-  const anioInicio = anioDe(inicio);
-  const anioFin = anioDe(fin);
+  const desde = fechaDe(inicio);
+  const hasta = fechaDe(fin);
 
   if (actual) {
-    if (anioFin) return `Actual · ${anioInicio}—${anioFin}`;
-    return `Actual · ${anioInicio}—`;
+    // Una ocupación activa puede tener una fecha de fin prevista (p. ej. un contrato)
+    return hasta ? `Desde ${desde} · hasta ${hasta} (previsto)` : `Desde ${desde}`;
   }
-  return `${anioInicio}—${anioFin || "?"}`;
+  return `${desde} — ${hasta || "sin fecha de salida"}`;
 };
 
 export default function Historial() {
@@ -80,6 +75,7 @@ export default function Historial() {
   const [cargandoDeptos, setCargandoDeptos] = useState(true);
   const [cargandoHistorial, setCargandoHistorial] = useState(false);
   const [sinHistorial, setSinHistorial] = useState(false);
+  const [errorHistorial, setErrorHistorial] = useState("");
 
   // 1. Cargar todos los departamentos al montar
   useEffect(() => {
@@ -92,15 +88,10 @@ export default function Historial() {
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: DepartamentosResponse = await res.json();
 
-        const opts: DepartamentoOption[] = data.departamentos
-          .map((d) => {
-            const codigo = parseCodigo(d.descripcion ?? "");
-            return {
-              id: String(d.id),
-              codigo: codigo || `N° ${d.numero ?? ""} · Piso ${d.piso ?? ""}`,
-            };
-          })
-          .filter((o) => o.codigo.length > 0);
+        const opts: DepartamentoOption[] = data.departamentos.map((d) => ({
+          id: String(d.id),
+          codigo: d.numeroCompleto,
+        }));
 
         setDepartamentos(opts);
         if (opts.length > 0) {
@@ -119,10 +110,14 @@ export default function Historial() {
   useEffect(() => {
     if (!departamentoSeleccionado) return;
 
+    // Si se cambia de departamento antes de que llegue la respuesta, se descarta
+    let vigente = true;
+
     const cargarHistorial = async () => {
       try {
         setCargandoHistorial(true);
         setSinHistorial(false);
+        setErrorHistorial("");
 
         const res = await fetch(
           `${API_URL}/ocupaciones/departamento/${departamentoSeleccionado}`,
@@ -131,6 +126,7 @@ export default function Historial() {
 
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const data: HistorialResponse = await res.json();
+        if (!vigente) return;
 
         // Si no hay historial, el backend devuelve { message, historial: [] }
         const items = data.historial ?? [];
@@ -144,12 +140,12 @@ export default function Historial() {
         // Adaptar al formato del front
         const adaptados: Ocupante[] = items.map((h) => {
           const esActual = h.estatus === true;
-          const nombre = `${h.usuario?.nombres ?? ""} ${h.usuario?.apellido_paterno ?? ""} ${h.usuario?.apellido_materno ?? ""}`.trim();
-          const rol = h.usuario?.rol_usuario?.[0]?.rol?.nombre_rol ?? "Ocupante";
+          const nombre = `${h.usuario?.nombres ?? ""} ${h.usuario?.apellido_paterno ?? ""} ${h.usuario?.apellido_materno ?? ""}`.replace(/\s+/g, " ").trim();
 
           return {
+            id: h.id,
             nombre: nombre || "Sin nombre",
-            rol,
+            rol: h.rol ?? "Ocupante",
             periodo: formatearPeriodo(
               h.fecha_ocupacion,
               h.fecha_fin_ocupacion ?? null,
@@ -161,14 +157,19 @@ export default function Historial() {
 
         setHistorial(adaptados);
       } catch (e) {
+        if (!vigente) return;
         console.error("Error cargando historial:", e);
         setHistorial([]);
+        setErrorHistorial("No se pudo cargar el historial. Intenta de nuevo.");
       } finally {
-        setCargandoHistorial(false);
+        if (vigente) setCargandoHistorial(false);
       }
     };
 
     cargarHistorial();
+    return () => {
+      vigente = false;
+    };
   }, [departamentoSeleccionado]);
 
   const codigoSeleccionado = useMemo(() => {
@@ -213,6 +214,10 @@ export default function Historial() {
           <div className="empty-state">Cargando historial...</div>
         )}
 
+        {!cargandoHistorial && errorHistorial && (
+          <div className="empty-state">{errorHistorial}</div>
+        )}
+
         {!cargandoHistorial && sinHistorial && (
           <div className="empty-state">
             No existen registros de ocupantes para el departamento{" "}
@@ -222,8 +227,8 @@ export default function Historial() {
 
         {!cargandoHistorial && !sinHistorial && historial.length > 0 && (
           <div className="history-list">
-            {historial.map((o, i) => (
-              <div className="history-item" key={i}>
+            {historial.map((o) => (
+              <div className="history-item" key={o.id}>
                 <div
                   className={
                     o.actual ? "history-marker current" : "history-marker"

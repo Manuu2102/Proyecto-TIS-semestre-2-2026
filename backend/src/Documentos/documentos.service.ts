@@ -52,25 +52,24 @@ export class DocumentosService {
       );
     }
 
-    const documento = await this.prisma.conUsuario(idUsuario, (tx) =>
-      tx.documento.create({
-        data: {
-          id_tipo: BigInt(data.id_tipo),
-          descripcion: data.descripcion,
-          nombre_original: archivo.originalname,
-          contenido: Buffer.from(archivo.buffer),
-          peso_bytes: BigInt(archivo.size),
-          mime_type: archivo.mimetype,
-          restringido: data.restringido ?? false,
-          estatus: true,
-          fecha_subida: new Date(),
-          id_usuario_subio: idUsuario,
-        },
-        include: {
-          tipo_documento: { select: { nombre: true } },
-        },
-      }),
-    );
+    // 🚀 RÁPIDO: Sin transacciones para evitar el timeout de Supabase
+    const documento = await this.prisma.documento.create({
+      data: {
+        id_tipo: BigInt(data.id_tipo),
+        descripcion: data.descripcion,
+        nombre_original: archivo.originalname,
+        contenido: Buffer.from(archivo.buffer),
+        peso_bytes: BigInt(archivo.size),
+        mime_type: archivo.mimetype,
+        restringido: data.restringido ?? false,
+        estatus: true,
+        fecha_subida: new Date(),
+        id_usuario_subio: idUsuario,
+      },
+      include: {
+        tipo_documento: { select: { nombre: true } },
+      },
+    });
 
     return {
       message: 'Documento subido correctamente',
@@ -79,7 +78,6 @@ export class DocumentosService {
   }
 
   async listar(filtros: ConsultarDocumentosDto, idUsuario: string) {
-    // 1. Averiguar roles del usuario
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: idUsuario },
       include: { rol_usuario: { include: { rol: true } } },
@@ -87,7 +85,6 @@ export class DocumentosService {
     const roles = usuario?.rol_usuario.map((ru) => ru.rol.nombre_rol) ?? [];
     const esAdmin = roles.includes('ADMINISTRADOR');
 
-    // 2. Construir filtro base
     const where: any = { estatus: true };
 
     if (filtros.id_tipo) {
@@ -105,9 +102,6 @@ export class DocumentosService {
       where.restringido = filtros.restringido;
     }
 
-    // 3. Si NO es admin, solo puede ver:
-    //    - documentos NO restringidos
-    //    - O documentos restringidos que él mismo subió
     if (!esAdmin) {
       where.OR = [
         { restringido: false },
@@ -115,9 +109,19 @@ export class DocumentosService {
       ];
     }
 
+  // RÁPIDO: Usamos select para NO traer el PDF pesado al cargar la lista
     const documentos = await this.prisma.documento.findMany({
       where,
-      include: {
+      select: {
+        id: true,
+        id_tipo: true,
+        descripcion: true,
+        nombre_original: true,
+        peso_bytes: true,
+        mime_type: true,
+        restringido: true,
+        fecha_subida: true,
+        id_usuario_subio: true,
         tipo_documento: { select: { id: true, nombre: true } },
       },
       orderBy: { fecha_subida: 'desc' },
@@ -215,18 +219,16 @@ export class DocumentosService {
       where: { id },
     });
 
-    if (!documento || !documento.estatus) {
+    if (!documento) {
       throw new NotFoundException(`Documento con id ${id} no encontrado`);
     }
 
-    await this.prisma.conUsuario(idUsuario, (tx) =>
-      tx.documento.update({
-        where: { id },
-        data: { estatus: false },
-      }),
-    );
+    // 🚀 RÁPIDO Y DEFINITIVO: Borrado físico de la base de datos
+    await this.prisma.documento.delete({
+      where: { id },
+    });
 
-    return { message: 'Documento eliminado correctamente' };
+    return { message: 'Documento eliminado permanentemente' };
   }
 
   async listarTipos() {

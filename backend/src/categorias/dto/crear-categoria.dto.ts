@@ -1,27 +1,20 @@
-import {
-  IsBoolean,
-  IsIn,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { Allow } from 'class-validator';
 
+/**
+ * Nombre y tipo son obligatorios; la descripción es opcional (HU-17 #2). Se validan en
+ * el servicio para responder un solo mensaje claro por campo.
+ */
 export class CrearCategoriaDto {
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(100)
-  nombre: string;
+  @Allow()
+  nombre?: string;
 
-  @IsIn(['ingreso', 'gasto'])
-  tipo: 'ingreso' | 'gasto';
+  // ingreso | gasto
+  @Allow()
+  tipo?: string;
 
-  @IsOptional()
-  @IsString()
-  @MaxLength(255)
+  @Allow()
   descripcion?: string;
 
-  @IsOptional()
-  @IsBoolean()
+  @Allow()
   activa?: boolean;
 }

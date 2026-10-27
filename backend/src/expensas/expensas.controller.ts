@@ -1,4 +1,6 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, StreamableFile, UseGuards } from '@nestjs/common';
+import { ExpensasExportarService } from './expensas-exportar.service.js';
+import { ExportarSaldosDto, FormatoDto } from './dto/exportar.dto.js';
 import { CreateExpensaDto } from './dto/create-expensa.dto.js';
 import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { ExpensasService } from './expensas.service.js';
@@ -12,11 +14,20 @@ import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 
+const descarga = (archivo: { contenido: Buffer; nombre: string; tipo: string }) =>
+  new StreamableFile(archivo.contenido, {
+    type: archivo.tipo,
+    disposition: `attachment; filename="${archivo.nombre}"`,
+  });
+
 @Controller('expensas')
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('ADMINISTRADOR')
 export class ExpensasController {
-  constructor(private readonly expensas: ExpensasService) {}
+  constructor(
+    private readonly expensas: ExpensasService,
+    private readonly exportar: ExpensasExportarService,
+  ) {}
 
   /** Calcula el reparto por departamento sin guardar nada. */
   @Post('previsualizar')
@@ -103,6 +114,13 @@ export class ExpensasController {
     return this.expensas.listarDepartamentos();
   }
 
+  /** Conceptos y montos de expensa por categoría (A, B, C). */
+  @Get('tarifas')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  listarTarifas() {
+    return this.expensas.listarTarifas();
+  }
+
   /** Departamentos para el buscador del estado de cuenta. */
   @Get('estado-cuenta')
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
@@ -115,6 +133,24 @@ export class ExpensasController {
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
   estadoCuenta(@Param('numero', ParseIntPipe) numero: number) {
     return this.expensas.estadoCuenta(numero);
+  }
+
+  /** Estado de cuenta en PDF o Excel: ?formato=pdf|excel */
+  @Get('estado-cuenta/:numero/exportar')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  async exportarEstadoCuenta(
+    @Param('numero', ParseIntPipe) numero: number,
+    @Query() q: FormatoDto,
+    @CurrentUser('id') idUsuario: string,
+  ) {
+    return descarga(await this.exportar.exportarEstadoCuenta(numero, q.formato, idUsuario));
+  }
+
+  /** Saldos pendientes en PDF o Excel, con los filtros y el orden de la pantalla. */
+  @Get('pagos/resumen/exportar')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  async exportarSaldos(@Query() q: ExportarSaldosDto, @CurrentUser('id') idUsuario: string) {
+    return descarga(await this.exportar.exportarSaldos(q, idUsuario));
   }
   /** Añade deudas extra a departamentos específicos. */
   @Post('extras')

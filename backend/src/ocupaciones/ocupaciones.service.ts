@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CrearOcupacionDto } from './dto/crear-ocupacion.dto.js';
+import { cerrarOcupacion, codigoDepartamento, ocuparDepartamento } from './asignacion.js';
 
 @Injectable()
 export class OcupacionesService {
@@ -43,26 +44,16 @@ export class OcupacionesService {
       );
     }
 
-    const ocupacion = await this.prisma.conUsuario(adminId, async (tx) => {
-      const nuevaOcupacion = await tx.departamento_usuario.create({
-        data: {
-          id_usuario: data.id_copropietario,
-          id_departamento: BigInt(data.id_departamento),
-          fecha_ocupacion: new Date(data.fecha_ocupacion),
-          fecha_fin_ocupacion: data.fecha_fin_ocupacion
-            ? new Date(data.fecha_fin_ocupacion)
-            : null,
-          estatus: true,
-        },
-      });
-
-      await tx.departamento.update({
-        where: { id: BigInt(data.id_departamento) },
-        data: { libre: false },
-      });
-
-      return nuevaOcupacion;
-    });
+    // Estadía nueva: si ya vivió ahí antes, esa fila queda en el historial
+    const ocupacion = await this.prisma.conUsuario(adminId, (tx) =>
+      ocuparDepartamento(
+        tx,
+        data.id_copropietario,
+        BigInt(data.id_departamento),
+        new Date(data.fecha_ocupacion),
+        data.fecha_fin_ocupacion ? new Date(data.fecha_fin_ocupacion) : null,
+      ),
+    );
 
     return {
       message: 'Copropietario asociado al departamento correctamente',
@@ -74,16 +65,26 @@ export class OcupacionesService {
     const historial = await this.prisma.departamento_usuario.findMany({
       where: { id_departamento },
       include: {
-        usuario: true,
+        // Solo lo que muestra el historial, con sus roles para saber si fue dueño o inquilino
+        usuario: {
+          select: {
+            nombres: true,
+            apellido_paterno: true,
+            apellido_materno: true,
+            rol_usuario: { select: { rol: { select: { nombre_rol: true } } } },
+          },
+        },
         departamento: {
           select: {
             id: true,
             numero: true,
             piso: true,
+            codigo: true,
           },
         },
       },
-      orderBy: { fecha_ocupacion: 'desc' },
+      // Más reciente primero; ante la misma fecha, la estadía creada después
+      orderBy: [{ fecha_ocupacion: 'desc' }, { id: 'desc' }],
     });
 
     if (historial.length === 0) {
@@ -98,16 +99,27 @@ export class OcupacionesService {
         id: historial[0].departamento.id.toString(),
         numero: historial[0].departamento.numero,
         piso: historial[0].departamento.piso,
+        codigo: codigoDepartamento(historial[0].departamento),
       },
       total: historial.length,
-      historial: historial.map((h) => ({
+      historial: historial.map(({ departamento: _departamento, ...h }) => ({
         ...this.formatear(h),
+        // El rol es el que el usuario tiene hoy (la base no guarda el de cada estadía)
+        rol: this.rolOcupante(h.usuario.rol_usuario.map((ru) => ru.rol.nombre_rol)),
         usuario: {
-          ...h.usuario,
-          ci: h.usuario.ci.toString(),
+          nombres: h.usuario.nombres,
+          apellido_paterno: h.usuario.apellido_paterno,
+          apellido_materno: h.usuario.apellido_materno,
         },
       })),
     };
+  }
+
+  private rolOcupante(roles: string[]) {
+    const nombres = roles.map((r) => r.trim().toUpperCase());
+    if (nombres.includes('COPROPIETARIO')) return 'Copropietario';
+    if (nombres.includes('INQUILINO')) return 'Inquilino';
+    return 'Ocupante';
   }
 
   async cerrar(id_copropietario: string, id_departamento: bigint, adminId: string) {
@@ -125,31 +137,7 @@ export class OcupacionesService {
       );
     }
 
-    await this.prisma.conUsuario(adminId, async (tx) => {
-      await tx.departamento_usuario.update({
-        where: {
-          id_departamento_id_usuario: {
-            id_departamento,
-            id_usuario: id_copropietario,
-          },
-        },
-        data: {
-          estatus: false,
-          fecha_fin_ocupacion: new Date(),
-        },
-      });
-
-      const otrasOcupaciones = await tx.departamento_usuario.count({
-        where: { id_departamento, estatus: true },
-      });
-
-      if (otrasOcupaciones === 0) {
-        await tx.departamento.update({
-          where: { id: id_departamento },
-          data: { libre: true },
-        });
-      }
-    });
+    await this.prisma.conUsuario(adminId, (tx) => cerrarOcupacion(tx, ocupacion));
 
     return { message: 'Ocupación cerrada correctamente' };
   }
@@ -157,6 +145,7 @@ export class OcupacionesService {
   private formatear(o: any) {
     return {
       ...o,
+      id: o.id.toString(),
       id_departamento: o.id_departamento.toString(),
       // La API sigue respondiendo id_copropietario (en la base es id_usuario)
       id_copropietario: o.id_usuario,

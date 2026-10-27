@@ -8,6 +8,15 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { CrearCopropietarioDto } from './dto/crear-copropietarios.dto.js';
 import { ActualizarCopropietarioDto } from './dto/actualizar-copropietarios.dto.js';
+import { Prisma } from '../generated/prisma/client.js';
+import {
+  cerrarOcupaciones,
+  codigoDepartamento,
+  departamentoValido,
+  ocupacionActiva,
+  ocuparDepartamento,
+  validarSinOtroConRol,
+} from '../ocupaciones/asignacion.js';
 
 @Injectable()
 export class CopropietariosService {
@@ -17,6 +26,21 @@ export class CopropietariosService {
     private prisma: PrismaService,
     private supabase: SupabaseService,
   ) {}
+
+  /**
+   * El departamento debe existir y no tener otro copropietario activo. Puede tener
+   * un inquilino viviendo ahí.
+   */
+  private async validarDepartamento(idDepartamento: bigint, excluirUsuario?: string) {
+    await departamentoValido(this.prisma, idDepartamento);
+    await validarSinOtroConRol(
+      this.prisma,
+      idDepartamento,
+      this.ID_ROL_COPROPIETARIO,
+      'El departamento seleccionado ya tiene un copropietario.',
+      excluirUsuario,
+    );
+  }
 
   async crear(data: CrearCopropietarioDto, adminId: string) {
     const existeCi = await this.prisma.usuario.findUnique({
@@ -46,15 +70,7 @@ export class CopropietariosService {
     let idDepartamento: bigint | null = null;
     if (data.id_departamento) {
       idDepartamento = BigInt(data.id_departamento);
-      const depto = await this.prisma.departamento.findUnique({
-        where: { id: idDepartamento },
-      });
-      if (!depto) {
-        throw new BadRequestException('El departamento seleccionado no existe.');
-      }
-      if (!depto.libre) {
-        throw new BadRequestException('El departamento seleccionado ya está ocupado.');
-      }
+      await this.validarDepartamento(idDepartamento);
     }
 
     const { data: authData, error } = await this.supabase.client.auth.signUp({
@@ -177,8 +193,27 @@ export class CopropietariosService {
       }
     }
 
-    const actualizado = await this.prisma.conUsuario(adminId, (tx) =>
-      tx.usuario.update({
+    // Cambio de departamento (si es el mismo, no se toca la ocupación)
+    const actual = await ocupacionActiva(this.prisma, id);
+    const nuevoDepto =
+      data.id_departamento !== undefined &&
+      BigInt(data.id_departamento) !== actual?.id_departamento
+        ? BigInt(data.id_departamento)
+        : null;
+    if (nuevoDepto) {
+      await this.validarDepartamento(nuevoDepto, id);
+    }
+
+    const actualizado = await this.prisma.conUsuario(adminId, async (tx) => {
+      // Al darlo de baja (o moverlo) se cierra su ocupación y se conserva el historial
+      if (data.estatus === false || nuevoDepto) {
+        await cerrarOcupaciones(tx, id);
+      }
+      if (nuevoDepto && data.estatus !== false) {
+        await ocuparDepartamento(tx, id, nuevoDepto, new Date());
+      }
+
+      return tx.usuario.update({
         where: { id },
         data: {
           ...(data.ci && { ci: BigInt(data.ci) }),
@@ -197,8 +232,8 @@ export class CopropietariosService {
           ...(data.telefono && { telefono: data.telefono }),
           ...(data.estatus !== undefined && { estatus: data.estatus }),
         },
-      }),
-    );
+      });
+    });
 
     return {
       message: 'Copropietario actualizado correctamente',
@@ -227,7 +262,7 @@ export class CopropietariosService {
           where: { estatus: true }, // Solo la ocupación actual
           include: {
             departamento: {
-              select: { id: true, numero: true, piso: true },
+              select: { id: true, numero: true, piso: true, codigo: true },
             },
           },
         },
@@ -237,18 +272,60 @@ export class CopropietariosService {
 
     return {
       total: copropietarios.length,
-      copropietarios: copropietarios.map((c) => ({
-        ...c,
-        ci: c.ci.toString(),
-        roles: c.rol_usuario.map((ru) => ru.rol.nombre_rol),
-        // NUEVO: Formateamos el departamento para que el front lo muestre
-        departamento: c.departamento_usuario[0]?.departamento
-          ? `${c.departamento_usuario[0].departamento.numero} - Piso ${c.departamento_usuario[0].departamento.piso}`
-          : null,
-        rol_usuario: undefined,
-        departamento_usuario: undefined,
-      })),
+      copropietarios: copropietarios.map((c) => {
+        const ocupacion = c.departamento_usuario[0];
+        return {
+          ...c,
+          ci: c.ci.toString(),
+          roles: c.rol_usuario.map((ru) => ru.rol.nombre_rol),
+          // "A-101", y su id para poder editarlo desde el front
+          departamento: ocupacion ? codigoDepartamento(ocupacion.departamento) : null,
+          id_departamento: ocupacion?.departamento.id.toString() ?? null,
+          fecha_ocupacion: ocupacion?.fecha_ocupacion ?? null,
+          // Todos los departamentos que ocupa (desde Asociaciones puede tener más de uno)
+          departamentos: c.departamento_usuario.map((du) => ({
+            id: du.departamento.id.toString(),
+            codigo: codigoDepartamento(du.departamento),
+          })),
+          rol_usuario: undefined,
+          departamento_usuario: undefined,
+        };
+      }),
     };
+  }
+
+  /**
+   * Borra el copropietario de forma permanente. Solo si ya estaba dado de baja y no
+   * tiene movimientos (pagos, documentos, etc.) que lo referencien.
+   */
+  async eliminar(id: string, adminId: string) {
+    const existe = await this.prisma.usuario.findUnique({ where: { id } });
+    if (!existe) {
+      throw new NotFoundException(`Copropietario con id ${id} no encontrado`);
+    }
+    if (existe.estatus) {
+      throw new BadRequestException('Primero marca al copropietario como inactivo.');
+    }
+
+    try {
+      await this.prisma.conUsuario(adminId, async (tx) => {
+        await tx.departamento_usuario.deleteMany({ where: { id_usuario: id } });
+        await tx.rol_usuario.deleteMany({ where: { id_usuario: id } });
+        await tx.usuario.delete({ where: { id } });
+      });
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+        throw new ConflictException(
+          'No se puede eliminar: el copropietario tiene pagos u otros registros asociados.',
+        );
+      }
+      throw e;
+    }
+
+    // Por último la cuenta de acceso en Supabase Auth
+    await this.supabase.adminClient.auth.admin.deleteUser(id);
+
+    return { message: 'Copropietario eliminado correctamente' };
   }
 
   async buscarPorId(id: string) {

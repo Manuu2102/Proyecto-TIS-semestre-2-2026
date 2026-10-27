@@ -35,6 +35,8 @@ import {
   crearMovBanco,
   anularMovBanco,
   conciliarMovBanco,
+  consultarSaldoCaja,
+  exportarSaldoCaja,
 } from "@/lib/caja-bancos";
 import type {
   Caja,
@@ -111,13 +113,6 @@ function hoyISO() {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-function horaTxt() {
-  const d = new Date();
-  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
-}
-function ahoraTxt() {
-  return `${fechaCorta(hoyISO())} ${horaTxt()}`;
-}
 function diaAnterior(iso: string) {
   const [a, m, d] = iso.split("-").map(Number);
   const x = new Date(a, m - 1, d - 1);
@@ -130,30 +125,6 @@ function readRol(): string {
 function readNombre(): string {
   if (typeof window === "undefined") return "Administrador";
   return sessionStorage.getItem("nombreUsuario") || "Administrador";
-}
-function descargar(nombre: string, contenido: string, tipo: string) {
-  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
-  const enlace = document.createElement("a");
-  enlace.href = url;
-  enlace.download = nombre;
-  enlace.click();
-  URL.revokeObjectURL(url);
-}
-function imprimirHtml(titulo: string, cuerpo: string) {
-  const ventana = window.open("", "_blank", "width=900,height=700");
-  if (!ventana) {
-    alert("Tu navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.");
-    return;
-  }
-  ventana.document.write(
-    `<html><head><title>${titulo}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f3f3f3}h2{margin:0 0 8px}p{margin:4px 0}</style></head><body>${cuerpo}</body></html>`
-  );
-  ventana.document.close();
-  ventana.focus();
-  ventana.print();
-}
-function aCsv(filas: (string | number)[][]) {
-  return filas.map((fila) => fila.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(";")).join("\r\n");
 }
 
 // =====================================================================
@@ -257,17 +228,27 @@ async function anularMovCajaApi(numero: string, motivo: string, caja: Caja, movs
   return { anulado, contrario };
 }
 
+/** "2026-10-26T04:05:00.000Z" → "26/10/2026 00:05" (hora local del navegador) */
+function fechaHoraDe(iso: string) {
+  const d = new Date(iso);
+  const dia = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return `${fechaCorta(dia)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
 async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs: MovCaja[]): Promise<ResultadoSaldo> {
-  // El backend no tiene /caja/saldo: el saldo se calcula aquí con los movimientos reales.
   if (FALLA_SIMULADA) throw new Error("Fallo del servicio.");
-  const inicio = desde || caja.fecha;
-  const inicial = desde ? saldoVigente(caja.monto, movs, diaAnterior(desde)) : caja.monto;
+  // Saldo, totales y últimos movimientos los calcula el backend (GET /caja/saldo)
+  const r = await consultarSaldoCaja(corte, desde || undefined);
+  const { inicial, entradas, salidas } = r;
+  const inicio = r.desde;
   const delPeriodo = movs.filter((m) => m.fecha >= inicio && m.fecha <= corte);
   const vigentes = delPeriodo.filter(esVigente);
-  const entradas = r2(vigentes.filter((m) => m.tipo === "ENTRADA").reduce((s, m) => s + m.monto, 0));
-  const salidas = r2(vigentes.filter((m) => m.tipo === "SALIDA").reduce((s, m) => s + m.monto, 0));
 
-  // Serie de saldos: un punto por fecha con movimientos vigentes
+  // Los últimos movimientos se toman de la lista ya cargada (mismo formato que la tabla)
+  const porNumero = new Map(movs.map((m) => [m.numero, m]));
+  const ultimos = r.ultimos.flatMap((numero) => porNumero.get(numero) ?? []);
+
+  // Serie de saldos para el gráfico: un punto por fecha con movimientos vigentes
   const porFecha = new Map<string, number>();
   for (const m of vigentes) {
     porFecha.set(m.fecha, (porFecha.get(m.fecha) ?? 0) + (m.tipo === "ENTRADA" ? m.monto : -m.monto));
@@ -284,10 +265,10 @@ async function consultarSaldoApi(corte: string, desde: string, caja: Caja, movs:
     inicial,
     entradas,
     salidas,
-    final: r2(inicial + entradas - salidas),
-    calculadoEn: ahoraTxt(),
+    final: r.final,
+    calculadoEn: fechaHoraDe(r.calculadoEn),
     periodo: [...delPeriodo].sort(masAntiguos),
-    ultimos: movs.filter((m) => m.fecha <= corte).sort(masRecientes).slice(0, 10),
+    ultimos,
     serie,
   };
 }
@@ -508,47 +489,24 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
   const datos = actual?.datos ?? null;
   const cargando = actual === null;
 
-  function exportarExcel(d: ResultadoSaldo) {
-    // BACKEND: GET /caja/exportar?formato=xlsx&corte=&desde=  (aquí se simula con un CSV compatible con Excel)
-    if (d.periodo.length === 0) {
-      alert(MENSAJES.sinDatosExportar);
-      return;
-    }
-    descargar(
-      "saldo-de-caja.csv",
-      "\uFEFF" +
-        aCsv([
-          ["Saldo de caja"],
-          [`Fecha de corte: ${fechaCorta(corte)}`, desde ? `Desde: ${fechaCorta(desde)}` : "Desde: apertura de caja"],
-          [],
-          ["Saldo inicial", d.inicial],
-          ["Total de entradas", d.entradas],
-          ["Total de salidas", d.salidas],
-          ["Saldo final", d.final],
-          [],
-          ["Número", "Fecha", "Tipo", "Origen", "Concepto", "Monto", "Saldo posterior"],
-          ...d.periodo.map((m) => [m.numero, fechaCorta(m.fecha), m.tipo, m.origen, m.concepto, m.monto, m.saldoPosterior]),
-        ]),
-      "text/csv;charset=utf-8"
-    );
-  }
+  // El backend genera el archivo (GET /caja/saldo/exportar): PDF con el nombre del
+  // edificio, quién lo emite y la fecha de emisión, y Excel (.xlsx)
+  const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null);
 
-  function exportarPdf(d: ResultadoSaldo) {
-    // BACKEND: GET /caja/exportar?formato=pdf&corte=&desde=  (aquí se simula con la ventana de impresión)
+  async function exportar(formato: "pdf" | "excel", d: ResultadoSaldo) {
+    if (exportando) return;
     if (d.periodo.length === 0) {
       alert(MENSAJES.sinDatosExportar);
       return;
     }
-    const filas = d.periodo
-      .map(
-        (m) =>
-          `<tr><td>${m.numero}</td><td>${fechaCorta(m.fecha)}</td><td>${m.tipo}</td><td>${m.origen}</td><td>${m.concepto}</td><td>${bs(m.monto)}</td><td>${bs(m.saldoPosterior)}</td></tr>`
-      )
-      .join("");
-    imprimirHtml(
-      "Saldo de caja",
-      `<h2>Edificio Central · Saldo de caja</h2><p><b>Fecha de corte:</b> ${fechaCorta(corte)}${desde ? ` · <b>Desde:</b> ${fechaCorta(desde)}` : ""}</p><p><b>Emitido por:</b> ${readNombre()} · <b>Fecha y hora de emisión:</b> ${ahoraTxt()}</p><p>Saldo inicial: ${bs(d.inicial)} · Entradas: ${bs(d.entradas)} · Salidas: ${bs(d.salidas)} · <b>Saldo final: ${bs(d.final)}</b></p><table><thead><tr><th>Número</th><th>Fecha</th><th>Tipo</th><th>Origen</th><th>Concepto</th><th>Monto</th><th>Saldo posterior</th></tr></thead><tbody>${filas}</tbody></table>`
-    );
+    setExportando(formato);
+    try {
+      await exportarSaldoCaja(formato, corte, desde || undefined);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo exportar. Intenta nuevamente.");
+    } finally {
+      setExportando(null);
+    }
   }
 
   // Sin apertura no se muestra ningún saldo
@@ -659,8 +617,12 @@ function PestanaSaldo({ esAdmin, caja, cajaMovs, irAMovimientos }: {
                 <p>Los 10 movimientos más recientes hasta la fecha de corte.</p>
               </div>
               <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button className="btn btn-secondary" onClick={() => exportarPdf(datos)}><FileIcon size={16} /> Exportar PDF</button>
-                <button className="btn btn-secondary" onClick={() => exportarExcel(datos)}><FileIcon size={16} /> Exportar Excel</button>
+                <button className="btn btn-secondary" disabled={exportando !== null} onClick={() => exportar("pdf", datos)}>
+                  <FileIcon size={16} /> {exportando === "pdf" ? "Generando…" : "Exportar PDF"}
+                </button>
+                <button className="btn btn-secondary" disabled={exportando !== null} onClick={() => exportar("excel", datos)}>
+                  <FileIcon size={16} /> {exportando === "excel" ? "Generando…" : "Exportar Excel"}
+                </button>
               </div>
             </div>
             {datos.ultimos.length === 0 ? (

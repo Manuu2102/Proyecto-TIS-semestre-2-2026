@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   UseGuards,
@@ -49,5 +50,11 @@ export class CopropietariosController {
     @CurrentUser('id') adminId: string,
   ) {
     return this.copropietariosService.actualizar(id, dto, adminId);
+  }
+
+  @Delete(':id')
+  @Roles('ADMINISTRADOR')
+  eliminar(@Param('id') id: string, @CurrentUser('id') adminId: string) {
+    return this.copropietariosService.eliminar(id, adminId);
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 import { Fragment, useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
-import { api } from "../../../lib/api";
+import { api, apiDescargar } from "../../../lib/api";
 import { FileIcon } from "../../../components/Icons";
 
 type Categoria = "A" | "B" | "C";
@@ -60,27 +60,6 @@ function leerDeptoDeUrl(): number | null {
   // Si el número no existe, el backend responde 404 y se muestra el error
   return Number.isInteger(n) && n > 0 ? n : null;
 }
-function descargar(nombre: string, contenido: string, tipo: string) {
-  const url = URL.createObjectURL(new Blob([contenido], { type: tipo }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = nombre;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-function imprimirHtml(titulo: string, cuerpo: string) {
-  const w = window.open("", "_blank", "width=900,height=700");
-  if (!w) {
-    alert("Tu navegador bloqueó la ventana. Permite las ventanas emergentes para imprimir.");
-    return;
-  }
-  w.document.write(
-    `<html><head><title>${titulo}</title><style>body{font-family:Arial,sans-serif;padding:24px;color:#222}table{border-collapse:collapse;width:100%;font-size:12px}th,td{border:1px solid #ccc;padding:6px 8px;text-align:left}th{background:#f3f3f3}h2{margin:0 0 8px}p{margin:4px 0}small{color:#555}</style></head><body>${cuerpo}</body></html>`
-  );
-  w.document.close();
-  w.focus();
-  w.print();
-}
 
 const MUTED = { fontSize: 11, color: "#766E69" } as const;
 const BOTON_LINK = { background: "none", border: 0, padding: 0, cursor: "pointer", font: "inherit", color: "inherit", textAlign: "left" } as const;
@@ -133,50 +112,22 @@ export default function EstadoCuentaPage() {
     setAbiertas((prev) => ({ ...prev, [id]: !prev[id] }));
   }
 
-  // Criterio 5: exportar con el mismo contenido que se ve en pantalla
-  function exportarExcel() {
-    // BACKEND: GET /estado-cuenta/{departamento}/exportar?formato=xlsx. Aquí se simula con un CSV que abre Excel.
-    if (!estado) return;
-    const num = (n: number) => n.toFixed(2).replace(".", ",");
-    const col = (m: Movimiento, t: Tipo) => (m.tipo === t ? num(m.monto) : "");
-    const lineas: string[][] = [
-      ["Estado de cuenta"],
-      [`Departamento: ${estado.depto.numero}`, `Categoría: ${estado.depto.categoria}`, `Responsable: ${estado.depto.responsable}`],
-      [],
-      ["Fecha", "Detalle", "Expensas emitidas", "Pagos realizados", "Anticipos pagados", "Moras generadas", "Desglose por concepto"],
-      ...estado.movimientos.map((m) => [
-        fechaCorta(m.fecha),
-        m.detalle,
-        col(m, "expensa"),
-        col(m, "pago"),
-        col(m, "anticipo"),
-        col(m, "mora"),
-        m.desglose ? m.desglose.map((c) => `${c.concepto}: ${num(c.monto)}`).join(" | ") : "",
-      ]),
-      [],
-      ["Totales", "", num(estado.totales.expensas), num(estado.totales.pagos), num(estado.totales.anticipos), num(estado.totales.moras), ""],
-      ["Saldo", num(estado.totales.saldo)],
-    ];
-    const csv = lineas.map((l) => l.map((c) => `"${c.replace(/"/g, '""')}"`).join(";")).join("\r\n");
-    descargar(`estado-de-cuenta-dpto-${estado.depto.numero}.csv`, "\uFEFF" + csv, "text/csv;charset=utf-8");
-  }
-  function exportarPdf() {
-    // BACKEND: GET /estado-cuenta/{departamento}/exportar?formato=pdf. Aquí se simula con la ventana de impresión.
-    if (!estado) return;
-    const celda = (m: Movimiento, t: Tipo) => (m.tipo === t ? bs(m.monto) : "");
-    const filas = estado.movimientos
-      .map(
-        (m) =>
-          `<tr><td>${fechaCorta(m.fecha)}</td><td>${m.detalle}${
-            m.desglose ? "<br>" + m.desglose.map((c) => `<small>${c.concepto}: ${bs(c.monto)}</small>`).join("<br>") + `<br><small>Fecha límite: ${fechaCorta(m.vencimiento ?? "")}</small>` : ""
-          }</td><td>${celda(m, "expensa")}</td><td>${celda(m, "pago")}</td><td>${celda(m, "anticipo")}</td><td>${celda(m, "mora")}</td></tr>`
-      )
-      .join("");
-    const t = estado.totales;
-    imprimirHtml(
-      "Estado de cuenta",
-      `<h2>Estado de cuenta</h2><p><b>Departamento:</b> ${estado.depto.numero} · <b>Categoría:</b> ${estado.depto.categoria} · <b>Responsable:</b> ${estado.depto.responsable}</p><table><thead><tr><th>Fecha</th><th>Detalle</th><th>Expensas emitidas</th><th>Pagos realizados</th><th>Anticipos pagados</th><th>Moras generadas</th></tr></thead><tbody>${filas}<tr><td colspan="2"><b>Totales</b></td><td>${bs(t.expensas)}</td><td>${bs(t.pagos)}</td><td>${bs(t.anticipos)}</td><td>${bs(t.moras)}</td></tr></tbody></table><p><b>Saldo:</b> ${bs(t.saldo)}</p>`
-    );
+  // Criterio 5: el backend genera el PDF y el Excel (.xlsx) con el mismo contenido que se ve
+  const [exportando, setExportando] = useState<"pdf" | "excel" | null>(null);
+
+  async function exportar(formato: "pdf" | "excel") {
+    if (!estado || exportando) return;
+    setExportando(formato);
+    try {
+      await apiDescargar(
+        `/expensas/estado-cuenta/${estado.depto.numero}/exportar?formato=${formato}`,
+        `estado-de-cuenta-dpto-${estado.depto.numero}.${formato === "pdf" ? "pdf" : "xlsx"}`
+      );
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo exportar. Intenta nuevamente.");
+    } finally {
+      setExportando(null);
+    }
   }
 
   if (!esAdmin) {
@@ -276,8 +227,12 @@ export default function EstadoCuentaPage() {
               </div>
               {/* Criterio 5: exportar a PDF y Excel */}
               <div style={{ display: "flex", gap: 8 }}>
-                <button className="btn btn-secondary" onClick={exportarPdf}><FileIcon size={16} /> Exportar PDF</button>
-                <button className="btn btn-secondary" onClick={exportarExcel}><FileIcon size={16} /> Exportar Excel</button>
+                <button className="btn btn-secondary" disabled={exportando !== null} onClick={() => exportar("pdf")}>
+                  <FileIcon size={16} /> {exportando === "pdf" ? "Generando…" : "Exportar PDF"}
+                </button>
+                <button className="btn btn-secondary" disabled={exportando !== null} onClick={() => exportar("excel")}>
+                  <FileIcon size={16} /> {exportando === "excel" ? "Generando…" : "Exportar Excel"}
+                </button>
               </div>
             </div>
 

@@ -7,5 +7,7 @@ import { AuthModule } from '../auth/auth.module.js';
   imports: [AuthModule],
   controllers: [BancosController],
   providers: [BancosService],
+  // Ingresos y gastos por transferencia o depósito registran su movimiento (HU-15, HU-16)
+  exports: [BancosService],
 })
 export class BancosModule {}

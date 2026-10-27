@@ -12,67 +12,76 @@ import { ActualizarDepartamentoDto } from './dto/actualizar-departamento.dto.js'
 export class DepartamentosService {
   constructor(private prisma: PrismaService) {}
 
+  // Los tipos son A, B y C (antes Pequeño, Mediano y Grande)
   private obtenerMontoCategoria(nombreTipo: string) {
-    const MONTOS: Record<string, number> = { 
-      'Pequeño': 100, 
-      'Mediano': 150, 
-      'Grande': 200 
+    const MONTOS: Record<string, number> = {
+      A: 100,
+      B: 150,
+      C: 200,
     };
-    const monto = MONTOS[nombreTipo];
+    const monto = MONTOS[nombreTipo.trim().toUpperCase()];
     if (monto === undefined) {
       throw new BadRequestException('La categoría no tiene un monto configurado.');
     }
     return monto;
   }
 
-  async crear(data: CrearDepartamentoDto, adminId: string) {
-    // 1. Validar duplicado (codigo + numero + piso)
-    const existe = await this.prisma.departamento.findFirst({
-      where: { 
-        codigo: data.codigo, 
-        numero: data.numero, 
-        piso: data.piso 
-      },
-    });
-
-    if (existe) {
-      throw new ConflictException(
-        `Ya existe un departamento con código ${data.codigo}-${data.numero} en el piso ${data.piso}`,
-      );
-    }
-
-    // 2. Validar categoría y calcular precio
-    if (!data.id_tipo_departamento) {
-      throw new BadRequestException('Debe seleccionar una categoría de departamento.');
-    }
-
+  /** Tipo de departamento y su letra, que se guarda en `codigo` (A, B o C). */
+  private async obtenerTipo(idTipo: number) {
     const tipo = await this.prisma.tipo_departamento.findUnique({
-      where: { id: BigInt(data.id_tipo_departamento) },
+      where: { id: BigInt(idTipo) },
     });
-
-    if (!tipo) {
+    if (!tipo || !tipo.nombre) {
       throw new BadRequestException('La categoría seleccionada no existe.');
     }
+    return { ...tipo, codigo: tipo.nombre.trim().toUpperCase() };
+  }
 
-    const monto = this.obtenerMontoCategoria(tipo.nombre ?? '');
-    const precioCalculado = 300 + monto;
+  /** Tipos de departamento (A, B, C) para el formulario. */
+  async listarTipos() {
+    const tipos = await this.prisma.tipo_departamento.findMany({
+      orderBy: { nombre: 'asc' },
+    });
+    return tipos.map((t) => ({ id: t.id.toString(), nombre: t.nombre?.trim() ?? '' }));
+  }
 
-    // 3. Crear el departamento
+  /** Un departamento se identifica por su código y número: A-101. */
+  private async validarDuplicado(codigo: string, numero: number, excluirId?: bigint) {
+    const duplicado = await this.prisma.departamento.findFirst({
+      where: {
+        codigo,
+        numero,
+        estatus: true,
+        ...(excluirId !== undefined && { id: { not: excluirId } }),
+      },
+    });
+    if (duplicado) {
+      throw new ConflictException(`Ya existe el departamento ${codigo}-${numero}`);
+    }
+  }
+
+  async crear(data: CrearDepartamentoDto, adminId: string) {
+    const tipo = await this.obtenerTipo(data.id_tipo_departamento);
+    await this.validarDuplicado(tipo.codigo, data.numero);
+
+    const precioCalculado = 300 + this.obtenerMontoCategoria(tipo.codigo);
+
     const departamento = await this.prisma.conUsuario(adminId, (tx) =>
       tx.departamento.create({
         data: {
-          codigo: data.codigo,   // "A"
-          numero: data.numero,   // 101
+          codigo: tipo.codigo, // "A"
+          numero: data.numero, // 101
           piso: data.piso,
-          habitaciones: data.habitaciones,
-          banos: data.banos,
+          // Columnas que se eliminarán: se guardan con un valor fijo mientras existan
+          habitaciones: 0,
+          banos: 0,
+          amueblado: false,
           superficie_m2: data.superficie_m2,
           precio: precioCalculado,
           estatus: true,
-          amueblado: data.amueblado,
           descripcion: data.descripcion,
-          libre: true, 
-          tipo_departamento: BigInt(data.id_tipo_departamento),
+          libre: true,
+          tipo_departamento: tipo.id,
         },
         include: {
           tipo_departamento_departamento_tipo_departamentoTotipo_departamento: {
@@ -95,13 +104,48 @@ export class DepartamentosService {
         tipo_departamento_departamento_tipo_departamentoTotipo_departamento: {
           select: { id: true, nombre: true },
         },
+        // Ocupante actual
+        departamento_usuario: {
+          where: { estatus: true, fecha_fin_ocupacion: null },
+          orderBy: { fecha_ocupacion: 'desc' },
+          take: 1,
+          include: {
+            usuario: { select: { nombres: true, apellido_paterno: true, apellido_materno: true } },
+          },
+        },
       },
       orderBy: [{ piso: 'asc' }, { codigo: 'asc' }, { numero: 'asc' }],
     });
 
+    // Expensa mensual de cada tipo (la define finanzas en la tabla expensa)
+    const expensas = await this.prisma.expensa.findMany({
+      where: { tipo_departamento: { not: null } },
+      select: { tipo_departamento: true, monto_total: true },
+    });
+    const expensaPorTipo = new Map<string, number>();
+    for (const e of expensas) {
+      const tipo = e.tipo_departamento!.toString();
+      expensaPorTipo.set(tipo, (expensaPorTipo.get(tipo) ?? 0) + e.monto_total.toNumber());
+    }
+
     return {
       total: departamentos.length,
-      departamentos: departamentos.map((d) => this.formatearDepartamento(d)),
+      departamentos: departamentos.map((d) => {
+        const u = d.departamento_usuario[0]?.usuario;
+        return {
+          ...this.formatearDepartamento(d),
+          departamento_usuario: undefined,
+          tipo:
+            d.tipo_departamento_departamento_tipo_departamentoTotipo_departamento?.nombre?.trim() ??
+            null,
+          ocupante: u
+            ? [u.nombres, u.apellido_paterno, u.apellido_materno].filter(Boolean).join(' ')
+            : null,
+          expensa: d.tipo_departamento !== null
+            ? (expensaPorTipo.get(d.tipo_departamento.toString()) ?? 0)
+            : 0,
+        };
+      }),
     };
   }
 
@@ -132,48 +176,28 @@ export class DepartamentosService {
       throw new NotFoundException(`Departamento con id ${id} no encontrado`);
     }
 
-    // Validar duplicado si cambia codigo, numero o piso
-    if (data.codigo !== undefined || data.numero !== undefined || data.piso !== undefined) {
-      const codigo = data.codigo ?? existe.codigo;
-      const numero = data.numero ?? existe.numero;
-      const piso = data.piso ?? existe.piso;
-      
-      const duplicado = await this.prisma.departamento.findFirst({
-        where: { codigo, numero, piso, id: { not: id } },
-      });
-      
-      if (duplicado) {
-        throw new ConflictException(
-          `Ya existe un departamento con código ${codigo}-${numero} en el piso ${piso}`,
-        );
-      }
-    }
+    // Si cambia el tipo, cambia también el código (A, B o C) y el precio
+    const tipo = data.id_tipo_departamento
+      ? await this.obtenerTipo(data.id_tipo_departamento)
+      : null;
+    const codigo = tipo?.codigo ?? existe.codigo;
+    const numero = data.numero ?? existe.numero;
 
-    // Si cambia la categoría, recalcular precio
-    let nuevoPrecio: number | undefined;
-    if (data.id_tipo_departamento) {
-      const tipo = await this.prisma.tipo_departamento.findUnique({
-        where: { id: BigInt(data.id_tipo_departamento) },
-      });
-      if (!tipo) throw new BadRequestException('La categoría no existe.');
-
-      nuevoPrecio = 300 + this.obtenerMontoCategoria(tipo.nombre ?? '');
+    if (codigo !== existe.codigo || numero !== existe.numero) {
+      await this.validarDuplicado(codigo, numero, id);
     }
 
     // FIX para TypeScript: Tipamos como 'any' para evitar conflicto entre FK y relación
     const dataAActualizar: any = {
-      ...(data.codigo !== undefined && { codigo: data.codigo }),
       ...(data.numero !== undefined && { numero: data.numero }),
       ...(data.piso !== undefined && { piso: data.piso }),
-      ...(data.habitaciones !== undefined && { habitaciones: data.habitaciones }),
-      ...(data.banos !== undefined && { banos: data.banos }),
       ...(data.superficie_m2 !== undefined && { superficie_m2: data.superficie_m2 }),
-      ...(data.amueblado !== undefined && { amueblado: data.amueblado }),
       ...(data.descripcion !== undefined && { descripcion: data.descripcion }),
-      
-      ...(data.id_tipo_departamento !== undefined && {
-        tipo_departamento: BigInt(data.id_tipo_departamento),
-        precio: nuevoPrecio,
+
+      ...(tipo && {
+        codigo: tipo.codigo,
+        tipo_departamento: tipo.id,
+        precio: 300 + this.obtenerMontoCategoria(tipo.codigo),
       }),
     };
 
