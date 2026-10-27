@@ -520,7 +520,7 @@ export default function ExpensasPage() {
     }
 
     const extra: ExtraDepartamento = {
-      id: `${Date.now()}-${Math.random()}`,
+        id: crypto.randomUUID(),
       departamento: numero,
       concepto: extraConcepto.trim(),
       monto: importeAgua,
