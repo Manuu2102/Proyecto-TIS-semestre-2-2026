@@ -1947,11 +1947,10 @@ function PestanaMovBanco({ esAdmin, caja, cajaMovs, setCajaMovs, cuentas, movBan
 // 12. PÁGINA
 // =====================================================================
 
+// CAMBIO: se quitaron las pestañas "Cuentas bancarias" y "Movimientos bancarios" (solo visual)
 const PESTANAS: [Vista, string][] = [
   ["saldo", "Saldo de caja"],
   ["caja", "Movimientos de caja"],
-  ["cuentas", "Cuentas bancarias"],
-  ["bancos", "Movimientos bancarios"],
 ];
 
 export default function CajaBancosPage() {
