@@ -17,11 +17,7 @@ export class CrearIngresoDto {
   @Allow()
   descripcion?: string;
 
-  // efectivo | transferencia | deposito (si falta, efectivo)
+  // efectivo | transferencia | deposito (si falta, efectivo); el dinero siempre pasa por caja
   @Allow()
   metodo?: string;
-
-  // Obligatoria para transferencia o depósito
-  @Allow()
-  id_cuenta?: string | number;
 }

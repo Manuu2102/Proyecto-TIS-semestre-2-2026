@@ -1,6 +1,6 @@
 import { Prisma } from '../generated/prisma/client.js';
 
-/** Operaciones que registran caja, bancos, ingresos, gastos y categorías. */
+/** Operaciones que registran caja, ingresos, gastos y categorías. */
 export type OperacionAuditoria = 'CREAR' | 'ACTUALIZAR' | 'DESACTIVAR' | 'ANULAR' | 'ABRIR';
 
 // La tabla auditoria solo acepta INSERT, UPDATE o DELETE (CHECK auditoria_accion_check).

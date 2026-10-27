@@ -313,9 +313,9 @@ export function exportarSaldoCaja(formato: "pdf" | "excel", corte: string, desde
 // CUENTAS BANCARIAS
 // =====================================================================
 
+// El backend ya no tiene bancos: no se consulta y se responde vacío
 export async function listarCuentas(): Promise<Cuenta[]> {
-  const r = await api<{ cuentas: CuentaRaw[] }>("/cuentas-bancarias");
-  return r.cuentas.map(adaptarCuenta);
+  return [];
 }
 
 export async function crearCuenta(d: {
@@ -354,9 +354,10 @@ export function desactivarCuenta(id: number) {
 // MOVIMIENTOS BANCARIOS
 // =====================================================================
 
+// El backend ya no tiene bancos: no se consulta y se responde vacío
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 export async function listarMovBanco(cuentaId?: number): Promise<MovBanco[]> {
-  const query = cuentaId ? `?cuentaId=${cuentaId}` : "";
-  return adaptarMovsBanco(await api<MovBancoRaw[]>(`/bancos/movimientos${query}`));
+  return [];
 }
 
 export async function crearMovBanco(d: {
