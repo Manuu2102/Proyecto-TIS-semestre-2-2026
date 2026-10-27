@@ -111,7 +111,6 @@ function generarExpensasApi(
   });
 }
 
-
 // DATOS SIMULADOS: BACKEND GET /expensas/tarifas
 const TARIFAS: Record<Categoria, Concepto[]> = {
   A: [
@@ -131,64 +130,8 @@ const TARIFAS: Record<Categoria, Concepto[]> = {
   ],
 };
 
-// DATOS SIMULADOS: BACKEND GET /departamentos
-const DEPARTAMENTOS: Departamento[] = [
-  { numero: 101, categoria: "A", ocupado: true },
-  { numero: 102, categoria: "A", ocupado: true },
-  { numero: 103, categoria: "A", ocupado: true },
-  { numero: 201, categoria: "B", ocupado: true },
-  { numero: 202, categoria: "B", ocupado: true },
-  { numero: 203, categoria: "B", ocupado: true },
-  { numero: 301, categoria: "C", ocupado: true },
-  { numero: 302, categoria: "C", ocupado: true },
-  { numero: 401, categoria: null, ocupado: true },
-  { numero: 402, categoria: "B", ocupado: false },
-];
-
-const ELEGIBLES = DEPARTAMENTOS.filter(
-  (d): d is Departamento & { categoria: Categoria } =>
-    d.ocupado && d.categoria !== null
-);
-
 function totalDe(conceptos: Concepto[]) {
   return conceptos.reduce((suma, concepto) => suma + concepto.monto, 0);
-}
-
-function ultimoDia(periodo: string) {
-  const [anio, mes] = periodo.split("-").map(Number);
-  const dia = new Date(anio, mes, 0).getDate();
-
-  return `${anio}-${String(mes).padStart(2, "0")}-${String(dia).padStart(2, "0")}`;
-}
-
-function crear(
-  numero: number,
-  categoria: Categoria,
-  periodo: string,
-  estado: Estado,
-  tarifas: Record<Categoria, Concepto[]>,
-  extras: ExtraDepartamento[] = []
-): Expensa {
-  const desglose = [
-    ...tarifas[categoria].map((concepto) => ({ ...concepto })),
-    ...extras
-      .filter((extra) => extra.departamento === numero)
-      .map((extra) => ({
-        concepto: extra.concepto,
-        monto: extra.monto,
-      })),
-  ];
-
-  return {
-    id: `${periodo}-${numero}`,
-    departamento: numero,
-    categoria,
-    periodo,
-    desglose,
-    total: totalDe(desglose),
-    fechaLimite: ultimoDia(periodo),
-    estado,
-  };
 }
 
 // Suma al desglose y al total los gastos adicionales (agua, extras) que la
@@ -236,24 +179,6 @@ function completarTarifas(
   });
 }
 
-// DATOS SIMULADOS: BACKEND GET /expensas?periodo=YYYY-MM
-const EXPENSAS_INICIALES: Expensa[] = [
-  ...ELEGIBLES.map((d) =>
-    crear(d.numero, d.categoria, "2026-08", "Pagado", TARIFAS)
-  ),
-  ...ELEGIBLES.filter((d) => d.numero < 301).map((d) =>
-    crear(
-      d.numero,
-      d.categoria,
-      "2026-09",
-      [101, 102, 201].includes(d.numero) ? "Pagado" : "Pendiente",
-      TARIFAS
-    )
-  ),
-];
-
-// SIMULACIÓN DEL SERVICIO. El backend implementará POST /expensas/generar.
-
 function bs(monto: number) {
   return (
     "Bs. " +
@@ -288,6 +213,9 @@ const AVISO = {
   border: "1px solid #f0dcb4",
 };
 
+// Descripción por defecto del formulario de agua
+const CONCEPTO_AGUA = "Agua";
+
 function readRol(): string {
   if (typeof window === "undefined") return "";
   return (sessionStorage.getItem("rolUsuario") || "").toUpperCase();
@@ -300,7 +228,6 @@ export default function ExpensasPage() {
   const [expensas, setExpensas] = useState<Expensa[]>([]);
   const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
 
-  // Mismo nombre que antes, para no tocar el JSX
   const ELEGIBLES = departamentos.filter(
     (d): d is Departamento & { categoria: Categoria } =>
       d.ocupado && d.categoria !== null
@@ -315,12 +242,6 @@ export default function ExpensasPage() {
     C: TARIFAS.C.map((c) => ({ ...c })),
   }));
 
-  // Gastos extraordinarios (agua, extras) para la generación del período seleccionado.
-  const [extras, setExtras] = useState<ExtraDepartamento[]>([]);
-  const [extraDepartamento, setExtraDepartamento] = useState("");
-  const [extraConcepto, setExtraConcepto] = useState("");
-  const [extraMonto, setExtraMonto] = useState("");
-
   const [tarifaCategoriaActiva, setTarifaCategoriaActiva] =
     useState<Categoria>("A");
   const [tarifaConcepto, setTarifaConcepto] = useState("");
@@ -333,12 +254,24 @@ export default function ExpensasPage() {
   const [periodoVista, setPeriodoVista] = useState("2026-09");
   const [resultado, setResultado] = useState<Resultado | null>(null);
 
+  // Modal "Generar expensas" (masivo)
   const [modalOpen, setModalOpen] = useState(false);
   const [paso, setPaso] = useState<"form" | "confirmar">("form");
   const [mes, setMes] = useState("");
   const [anio, setAnio] = useState("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState("");
+
+  // Modal "Registrar agua" (un departamento por vez)
+  const [aguaOpen, setAguaOpen] = useState(false);
+  const [aguaMes, setAguaMes] = useState("");
+  const [aguaAnio, setAguaAnio] = useState("");
+  const [extraDepartamento, setExtraDepartamento] = useState("");
+  const [extraConcepto, setExtraConcepto] = useState(CONCEPTO_AGUA);
+  const [extraMonto, setExtraMonto] = useState("");
+  const [aguaGuardando, setAguaGuardando] = useState(false);
+  const [aguaError, setAguaError] = useState("");
+  const [aguaOk, setAguaOk] = useState("");
 
   useEffect(() => {
     cargarExpensasApi()
@@ -364,6 +297,7 @@ export default function ExpensasPage() {
     (_, i) => ANIO_INICIO + i
   );
 
+  // ---------- Generar expensas ----------
   const mesFuturo = (numeroMes: number) =>
     anio !== "" &&
     Number(anio) === anioActual &&
@@ -394,8 +328,54 @@ export default function ExpensasPage() {
       ).length
     : 0;
 
-  // Se puede continuar si hay expensas por crear o gastos adicionales por aplicar.
-  const puedeContinuar = periodoValido && (faltantes > 0 || extras.length > 0);
+  const puedeContinuar = periodoValido && faltantes > 0;
+
+  // ---------- Registrar agua ----------
+  const aguaMesFuturo = (numeroMes: number) =>
+    aguaAnio !== "" &&
+    Number(aguaAnio) === anioActual &&
+    numeroMes > mesActual;
+
+  const aguaPeriodoValido =
+    aguaMes !== "" &&
+    aguaAnio !== "" &&
+    Number(aguaAnio) >= ANIO_INICIO &&
+    Number(aguaAnio) <= anioActual &&
+    !aguaMesFuturo(Number(aguaMes));
+
+  const aguaPeriodoSel = aguaPeriodoValido
+    ? `${aguaAnio}-${aguaMes.padStart(2, "0")}`
+    : "";
+
+  const expensasAgua = aguaPeriodoSel
+    ? expensas.filter((e) => e.periodo === aguaPeriodoSel)
+    : [];
+
+  const importeAgua = Number(extraMonto);
+  const importeAguaValido =
+    extraMonto.trim() !== "" &&
+    Number.isFinite(importeAgua) &&
+    importeAgua > 0;
+
+  // El departamento ya tiene un gasto con la misma descripción en ese período
+  const yaRegistrado = (numero: number) =>
+    expensasAgua.some(
+      (e) =>
+        e.departamento === numero &&
+        e.desglose.some(
+          (c) =>
+            c.concepto.trim().toLowerCase() ===
+            extraConcepto.trim().toLowerCase()
+        )
+    );
+
+  const puedeRegistrarAgua =
+    aguaPeriodoValido &&
+    expensasAgua.length > 0 &&
+    extraDepartamento !== "" &&
+    extraConcepto.trim() !== "" &&
+    importeAguaValido &&
+    !aguaGuardando;
 
   const periodos = Array.from(
     new Set(expensas.map((e) => e.periodo))
@@ -406,10 +386,6 @@ export default function ExpensasPage() {
   const pendientes = lista.filter((e) => e.estado === "Pendiente").length;
 
   function abrirModal() {
-    setExtras([]);
-    setExtraDepartamento("");
-    setExtraConcepto("");
-    setExtraMonto("");
     setPaso("form");
     setMes("");
     setAnio("");
@@ -425,10 +401,6 @@ export default function ExpensasPage() {
     setMes("");
     setAnio("");
     setError("");
-    setExtras([]);
-    setExtraDepartamento("");
-    setExtraConcepto("");
-    setExtraMonto("");
   }
 
   function abrirTarifas() {
@@ -445,6 +417,32 @@ export default function ExpensasPage() {
     setErrorTarifa("");
   }
 
+  function limpiarFormularioAgua() {
+    setExtraDepartamento("");
+    setExtraConcepto(CONCEPTO_AGUA);
+    setExtraMonto("");
+  }
+
+  function abrirAgua() {
+    limpiarFormularioAgua();
+    setAguaMes("");
+    setAguaAnio("");
+    setAguaError("");
+    setAguaOk("");
+    setAguaOpen(true);
+  }
+
+  function cerrarAgua() {
+    if (aguaGuardando) return;
+
+    setAguaOpen(false);
+    limpiarFormularioAgua();
+    setAguaMes("");
+    setAguaAnio("");
+    setAguaError("");
+    setAguaOk("");
+  }
+
   function cambiarAnio(valor: string) {
     setAnio(valor);
 
@@ -457,6 +455,22 @@ export default function ExpensasPage() {
     }
 
     setError("");
+  }
+
+  function cambiarAguaAnio(valor: string) {
+    setAguaAnio(valor);
+
+    if (
+      valor !== "" &&
+      Number(valor) === anioActual &&
+      Number(aguaMes) > mesActual
+    ) {
+      setAguaMes("");
+    }
+
+    setExtraDepartamento("");
+    setAguaError("");
+    setAguaOk("");
   }
 
   function actualizarTarifa() {
@@ -484,36 +498,65 @@ export default function ExpensasPage() {
     setErrorTarifa("");
   }
 
-  function agregarExtra() {
-    const importe = Number(extraMonto);
+  // Registra el agua de UN solo departamento (mismo POST /expensas/extras)
+  async function registrarAgua() {
+    if (!puedeRegistrarAgua) return;
 
-    if (
-      !extraDepartamento ||
-      !extraConcepto.trim() ||
-      extraMonto.trim() === "" ||
-      !Number.isFinite(importe) ||
-      importe <= 0
-    ) {
-      setError("Completa el departamento, el concepto y un importe mayor que cero.");
+    const numero = Number(extraDepartamento);
+
+    if (yaRegistrado(numero)) {
+      setAguaError(
+        `El Dpto. ${numero} ya tiene "${extraConcepto.trim()}" registrado en ${nombrePeriodo(aguaPeriodoSel).toLowerCase()}.`
+      );
       return;
     }
 
-    setExtras((prev) => [
-      ...prev,
-      {
-        id: `${Date.now()}-${Math.random()}`,
-        departamento: Number(extraDepartamento),
-        concepto: extraConcepto.trim(),
-        monto: importe,
-      },
-    ]);
+    const extra: ExtraDepartamento = {
+      id: `${Date.now()}-${Math.random()}`,
+      departamento: numero,
+      concepto: extraConcepto.trim(),
+      monto: importeAgua,
+    };
 
-    setExtraDepartamento("");
-    setExtraConcepto("");
-    setExtraMonto("");
-    setError("");
+    setAguaGuardando(true);
+    setAguaError("");
+    setAguaOk("");
+
+    try {
+      const res = await generarExpensasApi(aguaPeriodoSel, [extra]);
+
+      const generadas = completarTarifas(
+        aplicarExtras(res.generadas, [extra]),
+        tarifasEditables
+      );
+
+      setExpensas((prev) => {
+        const ids = new Set(generadas.map((e) => e.id));
+        const combinadas = [...prev.filter((e) => !ids.has(e.id)), ...generadas];
+
+        // Si el backend no devolvió la expensa actualizada, se aplica en pantalla
+        return combinadas.map((e) =>
+          e.periodo === aguaPeriodoSel ? aplicarExtras([e], [extra])[0] : e
+        );
+      });
+
+      setPeriodoVista(aguaPeriodoSel);
+      setAguaOk(
+        `Registrado para el Dpto. ${numero}: ${extra.concepto} ${bs(extra.monto)}.`
+      );
+      limpiarFormularioAgua();
+    } catch (e) {
+      setAguaError(
+        e instanceof Error
+          ? e.message
+          : "No se pudo registrar el agua. Intenta nuevamente."
+      );
+    } finally {
+      setAguaGuardando(false);
+    }
   }
 
+  // Generación masiva: solo tarifas fijas, sin extras
   async function confirmarGeneracion() {
     if (generando || !puedeContinuar) return;
 
@@ -521,16 +564,11 @@ export default function ExpensasPage() {
     setError("");
 
     try {
-      const res = await generarExpensasApi(periodoSel, extras);
+      const res = await generarExpensasApi(periodoSel, []);
 
-      // Agua / extras sumados al desglose, y (TEMPORAL) conceptos fijos de la
-      // categoría completados en pantalla. Nada de esto se envía al backend.
-      const generadas = completarTarifas(
-        aplicarExtras(res.generadas, extras),
-        tarifasEditables
-      );
+      // (TEMPORAL) conceptos fijos completados en pantalla.
+      const generadas = completarTarifas(res.generadas, tarifasEditables);
 
-      // El backend devuelve las filas actualizadas: se reemplazan, no se agregan
       setExpensas((prev) => {
         const ids = new Set(generadas.map((e) => e.id));
         return [...prev.filter((e) => !ids.has(e.id)), ...generadas];
@@ -570,6 +608,13 @@ export default function ExpensasPage() {
               disabled={generando}
             >
               Configurar tarifas
+            </button>
+            <button
+              className="btn btn-secondary"
+              onClick={abrirAgua}
+              disabled={generando}
+            >
+              Registrar agua
             </button>
             <button
               className="btn btn-primary"
@@ -855,7 +900,229 @@ export default function ExpensasPage() {
         </Modal>
       )}
 
-      {/* MODAL: GENERAR EXPENSAS */}
+      {/* MODAL: REGISTRAR AGUA (departamento por departamento) */}
+      {esAdmin && (
+        <Modal open={aguaOpen} title="Registrar agua" onClose={cerrarAgua}>
+          <div className="modal-form">
+            <div className="form-grid">
+              <label className="field">
+                <span>Mes <b>*</b></span>
+                <select
+                  value={aguaMes}
+                  onChange={(e) => {
+                    setAguaMes(e.target.value);
+                    setExtraDepartamento("");
+                    setAguaError("");
+                    setAguaOk("");
+                  }}
+                >
+                  <option value="">Selecciona un mes</option>
+                  {MESES.map((nombre, i) => (
+                    <option
+                      key={nombre}
+                      value={String(i + 1)}
+                      disabled={aguaMesFuturo(i + 1)}
+                    >
+                      {nombre}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Año <b>*</b></span>
+                <select
+                  value={aguaAnio}
+                  onChange={(e) => cambiarAguaAnio(e.target.value)}
+                >
+                  <option value="">Selecciona un año</option>
+                  {anios.map((a) => (
+                    <option key={a} value={String(a)}>
+                      {a}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            {!aguaPeriodoValido && (
+              <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
+                Selecciona el mes y el año. No se pueden elegir meses futuros.
+              </p>
+            )}
+
+            {aguaPeriodoValido && expensasAgua.length === 0 && (
+              <div className="alert" style={{ ...AVISO, marginTop: 12 }}>
+                Todavía no hay expensas generadas para{" "}
+                {nombrePeriodo(aguaPeriodoSel).toLowerCase()}. Primero usa
+                &quot;Generar expensas&quot;.
+              </div>
+            )}
+
+            <h3 style={{ fontSize: 13, margin: "20px 0 8px" }}>
+              Registro de agua y gastos adicionales
+            </h3>
+
+            <div className="form-grid">
+              <label className="field">
+                <span>Departamento <b>*</b></span>
+                <select
+                  value={extraDepartamento}
+                  disabled={!aguaPeriodoValido || expensasAgua.length === 0}
+                  onChange={(e) => {
+                    setExtraDepartamento(e.target.value);
+                    setAguaError("");
+                    setAguaOk("");
+                  }}
+                >
+                  <option value="">Selecciona un departamento</option>
+                  {ELEGIBLES.filter((d) =>
+                    expensasAgua.some((e) => e.departamento === d.numero)
+                  ).map((d) => (
+                    <option
+                      key={`${d.numero}-${d.categoria}`}
+                      value={String(d.numero)}
+                    >
+                      Dpto. {d.numero} · Categoría {d.categoria}
+                      {yaRegistrado(d.numero) ? " · ya registrado" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Descripción del gasto <b>*</b></span>
+                <input
+                  value={extraConcepto}
+                  onChange={(e) => {
+                    setExtraConcepto(e.target.value);
+                    setAguaError("");
+                  }}
+                  maxLength={100}
+                  placeholder="Ej. Agua"
+                />
+              </label>
+
+              <label className="field">
+                <span>Importe (Bs.) <b>*</b></span>
+                <input
+                  type="number"
+                  min="0.01"
+                  step="0.01"
+                  value={extraMonto}
+                  onChange={(e) => {
+                    setExtraMonto(e.target.value);
+                    setAguaError("");
+                    setAguaOk("");
+                  }}
+                  placeholder="Ej. 50"
+                />
+              </label>
+
+              <div style={{ display: "flex", alignItems: "end" }}>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={registrarAgua}
+                  disabled={!puedeRegistrarAgua}
+                >
+                  <PlusIcon size={16} />{" "}
+                  {aguaGuardando ? "Guardando…" : "Registrar agua"}
+                </button>
+              </div>
+            </div>
+
+            {aguaOk && (
+              <div className="alert alert-success" style={{ marginTop: 12 }}>
+                {aguaOk}
+              </div>
+            )}
+
+            {aguaError && (
+              <div className="alert alert-error" style={{ marginTop: 12 }}>
+                {aguaError}
+              </div>
+            )}
+
+            <h3 style={{ fontSize: 13, margin: "20px 0 8px" }}>
+              Vista previa del total por departamento
+            </h3>
+
+            <div className="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Departamento</th>
+                    <th>Categoría</th>
+                    <th>Tarifa base</th>
+                    <th>Agua y extras</th>
+                    <th>Total estimado</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {ELEGIBLES.map((d) => {
+                    const base = totalDe(tarifasEditables[d.categoria]);
+
+                    // Agua y extras ya registrados en el período (datos reales)
+                    const existente = expensasAgua.find(
+                      (e) => e.departamento === d.numero
+                    );
+                    const registrados = existente
+                      ? existente.desglose
+                          .filter(
+                            (c) =>
+                              !tarifasEditables[d.categoria].some(
+                                (f) => f.concepto === c.concepto
+                              )
+                          )
+                          .reduce((suma, c) => suma + c.monto, 0)
+                      : 0;
+
+                    // Lo que se está escribiendo para el departamento elegido
+                    const enEdicion =
+                      extraDepartamento === String(d.numero) &&
+                      importeAguaValido
+                        ? importeAgua
+                        : 0;
+
+                    const extraTotal = registrados + enEdicion;
+
+                    return (
+                      <tr key={`${d.numero}-${d.categoria}`}>
+                        <td>Dpto. {d.numero}</td>
+                        <td>{d.categoria}</td>
+                        <td>{bs(base)}</td>
+                        <td>{bs(extraTotal)}</td>
+                        <td>
+                          <strong>{bs(base + extraTotal)}</strong>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
+              El agua se registra de a un departamento por vez y se suma
+              únicamente al departamento seleccionado. Las expensas anteriores
+              conservan sus importes.
+            </p>
+
+            <div className="modal-actions">
+              <button
+                className="btn btn-secondary"
+                onClick={cerrarAgua}
+                disabled={aguaGuardando}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* MODAL: GENERAR EXPENSAS (masivo) */}
       {esAdmin && (
         <Modal
           open={modalOpen}
@@ -927,147 +1194,11 @@ export default function ExpensasPage() {
                 </div>
               )}
 
-              <h3 style={{ fontSize: 13, margin: "20px 0 8px" }}>
-                Registro de agua y gastos adicionales
-              </h3>
-
-              <div className="form-grid">
-                <label className="field">
-                  <span>Departamento <b>*</b></span>
-                  <select
-                    value={extraDepartamento}
-                    onChange={(e) => setExtraDepartamento(e.target.value)}
-                  >
-                    <option value="">Selecciona un departamento</option>
-                    {ELEGIBLES.map((d) => (
-                      <option key={d.numero} value={String(d.numero)}>
-                        Dpto. {d.numero} · Categoría {d.categoria}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="field">
-                  <span>Descripción del gasto <b>*</b></span>
-                  <input
-                    value={extraConcepto}
-                    onChange={(e) => setExtraConcepto(e.target.value)}
-                    maxLength={100}
-                    placeholder="Ej. Agua"
-                  />
-                </label>
-
-                <label className="field">
-                  <span>Importe (Bs.) <b>*</b></span>
-                  <input
-                    type="number"
-                    min="0.01"
-                    step="0.01"
-                    value={extraMonto}
-                    onChange={(e) => setExtraMonto(e.target.value)}
-                    placeholder="Ej. 50"
-                  />
-                </label>
-
-                <div style={{ display: "flex", alignItems: "end" }}>
-                  <button
-                    type="button"
-                    className="btn btn-secondary"
-                    onClick={agregarExtra}
-                    disabled={
-                      !extraDepartamento ||
-                      !extraConcepto.trim() ||
-                      extraMonto.trim() === "" ||
-                      !Number.isFinite(Number(extraMonto)) ||
-                      Number(extraMonto) <= 0
-                    }
-                  >
-                    <PlusIcon size={16} /> Añadir gasto
-                  </button>
-                </div>
-              </div>
-
-              {extras.length > 0 && (
-                <div className="table-wrap" style={{ marginTop: 12 }}>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Departamento</th>
-                        <th>Concepto</th>
-                        <th>Importe</th>
-                        <th>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {extras.map((extra) => (
-                        <tr key={extra.id}>
-                          <td>Dpto. {extra.departamento}</td>
-                          <td>{extra.concepto}</td>
-                          <td>{bs(extra.monto)}</td>
-                          <td>
-                            <button
-                              type="button"
-                              className="btn btn-secondary"
-                              onClick={() =>
-                                setExtras((prev) =>
-                                  prev.filter((e) => e.id !== extra.id)
-                                )
-                              }
-                            >
-                              Quitar
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-
-              <h3 style={{ fontSize: 13, margin: "20px 0 8px" }}>
-                Vista previa del total por departamento
-              </h3>
-
-              <div className="table-wrap">
-                <table>
-                  <thead>
-                    <tr>
-                      <th>Departamento</th>
-                      <th>Categoría</th>
-                      <th>Tarifa base</th>
-                      <th>Agua y extras</th>
-                      <th>Total estimado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {ELEGIBLES.map((d) => {
-                      const base = totalDe(tarifasEditables[d.categoria]);
-                      const extraTotal = extras
-                        .filter((e) => e.departamento === d.numero)
-                        .reduce((suma, e) => suma + e.monto, 0);
-
-                      return (
-                        <tr key={d.numero}>
-                          <td>Dpto. {d.numero}</td>
-                          <td>{d.categoria}</td>
-                          <td>{bs(base)}</td>
-                          <td>{bs(extraTotal)}</td>
-                          <td>
-                            <strong>{bs(base + extraTotal)}</strong>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
               <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
-                Cada departamento usa el monto fijo de su categoría. El agua y
-                los gastos adicionales se suman únicamente al departamento
-                seleccionado. Las expensas anteriores conservan sus importes.
-                Para cambiar las tarifas base usa el botón - Configurar
-                tarifas.
+                Cada departamento usa el monto fijo de su categoría. El agua se
+                registra después, departamento por departamento, con el botón
+                &quot;Registrar agua&quot;. Para cambiar las tarifas base usa
+                &quot;Configurar tarifas&quot;.
               </p>
 
               {error && (
@@ -1106,9 +1237,7 @@ export default function ExpensasPage() {
               </p>
 
               <p style={{ fontSize: 12, color: "#766E69", margin: 0 }}>
-                {faltantes > 0
-                  ? `Se crearán ${faltantes} ${plural(faltantes, "expensa", "expensas")} nuevas. Las expensas ya existentes no se duplicarán.`
-                  : "No hay expensas nuevas por crear; se aplicarán los gastos adicionales indicados."}
+                {`Se crearán ${faltantes} ${plural(faltantes, "expensa", "expensas")} nuevas. Las expensas ya existentes no se duplicarán.`}
               </p>
 
               <div className="modal-actions">
