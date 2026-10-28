@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { descifrarUsuario } from '../lib/cifrado.js';
 import { CrearDepartamentoDto } from './dto/crear-departamento.dto.js';
 import { ActualizarDepartamentoDto } from './dto/actualizar-departamento.dto.js';
 
@@ -256,10 +257,7 @@ export class DepartamentosService {
       departamento_usuario: d.departamento_usuario?.map((du: any) => ({
         ...du,
         id_departamento: du.id_departamento.toString(),
-        usuario: {
-          ...du.usuario,
-          ci: du.usuario.ci.toString(),
-        },
+        usuario: descifrarUsuario(du.usuario),
       })),
     };
   }

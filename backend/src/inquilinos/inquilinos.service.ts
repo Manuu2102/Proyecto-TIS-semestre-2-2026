@@ -9,6 +9,7 @@ import { SupabaseService } from '../supabase/supabase.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { CrearInquilinoDto } from './dto/crear-inquilino.dto.js';
 import { ActualizarInquilinoDto } from './dto/actualizar-inquilino.dto.js';
+import { cifrarCi, cifrarEmail, cifrarTelefono, descifrar, descifrarUsuario } from '../lib/cifrado.js';
 import {
   cerrarOcupaciones,
   codigoDepartamento,
@@ -53,15 +54,16 @@ export class InquilinosService {
   }
 
   async crear(data: CrearInquilinoDto, adminId: string) {
+    // ci, email y telefono se guardan cifrados (lib/cifrado.ts)
     const existeCi = await this.prisma.usuario.findUnique({
-      where: { ci: BigInt(data.ci) },
+      where: { ci: cifrarCi(data.ci) },
     });
     if (existeCi) {
       throw new ConflictException('El CI ya está registrado');
     }
 
     const existeEmail = await this.prisma.usuario.findUnique({
-      where: { email: data.email },
+      where: { email: cifrarEmail(data.email) },
     });
     if (existeEmail) {
       throw new ConflictException('El email ya está registrado');
@@ -98,16 +100,16 @@ export class InquilinosService {
         const nuevoUsuario = await tx.usuario.create({
           data: {
             id: userId,
-            ci: BigInt(data.ci),
+            ci: cifrarCi(data.ci),
             nombres: data.nombres,
             apellido_paterno: data.apellido_paterno,
             apellido_materno: data.apellido_materno,
             sexo: data.sexo,
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
-            email: data.email,
+            email: cifrarEmail(data.email),
             estatus: true,
             fecha_de_registro: new Date(),
-            telefono: data.telefono,
+            telefono: cifrarTelefono(data.telefono),
             rol_usuario: {
               create: { id_rol: this.ID_ROL_INQUILINO },
             },
@@ -126,7 +128,7 @@ export class InquilinosService {
 
       return {
         message: 'Inquilino registrado correctamente',
-        inquilino: { ...inquilino, ci: inquilino.ci.toString() },
+        inquilino: descifrarUsuario(inquilino),
       };
     } catch (dbError) {
       // Si falla la BD, eliminamos el usuario de Supabase Auth para no dejar basura
@@ -138,18 +140,23 @@ export class InquilinosService {
   async actualizar(id: string, data: ActualizarInquilinoDto, adminId: string) {
     const existe = await this.buscarInquilino(id);
 
-    if (data.ci && BigInt(data.ci) !== existe.ci) {
+    // Se compara con los datos descifrados; las búsquedas van con el valor cifrado
+    const cambiaCi = !!data.ci && String(data.ci).trim() !== descifrar(existe.ci);
+    const cambiaEmail =
+      !!data.email && data.email.trim().toLowerCase() !== descifrar(existe.email).toLowerCase();
+
+    if (cambiaCi) {
       const ciDuplicado = await this.prisma.usuario.findUnique({
-        where: { ci: BigInt(data.ci) },
+        where: { ci: cifrarCi(data.ci!) },
       });
       if (ciDuplicado) {
         throw new ConflictException('El CI ya está registrado');
       }
     }
 
-    if (data.email && data.email !== existe.email) {
+    if (cambiaEmail) {
       const emailDuplicado = await this.prisma.usuario.findUnique({
-        where: { email: data.email },
+        where: { email: cifrarEmail(data.email!) },
       });
       if (emailDuplicado) {
         throw new ConflictException('El email ya está registrado');
@@ -166,7 +173,8 @@ export class InquilinosService {
       await this.validarDepartamento(nuevoDepto, id);
     }
 
-    if (data.email && data.email !== existe.email) {
+    // Supabase Auth guarda el email sin cifrar: lo necesita para el login
+    if (cambiaEmail) {
       const { error } = await this.supabase.adminClient.auth.admin.updateUserById(id, {
         email: data.email,
       });
@@ -196,7 +204,7 @@ export class InquilinosService {
       return tx.usuario.update({
         where: { id },
         data: {
-          ...(data.ci && { ci: BigInt(data.ci) }),
+          ...(data.ci && { ci: cifrarCi(data.ci) }),
           ...(data.nombres && { nombres: data.nombres }),
           ...(data.apellido_paterno && { apellido_paterno: data.apellido_paterno }),
           ...(data.apellido_materno !== undefined && {
@@ -206,8 +214,8 @@ export class InquilinosService {
           ...(data.fecha_de_nacimiento && {
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
           }),
-          ...(data.email && { email: data.email }),
-          ...(data.telefono && { telefono: data.telefono }),
+          ...(data.email && { email: cifrarEmail(data.email) }),
+          ...(data.telefono && { telefono: cifrarTelefono(data.telefono) }),
           ...(data.estatus !== undefined && { estatus: data.estatus }),
         },
       });
@@ -215,7 +223,7 @@ export class InquilinosService {
 
     return {
       message: 'Inquilino actualizado correctamente',
-      inquilino: { ...actualizado, ci: actualizado.ci.toString() },
+      inquilino: descifrarUsuario(actualizado),
     };
   }
 
@@ -242,8 +250,7 @@ export class InquilinosService {
       inquilinos: inquilinos.map((i) => {
         const ocupacion = i.departamento_usuario[0];
         return {
-          ...i,
-          ci: i.ci.toString(),
+          ...descifrarUsuario(i),
           departamento: ocupacion ? codigoDepartamento(ocupacion.departamento) : null,
           id_departamento: ocupacion?.departamento.id.toString() ?? null,
           fecha_ocupacion: ocupacion?.fecha_ocupacion ?? null,
@@ -272,8 +279,7 @@ export class InquilinosService {
     });
 
     return {
-      ...inquilino,
-      ci: inquilino.ci.toString(),
+      ...descifrarUsuario(inquilino),
       // Historial de ocupaciones
       departamento_usuario: inquilino.departamento_usuario.map((du) => ({
         id_departamento: du.id_departamento.toString(),

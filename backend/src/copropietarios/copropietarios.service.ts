@@ -9,6 +9,7 @@ import { SupabaseService } from '../supabase/supabase.service.js';
 import { CrearCopropietarioDto } from './dto/crear-copropietarios.dto.js';
 import { ActualizarCopropietarioDto } from './dto/actualizar-copropietarios.dto.js';
 import { Prisma } from '../generated/prisma/client.js';
+import { cifrarCi, cifrarEmail, cifrarTelefono, descifrar, descifrarUsuario } from '../lib/cifrado.js';
 import {
   cerrarOcupaciones,
   codigoDepartamento,
@@ -43,15 +44,16 @@ export class CopropietariosService {
   }
 
   async crear(data: CrearCopropietarioDto, adminId: string) {
+    // ci, email y telefono se guardan cifrados (lib/cifrado.ts)
     const existeCi = await this.prisma.usuario.findUnique({
-      where: { ci: BigInt(data.ci) },
+      where: { ci: cifrarCi(data.ci) },
     });
     if (existeCi) {
       throw new ConflictException('El CI ya está registrado');
     }
 
     const existeEmail = await this.prisma.usuario.findUnique({
-      where: { email: data.email },
+      where: { email: cifrarEmail(data.email) },
     });
     if (existeEmail) {
       throw new ConflictException('El email ya está registrado');
@@ -93,16 +95,16 @@ export class CopropietariosService {
         const nuevoUsuario = await tx.usuario.create({
           data: {
             id: userId,
-            ci: BigInt(data.ci),
+            ci: cifrarCi(data.ci),
             nombres: data.nombres,
             apellido_paterno: data.apellido_paterno,
             apellido_materno: data.apellido_materno,
             sexo: data.sexo,
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
-            email: data.email,
+            email: cifrarEmail(data.email),
             estatus: true, // FIX: Forzado a true, ignorando lo que venga del front
             fecha_de_registro: new Date(),
-            telefono: data.telefono,
+            telefono: cifrarTelefono(data.telefono),
             rol_usuario: {
               create: {
                 id_rol: this.ID_ROL_COPROPIETARIO,
@@ -141,8 +143,7 @@ export class CopropietariosService {
       return {
         message: 'Copropietario registrado correctamente',
         copropietario: {
-          ...copropietario,
-          ci: copropietario.ci.toString(),
+          ...descifrarUsuario(copropietario),
           roles: copropietario.rol_usuario.map((ru) => ru.rol.nombre_rol),
         },
       };
@@ -163,25 +164,31 @@ export class CopropietariosService {
       throw new NotFoundException(`Copropietario con id ${id} no encontrado`);
     }
 
-    if (data.ci && BigInt(data.ci) !== existe.ci) {
+    // Se compara con los datos descifrados; las búsquedas van con el valor cifrado
+    const cambiaCi = !!data.ci && String(data.ci).trim() !== descifrar(existe.ci);
+    const cambiaEmail =
+      !!data.email && data.email.trim().toLowerCase() !== descifrar(existe.email).toLowerCase();
+
+    if (cambiaCi) {
       const ciDuplicado = await this.prisma.usuario.findUnique({
-        where: { ci: BigInt(data.ci) },
+        where: { ci: cifrarCi(data.ci!) },
       });
       if (ciDuplicado) {
         throw new ConflictException('El CI ya está registrado');
       }
     }
 
-    if (data.email && data.email !== existe.email) {
+    if (cambiaEmail) {
       const emailDuplicado = await this.prisma.usuario.findUnique({
-        where: { email: data.email },
+        where: { email: cifrarEmail(data.email!) },
       });
       if (emailDuplicado) {
         throw new ConflictException('El email ya está registrado');
       }
     }
 
-    if (data.email && data.email !== existe.email) {
+    // Supabase Auth guarda el email sin cifrar: lo necesita para el login
+    if (cambiaEmail) {
       const { error } =
         await this.supabase.adminClient.auth.admin.updateUserById(id, {
           email: data.email,
@@ -216,7 +223,7 @@ export class CopropietariosService {
       return tx.usuario.update({
         where: { id },
         data: {
-          ...(data.ci && { ci: BigInt(data.ci) }),
+          ...(data.ci && { ci: cifrarCi(data.ci) }),
           ...(data.nombres && { nombres: data.nombres }),
           ...(data.apellido_paterno && {
             apellido_paterno: data.apellido_paterno,
@@ -228,8 +235,8 @@ export class CopropietariosService {
           ...(data.fecha_de_nacimiento && {
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
           }),
-          ...(data.email && { email: data.email }),
-          ...(data.telefono && { telefono: data.telefono }),
+          ...(data.email && { email: cifrarEmail(data.email) }),
+          ...(data.telefono && { telefono: cifrarTelefono(data.telefono) }),
           ...(data.estatus !== undefined && { estatus: data.estatus }),
         },
       });
@@ -237,10 +244,7 @@ export class CopropietariosService {
 
     return {
       message: 'Copropietario actualizado correctamente',
-      copropietario: {
-        ...actualizado,
-        ci: actualizado.ci.toString(),
-      },
+      copropietario: descifrarUsuario(actualizado),
     };
   }
 
@@ -275,8 +279,7 @@ export class CopropietariosService {
       copropietarios: copropietarios.map((c) => {
         const ocupacion = c.departamento_usuario[0];
         return {
-          ...c,
-          ci: c.ci.toString(),
+          ...descifrarUsuario(c),
           roles: c.rol_usuario.map((ru) => ru.rol.nombre_rol),
           // "A-101", y su id para poder editarlo desde el front
           departamento: ocupacion ? codigoDepartamento(ocupacion.departamento) : null,
@@ -352,8 +355,7 @@ export class CopropietariosService {
     }
 
     return {
-      ...copropietario,
-      ci: copropietario.ci.toString(),
+      ...descifrarUsuario(copropietario),
       roles: copropietario.rol_usuario.map((ru) => ru.rol.nombre_rol),
       departamento_usuario: copropietario.departamento_usuario.map((du) => ({
         ...du,
