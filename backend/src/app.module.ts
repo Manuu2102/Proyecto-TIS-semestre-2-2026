@@ -18,9 +18,7 @@ import { ExpensasModule } from './expensas/expensas.module.js';
 import { CategoriasModule } from './categorias/categorias.module.js';
 import { IngresosModule } from './ingresos/ingresos.module.js';
 import { GastosModule } from './gastos/gastos.module.js';
-import { CuentasBancariasModule } from './cuentas-bancarias/cuentas-bancarias.module.js';
 import { CajaModule } from './caja/caja.module.js';
-import { BancosModule } from './bancos/bancos.module.js';
 
 @Module({
   imports: [
@@ -42,10 +40,8 @@ import { BancosModule } from './bancos/bancos.module.js';
     CategoriasModule,
     IngresosModule,
     GastosModule,
-    CuentasBancariasModule,
     CajaModule,
     ScheduleModule.forRoot(),
-    BancosModule
   ],
 
   controllers: [AppController],

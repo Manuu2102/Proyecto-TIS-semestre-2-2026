@@ -96,8 +96,22 @@ const cargarExpensasApi = () => pedir<Expensa[]>("/expensas/mensuales");
 // BACKEND: GET /expensas/tarifas → conceptos y montos de cada categoría (tabla expensa)
 const cargarTarifasApi = () => pedir<Record<Categoria, Concepto[]>>("/expensas/tarifas");
 
+// BACKEND: PUT /expensas/tarifas → cambia el monto de la expensa de la categoría
+const actualizarTarifaApi = (categoria: Categoria, monto: number) =>
+  pedir<Record<Categoria, Concepto[]>>("/expensas/tarifas", {
+    method: "PUT",
+    body: JSON.stringify({ categoria, monto }),
+  });
+
+// BACKEND: POST /expensas/generar-mes → expensas del mes; 409 si ya estaban generadas
+const generarMesApi = (periodo: string) =>
+  pedir<Resultado>("/expensas/generar-mes", {
+    method: "POST",
+    body: JSON.stringify({ periodo }),
+  });
+
 // BACKEND: POST /expensas/extras
-function generarExpensasApi(
+function registrarExtrasApi(
   periodo: string,
   extras: ExtraDepartamento[]
 ): Promise<Resultado> {
@@ -249,8 +263,10 @@ export default function ExpensasPage() {
 
   const [tarifaCategoriaActiva, setTarifaCategoriaActiva] =
     useState<Categoria>("A");
+  // El concepto se puede elegir, pero se ignora: el monto se aplica a la expensa de la categoría
   const [tarifaConcepto, setTarifaConcepto] = useState("");
   const [tarifaMonto, setTarifaMonto] = useState("");
+  const [guardandoTarifa, setGuardandoTarifa] = useState(false);
 
   // Modal independiente para configurar tarifas
   const [tarifasOpen, setTarifasOpen] = useState(false);
@@ -306,17 +322,18 @@ export default function ExpensasPage() {
   );
 
   // ---------- Generar expensas ----------
-  const mesFuturo = (numeroMes: number) =>
+  // Solo el mes actual o meses futuros: los meses de años anteriores quedan deshabilitados
+  const mesPasado = (numeroMes: number) =>
     anio !== "" &&
-    Number(anio) === anioActual &&
-    numeroMes > mesActual;
+    (Number(anio) < anioActual ||
+      (Number(anio) === anioActual && numeroMes < mesActual));
 
   const periodoValido =
     mes !== "" &&
     anio !== "" &&
     Number(anio) >= ANIO_INICIO &&
     Number(anio) <= anioActual &&
-    !mesFuturo(Number(mes));
+    !mesPasado(Number(mes));
 
   const periodoSel = periodoValido
     ? `${anio}-${mes.padStart(2, "0")}`
@@ -457,7 +474,7 @@ export default function ExpensasPage() {
     if (
       valor !== "" &&
       Number(valor) === anioActual &&
-      Number(mes) > mesActual
+      Number(mes) < mesActual
     ) {
       setMes("");
     }
@@ -481,29 +498,30 @@ export default function ExpensasPage() {
     setAguaOk("");
   }
 
-  function actualizarTarifa() {
+  async function actualizarTarifa() {
     const importe = Number(tarifaMonto);
 
     if (
-      !tarifaConcepto ||
       tarifaMonto.trim() === "" ||
       !Number.isFinite(importe) ||
-      importe < 0
+      importe <= 0
     ) {
       setErrorTarifa("Introduce un importe válido para actualizar la tarifa.");
       return;
     }
 
-    setTarifasEditables((prev) => ({
-      ...prev,
-      [tarifaCategoriaActiva]: prev[tarifaCategoriaActiva].map((c) =>
-        c.concepto === tarifaConcepto ? { ...c, monto: importe } : c
-      ),
-    }));
-
-    setTarifaConcepto("");
-    setTarifaMonto("");
+    setGuardandoTarifa(true);
     setErrorTarifa("");
+    try {
+      setTarifasEditables(await actualizarTarifaApi(tarifaCategoriaActiva, importe));
+      setTarifaMonto("");
+    } catch (e) {
+      setErrorTarifa(
+        e instanceof Error ? e.message : "No se pudo actualizar la tarifa."
+      );
+    } finally {
+      setGuardandoTarifa(false);
+    }
   }
 
   // Registra el agua de UN solo departamento (mismo POST /expensas/extras)
@@ -531,7 +549,7 @@ export default function ExpensasPage() {
     setAguaOk("");
 
     try {
-      const res = await generarExpensasApi(aguaPeriodoSel, [extra]);
+      const res = await registrarExtrasApi(aguaPeriodoSel, [extra]);
 
       const generadas = completarTarifas(
         aplicarExtras(res.generadas, [extra]),
@@ -572,7 +590,7 @@ export default function ExpensasPage() {
     setError("");
 
     try {
-      const res = await generarExpensasApi(periodoSel, []);
+      const res = await generarMesApi(periodoSel);
 
       // (TEMPORAL) conceptos fijos completados en pantalla.
       const generadas = completarTarifas(res.generadas, tarifasEditables);
@@ -842,10 +860,10 @@ export default function ExpensasPage() {
                   type="button"
                   className="btn btn-secondary"
                   disabled={
-                    !tarifaConcepto ||
+                    guardandoTarifa ||
                     tarifaMonto.trim() === "" ||
                     !Number.isFinite(Number(tarifaMonto)) ||
-                    Number(tarifaMonto) < 0
+                    Number(tarifaMonto) <= 0
                   }
                   onClick={actualizarTarifa}
                 >
@@ -1154,7 +1172,7 @@ export default function ExpensasPage() {
                       <option
                         key={nombre}
                         value={String(i + 1)}
-                        disabled={mesFuturo(i + 1)}
+                        disabled={mesPasado(i + 1)}
                       >
                         {nombre}
                       </option>
@@ -1187,7 +1205,7 @@ export default function ExpensasPage() {
                   }}
                 >
                   Selecciona el mes y el año para continuar. No se pueden
-                  elegir meses futuros.
+                  elegir meses pasados.
                 </p>
               )}
 

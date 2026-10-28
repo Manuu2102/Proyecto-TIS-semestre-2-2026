@@ -9,6 +9,8 @@ import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 import { CrearExtrasDto } from './dto/crear-extras.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
 import { ReglaMoraDto } from './dto/regla-mora.dto.js';
+import { ActualizarTarifaDto } from './dto/actualizar-tarifa.dto.js';
+import { GenerarMesDto } from './dto/generar-mes.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { RolesGuard } from '../auth/roles.guard.js';
 import { Roles } from '../auth/roles.decorator.js';
@@ -41,10 +43,16 @@ export class ExpensasController {
     return this.expensas.create(dto);
   }
 
-  /** Hace lo mismo que el cron mensual, a demanda. Útil para probar. */
+  /** Genera las deudas del mes actual para todas las expensas. */
   @Post('generar-deudas-mensuales')
   generarDeudasMensuales() {
     return this.expensas.generarDeudasMensuales();
+  }
+
+  /** Genera las expensas de un mes elegido; si ya estaban todas, responde 409. */
+  @Post('generar-mes')
+  generarMes(@Body() dto: GenerarMesDto) {
+    return this.expensas.generarMes(dto.periodo);
   }
 
   /** Genera las deudas de un mes para una expensa existente. */
@@ -119,6 +127,12 @@ export class ExpensasController {
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
   listarTarifas() {
     return this.expensas.listarTarifas();
+  }
+
+  /** Cambia el monto de la expensa de una categoría. */
+  @Put('tarifas')
+  actualizarTarifa(@Body() dto: ActualizarTarifaDto) {
+    return this.expensas.actualizarTarifa(dto);
   }
 
   /** Departamentos para el buscador del estado de cuenta. */

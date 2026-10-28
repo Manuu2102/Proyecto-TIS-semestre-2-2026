@@ -42,7 +42,7 @@ describe('leerFecha, leerId, leerTexto, leerOpcional', () => {
   it('valida ids', () => {
     expect(leerId('12', 'categoría')).toBe(12n);
     expect(mensaje(() => leerId('', 'categoría'))).toBe('El campo categoría es obligatorio.');
-    expect(mensaje(() => leerId('0', 'cuenta bancaria'))).toBe('El campo cuenta bancaria no es válido.');
+    expect(mensaje(() => leerId('0', 'categoría'))).toBe('El campo categoría no es válido.');
   });
 
   it('valida textos de 10 a 255 caracteres', () => {

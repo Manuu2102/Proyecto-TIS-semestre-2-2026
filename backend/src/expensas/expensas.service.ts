@@ -12,6 +12,7 @@ import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
 import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 import { CrearExtrasDto } from './dto/crear-extras.dto.js';
+import { ActualizarTarifaDto } from './dto/actualizar-tarifa.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
 import { ReglaMoraDto } from './dto/regla-mora.dto.js';
 import { calcularMora, type ReglaMora } from './mora.js';
@@ -95,16 +96,6 @@ export class ExpensasService {
   /** Día del mes en que se cobra la mora y se generan las deudas nuevas. */
   private async diaCobro() {
     return (await this.reglaMora()).dia;
-  }
-
-  /**
-   * El cron genera las deudas del mes desde el día de cobro en adelante.
-   * Sin regla configurada, solo el día 1, como antes.
-   */
-  async tocaGenerarDeudas() {
-    const regla = await this.reglaMora();
-    const hoy = hoyLaPaz().getUTCDate();
-    return regla.configurada ? hoy >= regla.dia : hoy === 1;
   }
 
   async obtenerReglaMora() {
@@ -299,7 +290,7 @@ export class ExpensasService {
 
   /**
    * Genera las deudas de un mes para una expensa que ya existe.
-   * Sin `mes`, usa el mes actual. No se permiten meses futuros.
+   * Sin `mes`, usa el mes actual. No se permiten meses pasados.
    */
   async generarDeudas(id: number | bigint, dto: GenerarDeudasDto) {
     const expensa = await this.prisma.expensa.findUnique({
@@ -311,8 +302,8 @@ export class ExpensasService {
     }
 
     const mes = dto.mes ? primerDiaDelMes(dto.mes) : mesActual();
-    if (mes > mesActual()) {
-      throw new BadRequestException('No se pueden generar deudas de meses futuros');
+    if (mes < mesActual()) {
+      throw new BadRequestException('No se pueden generar deudas de meses pasados');
     }
 
     const vencimiento = calcularVencimiento(mes, await this.diaCobro());
@@ -361,17 +352,16 @@ export class ExpensasService {
   }
 
   /**
-   * Genera las deudas del mes actual para todas las expensas.
+   * Genera las deudas de un mes (por defecto el actual) para todas las expensas.
    * Es idempotente: lo que ya existe se omite.
    */
-  async generarDeudasMensuales() {
+  async generarDeudasMensuales(mes: Date = mesActual()) {
     const expensas = await this.prisma.expensa.findMany({
       where: { tipo_departamento: { not: null } }, // ignora expensas sin tipo
       select: { id: true, nombre: true },
       orderBy: { id: 'asc' },
     });
 
-    const mes = mesActual();
     const resultado = { generadas: 0, omitidas: 0, errores: 0 };
 
     for (const expensa of expensas) {
@@ -1099,6 +1089,59 @@ export class ExpensasService {
       (tarifas[categoria] ??= []).push({ concepto: e.nombre, monto: e.monto_total.toNumber() });
     }
     return tarifas;
+  }
+
+  /** Cambia el monto de la expensa de una categoría; aplica a las deudas que se generen después. */
+  async actualizarTarifa(dto: ActualizarTarifaDto) {
+    const tipos = await this.prisma.tipo_departamento.findMany({ select: { id: true, nombre: true } });
+    const tipo = tipos.find((t) => t.nombre?.trim().toUpperCase() === dto.categoria);
+    if (!tipo) throw new NotFoundException(`No existe la categoría ${dto.categoria}`);
+
+    const expensas = await this.prisma.expensa.findMany({
+      where: { tipo_departamento: tipo.id },
+      select: { id: true },
+    });
+    if (expensas.length === 0) {
+      throw new NotFoundException(`La categoría ${dto.categoria} no tiene una expensa configurada`);
+    }
+    // Con varias no se sabe a cuál aplicar el monto
+    if (expensas.length > 1) {
+      throw new ConflictException(
+        `La categoría ${dto.categoria} tiene ${expensas.length} expensas configuradas; debe tener una sola`,
+      );
+    }
+
+    await this.prisma.expensa.update({
+      where: { id: expensas[0].id },
+      data: { monto_total: dto.monto.toFixed(2) },
+    });
+    return this.listarTarifas();
+  }
+
+  /**
+   * Genera las expensas de un mes elegido. Solo crea las que faltan; si ya estaban
+   * todas generadas, responde 409 y no genera nada.
+   */
+  async generarMes(periodo: string) {
+    const mes = primerDiaDelMes(`${periodo}-01`);
+    if (mes < mesActual()) {
+      throw new BadRequestException('No se pueden generar expensas de meses pasados');
+    }
+
+    const antes = new Set((await this.listarMensuales(periodo)).map((f) => f.departamento));
+    const r = await this.generarDeudasMensuales(mes);
+    if (r.generadas === 0) {
+      if (r.errores > 0) throw new BadRequestException('No se pudieron generar las expensas. Intenta nuevamente.');
+      throw new ConflictException('Ya se generaron las expensas de este mes');
+    }
+
+    const filas = await this.listarMensuales(periodo);
+    return {
+      periodo,
+      generadas: filas.filter((f) => !antes.has(f.departamento)),
+      omitidos: [],
+      yaExistian: antes.size,
+    };
   }
 
   /** Departamentos activos, con la forma que usa el front. */

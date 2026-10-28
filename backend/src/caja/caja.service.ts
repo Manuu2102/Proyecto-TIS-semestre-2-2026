@@ -281,27 +281,6 @@ export class CajaService {
   }
 
   /**
-   * Anula el movimiento de caja generado por un ingreso o un gasto, dentro de la
-   * transacción que anula el origen. Si el origen no pasó por caja, no hace nada.
-   */
-  async anularPorOrigenEnTx(
-    tx: Tx,
-    origen: { idIngreso: bigint } | { idGasto: bigint },
-    motivo: string,
-    idUsuario: string,
-  ) {
-    await this.bloquear(tx);
-    const mov = await tx.movimiento_caja.findFirst({
-      where:
-        'idIngreso' in origen
-          ? { id_ingreso: origen.idIngreso, origen: 'Ingreso' }
-          : { id_gasto: origen.idGasto, origen: 'Gasto' },
-    });
-    if (!mov || mov.anulado) return null;
-    return this.anularEnTx(tx, mov, motivo, idUsuario);
-  }
-
-  /**
    * Marca el original como anulado (con fecha, motivo y usuario) y crea el movimiento
    * contrario. Se llama con el candado tomado.
    */
