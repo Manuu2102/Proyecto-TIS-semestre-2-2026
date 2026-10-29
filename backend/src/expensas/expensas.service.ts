@@ -39,6 +39,10 @@ const enOrden = async <T extends readonly unknown[] | []>(
   return resultados as { -readonly [K in keyof T]: Awaited<T[K]> };
 };
 
+// Nombre de cada tipo de departamento ("A", "B", "C"...), por id
+const nombresDeTipos = (tipos: { id: bigint; nombre: string | null }[]) =>
+  new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
+
 const sumarMeses = (mes: Date, n: number) =>
   new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + n, 1));
 
@@ -302,26 +306,65 @@ export class ExpensasService {
     }
 
     const mes = dto.mes ? primerDiaDelMes(dto.mes) : mesActual();
-    if (mes < mesActual()) {
-      throw new BadRequestException('No se pueden generar deudas de meses pasados');
-    }
-
-    const vencimiento = calcularVencimiento(mes, await this.diaCobro());
-    const departamentos = await this.departamentosDelTipo(expensa.tipo_departamento);
-
-    // Omite los departamentos que ya tienen deuda ese mes (por ejemplo, por pago anticipado).
-    // Se busca por mes y no por fecha exacta: el día de vencimiento puede haber cambiado.
     const existentes = await this.prisma.pago_expensa.findMany({
       where: { id_expensa: expensa.id, fecha_vencimiento: vencimientosDelMes(mes) },
       select: { id_departamento: true },
     });
-    const conDeuda = new Set(existentes.map((e) => e.id_departamento));
+    return this.generarDeudasDeExpensa(
+      { id: expensa.id, monto_total: expensa.monto_total, tipo_departamento: expensa.tipo_departamento },
+      mes,
+      new Set(existentes.map((e) => e.id_departamento)),
+      this.contextoGeneracion(),
+    );
+  }
+
+  /**
+   * Lo que comparten las expensas al generar un mes. Cada dato se consulta la primera vez
+   * que se necesita y luego se reutiliza (también los errores, que se repiten igual).
+   */
+  private contextoGeneracion() {
+    let dia: Promise<number> | undefined;
+    let pendiente: Promise<{ id: bigint }> | undefined;
+    const porTipo = new Map<bigint, Promise<{ id: bigint }[]>>();
+    return {
+      dia: () => (dia ??= this.diaCobro()),
+      pendiente: () => (pendiente ??= this.estadoPendiente()),
+      departamentos: (tipo: bigint) => {
+        let p = porTipo.get(tipo);
+        if (!p) {
+          p = this.departamentosDelTipo(tipo);
+          // Evita un "unhandled rejection" si nadie llega a esperarla
+          p.catch(() => undefined);
+          porTipo.set(tipo, p);
+        }
+        return p;
+      },
+    };
+  }
+
+  /**
+   * Genera las deudas de un mes para una expensa. `conDeuda` son los departamentos que ya
+   * tienen deuda de esa expensa ese mes (por ejemplo, por pago anticipado): se omiten.
+   */
+  private async generarDeudasDeExpensa(
+    expensa: { id: bigint; monto_total: Prisma.Decimal; tipo_departamento: bigint },
+    mes: Date,
+    conDeuda: Set<bigint>,
+    contexto: ReturnType<ExpensasService['contextoGeneracion']>,
+  ) {
+    if (mes < mesActual()) {
+      throw new BadRequestException('No se pueden generar deudas de meses pasados');
+    }
+
+    const vencimiento = calcularVencimiento(mes, await contexto.dia());
+    const departamentos = await contexto.departamentos(expensa.tipo_departamento);
+
     const faltantes = departamentos.filter((d) => !conDeuda.has(d.id));
     if (faltantes.length === 0) {
       throw new ConflictException('Ya se generaron las deudas de ese mes para esta expensa');
     }
 
-    const pendiente = await this.estadoPendiente();
+    const pendiente = await contexto.pendiente();
 
     try {
       await this.prisma.$transaction(
@@ -358,15 +401,37 @@ export class ExpensasService {
   async generarDeudasMensuales(mes: Date = mesActual()) {
     const expensas = await this.prisma.expensa.findMany({
       where: { tipo_departamento: { not: null } }, // ignora expensas sin tipo
-      select: { id: true, nombre: true },
+      select: { id: true, nombre: true, monto_total: true, tipo_departamento: true },
       orderBy: { id: 'asc' },
     });
 
+    // Deudas que ya existen ese mes, de todas las expensas en una sola consulta.
+    // Se busca por mes y no por fecha exacta: el día de vencimiento puede haber cambiado.
+    const existentes = await this.prisma.pago_expensa.findMany({
+      where: {
+        id_expensa: { in: expensas.map((e) => e.id) },
+        fecha_vencimiento: vencimientosDelMes(mes),
+      },
+      select: { id_expensa: true, id_departamento: true },
+    });
+    const conDeuda = new Map<bigint, Set<bigint>>();
+    for (const e of existentes) {
+      const set = conDeuda.get(e.id_expensa!) ?? new Set<bigint>();
+      set.add(e.id_departamento);
+      conDeuda.set(e.id_expensa!, set);
+    }
+
+    const contexto = this.contextoGeneracion();
     const resultado = { generadas: 0, omitidas: 0, errores: 0 };
 
     for (const expensa of expensas) {
       try {
-        await this.generarDeudas(expensa.id, { mes: mes.toISOString() });
+        await this.generarDeudasDeExpensa(
+          { id: expensa.id, monto_total: expensa.monto_total, tipo_departamento: expensa.tipo_departamento! },
+          mes,
+          conDeuda.get(expensa.id) ?? new Set(),
+          contexto,
+        );
         resultado.generadas++;
       } catch (e) {
         if (e instanceof ConflictException) {
@@ -434,12 +499,21 @@ export class ExpensasService {
       }))
       .filter((c) => c.cambia || !c.mora.equals(c.moraAnterior));
 
+    // Un solo update por cada valor de mora distinto, no uno por deuda
+    const porMora = new Map<string, { mora: Prisma.Decimal; ids: bigint[] }>();
+    for (const c of cambios) {
+      const clave = c.mora.toString();
+      const grupo = porMora.get(clave) ?? { mora: c.mora, ids: [] };
+      grupo.ids.push(c.id);
+      porMora.set(clave, grupo);
+    }
+
     // El filtro por estado evita reabrir una deuda que se pagó mientras tanto
     const resultados = await this.prisma.$transaction(
-      cambios.map((c) =>
+      [...porMora.values()].map((g) =>
         this.prisma.pago_expensa.updateMany({
-          where: { id: c.id, id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] } },
-          data: { id_estado: ESTADO_VENCIDA, monto_mora: c.mora },
+          where: { id: { in: g.ids }, id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] } },
+          data: { id_estado: ESTADO_VENCIDA, monto_mora: g.mora },
         }),
       ),
     );
@@ -516,43 +590,70 @@ export class ExpensasService {
     return serialize(factura);
   }
 
-    /** Saldo de fondos de un departamento: depósitos menos consumos. */
-  private async saldoFondos(db: Prisma.TransactionClient, idDepartamento: bigint) {
+  /** Saldo de fondos por departamento: depósitos menos consumos. */
+  private async saldosFondos(db: Prisma.TransactionClient, idsDepartamento: bigint[]) {
     const grupos = await db.movimiento_fondo.groupBy({
-      by: ['tipo'],
-      where: { id_departamento: idDepartamento },
+      by: ['id_departamento', 'tipo'],
+      where: { id_departamento: { in: idsDepartamento } },
       _sum: { monto: true },
     });
-    const suma = (tipo: string) =>
-      grupos.find((g) => g.tipo === tipo)?._sum.monto ?? new Prisma.Decimal(0);
-    return suma('deposito').minus(suma('consumo'));
+    const saldos = new Map<bigint, Prisma.Decimal>();
+    for (const g of grupos) {
+      if (g.tipo !== 'deposito' && g.tipo !== 'consumo') continue;
+      const monto = g._sum.monto ?? new Prisma.Decimal(0);
+      const saldo = saldos.get(g.id_departamento) ?? new Prisma.Decimal(0);
+      saldos.set(g.id_departamento, g.tipo === 'deposito' ? saldo.plus(monto) : saldo.minus(monto));
+    }
+    return saldos;
+  }
+
+  /** Saldo de fondos de un departamento: depósitos menos consumos. */
+  private async saldoFondos(db: Prisma.TransactionClient, idDepartamento: bigint) {
+    const saldos = await this.saldosFondos(db, [idDepartamento]);
+    return saldos.get(idDepartamento) ?? new Prisma.Decimal(0);
   }
 
   /**
    * Paga con los fondos de cada departamento sus deudas pendientes o vencidas, de la más
-   * antigua a la más nueva. Cada aplicación crea una factura (sin usuario) y un movimiento
-   * de consumo. Si los fondos no alcanzan, la deuda queda con pago parcial.
-   */
-    /**
-   * Paga con los fondos de cada departamento sus deudas pendientes o vencidas, de la más
    * antigua a la más nueva. Cada deuda se paga completa o no se paga: si los fondos no la
    * cubren, se detiene y el saldo queda intacto.
+   * Los saldos y las deudas se leen en una consulta cada uno, no una por departamento.
    */
   private async consumirFondos(tx: Prisma.TransactionClient, idsDepartamento: bigint[]) {
-    for (const idDepartamento of idsDepartamento) {
-      let saldo = await this.saldoFondos(tx, idDepartamento);
-      if (saldo.lte(0)) continue;
+    const ids = [...new Set(idsDepartamento)];
+    if (ids.length === 0) return;
 
-      const deudas = await tx.pago_expensa.findMany({
-        where: {
-          id_departamento: idDepartamento,
-          id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] },
-        },
-        orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
-        select: { id: true, monto: true, monto_mora: true, fecha_vencimiento: true },
-      });
+    const saldos = await this.saldosFondos(tx, ids);
+    const conSaldo = ids.filter((id) => saldos.get(id)?.gt(0));
+    if (conSaldo.length === 0) return;
 
-      for (const deuda of deudas) {
+    const deudas = await tx.pago_expensa.findMany({
+      where: {
+        id_departamento: { in: conSaldo },
+        id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] },
+      },
+      orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        id_departamento: true,
+        monto: true,
+        monto_mora: true,
+        fecha_vencimiento: true,
+      },
+    });
+    // Se agrupan por departamento conservando el orden de la consulta
+    const deudasPorDepartamento = new Map<bigint, typeof deudas>();
+    for (const d of deudas) {
+      const lista = deudasPorDepartamento.get(d.id_departamento) ?? [];
+      lista.push(d);
+      deudasPorDepartamento.set(d.id_departamento, lista);
+    }
+
+    const hoy = hoyLaPaz();
+    for (const idDepartamento of conSaldo) {
+      let saldo = saldos.get(idDepartamento)!;
+
+      for (const deuda of deudasPorDepartamento.get(idDepartamento) ?? []) {
         const total = deuda.monto.plus(deuda.monto_mora);
         if (saldo.lt(total)) break;
 
@@ -560,7 +661,7 @@ export class ExpensasService {
           data: {
             id_usuario: null,
             id_pago_expensa: deuda.id,
-            fecha_pago: hoyLaPaz(),
+            fecha_pago: hoy,
             fecha_cubierta: sumarMeses(deuda.fecha_vencimiento, -1),
             monto: total,
           },
@@ -570,7 +671,7 @@ export class ExpensasService {
             id_departamento: idDepartamento,
             tipo: 'consumo',
             monto: total,
-            fecha: hoyLaPaz(),
+            fecha: hoy,
             id_factura: factura.id,
           },
         });
@@ -620,7 +721,7 @@ export class ExpensasService {
     const saldo = await this.saldoFondos(this.prisma, BigInt(idDepartamento));
     return serialize({ id_departamento: BigInt(idDepartamento), saldo });
   }
-  
+
   /** Paga por adelantado N meses de un departamento: crea las deudas ya pagadas y sus facturas. */
   async pagarAnticipado(dto: PagarAnticipadoDto, idUsuario: string) {
     const departamento = await this.prisma.departamento.findUnique({
@@ -741,7 +842,7 @@ export class ExpensasService {
       }),
     ]);
 
-    const nombres = new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
+    const nombres = nombresDeTipos(tipos);
     const numeros = new Map(departamentos.map((d) => [d.id, d.numero]));
     const responsables = await this.responsables(departamentos.map((d) => d.id));
 
@@ -863,7 +964,7 @@ export class ExpensasService {
       select: { id: true, nombre: true },
     });
     const responsables = await this.responsables(departamentos.map((d) => d.id));
-    const nombres = new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
+    const nombres = nombresDeTipos(tipos);
 
     return departamentos.map((d) => ({
       numero: d.numero,
@@ -1128,7 +1229,16 @@ export class ExpensasService {
       throw new BadRequestException('No se pueden generar expensas de meses pasados');
     }
 
-    const antes = new Set((await this.listarMensuales(periodo)).map((f) => f.departamento));
+    // Departamentos que ya tenían alguna deuda ese mes (solo los ids, no las filas completas)
+    const previas = await this.prisma.pago_expensa.findMany({
+      where: { fecha_vencimiento: vencimientosDelMes(mes) },
+      select: { id_departamento: true },
+      distinct: ['id_departamento'],
+    });
+    const departamentosPrevios = await this.departamentosPorId(
+      previas.map((p) => p.id_departamento),
+    );
+    const antes = new Set([...departamentosPrevios.values()].map((d) => d.numero));
     const r = await this.generarDeudasMensuales(mes);
     if (r.generadas === 0) {
       if (r.errores > 0) throw new BadRequestException('No se pudieron generar las expensas. Intenta nuevamente.');
@@ -1154,7 +1264,7 @@ export class ExpensasService {
       }),
       this.prisma.tipo_departamento.findMany({ select: { id: true, nombre: true } }),
     ]);
-    const nombres = new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
+    const nombres = nombresDeTipos(tipos);
 
     return departamentos.map((d) => {
       const nombre = d.tipo_departamento !== null ? nombres.get(d.tipo_departamento) : undefined;
@@ -1266,8 +1376,9 @@ export class ExpensasService {
   /** Añade deudas extra a departamentos específicos para un mes. */
   async crearExtras(dto: CrearExtrasDto) {
     const mes = primerDiaDelMes(`${dto.periodo}-01`);
-    if (mes > mesActual()) {
-      throw new BadRequestException('No se pueden generar deudas de meses futuros');
+    // Igual que generarMes: solo el mes actual o meses futuros
+    if (mes < mesActual()) {
+      throw new BadRequestException('No se pueden registrar extras de meses pasados');
     }
     // Misma fecha de vencimiento que las deudas que genera el cron para ese mes
     const vencimiento = calcularVencimiento(mes, await this.diaCobro());
@@ -1287,10 +1398,29 @@ export class ExpensasService {
       }
     }
     const idPorNumero = new Map(departamentos.map((d) => [d.numero, d.id]));
+
+    // Solo a departamentos que ya tienen la expensa de ese mes (los extras tienen id_expensa null)
+    const conExpensa = await this.prisma.pago_expensa.findMany({
+      where: {
+        id_departamento: { in: [...idPorNumero.values()] },
+        id_expensa: { not: null },
+        fecha_vencimiento: vencimientosDelMes(mes),
+      },
+      select: { id_departamento: true },
+      distinct: ['id_departamento'],
+    });
+    const tienen = new Set(conExpensa.map((p) => p.id_departamento));
+    const sinExpensa = numeros.filter((n) => !tienen.has(idPorNumero.get(n)!));
+    if (sinExpensa.length > 0) {
+      throw new BadRequestException(
+        `Primero genera las expensas de ${dto.periodo} para: Dpto. ${sinExpensa.join(', ')}.`,
+      );
+    }
+
     const pendiente = await this.estadoPendiente();
 
     // Deudas sueltas: sin expensa asociada (id_expensa null)
-        await this.prisma.$transaction(
+    await this.prisma.$transaction(
       async (tx) => {
         await tx.pago_expensa.createMany({
           data: dto.extras.map((extra) => ({
