@@ -27,7 +27,6 @@ export class UsuariosController {
   ) {
     return this.usuariosService.crearUsuario({
       ...body,
-      ci: BigInt(body.ci),
       fecha_de_nacimiento: new Date(body.fecha_de_nacimiento),
     });
   }

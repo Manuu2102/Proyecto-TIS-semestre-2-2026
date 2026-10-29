@@ -1,6 +1,7 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
+import { cifrarCi, cifrarEmail, cifrarTelefono, descifrar, descifrarUsuario } from '../lib/cifrado.js';
 
 @Injectable()
 export class UsuariosService {
@@ -11,7 +12,7 @@ export class UsuariosService {
 
   async crearUsuario(data: {
     password: string;
-    ci: bigint;
+    ci: string;
     nombres: string;
     apellido_paterno: string;
     apellido_materno?: string;
@@ -20,15 +21,16 @@ export class UsuariosService {
     email: string;
     telefono: string;
   }) {
+    // ci, email y telefono se guardan cifrados (lib/cifrado.ts)
     const existeCi = await this.prisma.usuario.findUnique({
-      where: { ci: data.ci },
+      where: { ci: cifrarCi(data.ci) },
     });
     if (existeCi) {
       throw new ConflictException('El CI ya está registrado');
     }
 
     const existeEmail = await this.prisma.usuario.findUnique({
-      where: { email: data.email },
+      where: { email: cifrarEmail(data.email) },
     });
     if (existeEmail) {
       throw new ConflictException('El email ya está registrado');
@@ -46,25 +48,22 @@ export class UsuariosService {
       const usuario = await this.prisma.usuario.create({
         data: {
           id: authData.user.id,
-          ci: data.ci,
+          ci: cifrarCi(data.ci),
           nombres: data.nombres,
           apellido_paterno: data.apellido_paterno,
           apellido_materno: data.apellido_materno,
           sexo: data.sexo,
           fecha_de_nacimiento: data.fecha_de_nacimiento,
-          email: data.email,
+          email: cifrarEmail(data.email),
           estatus: true,
           fecha_de_registro: new Date(),
-          telefono: data.telefono,
+          telefono: cifrarTelefono(data.telefono),
         },
       });
 
       return {
         message: 'Usuario registrado correctamente',
-        usuario: {
-          ...usuario,
-          ci: usuario.ci.toString(),
-        },
+        usuario: descifrarUsuario(usuario),
       };
     } catch (dbError) {
       await this.supabase.client.auth.admin.deleteUser(authData.user.id);
@@ -126,7 +125,7 @@ async assignRole(adminId: string, idUsuario: string, idRol: number) {
   return usuarios.map((u) => ({
     id: u.id,
     nombre: `${u.nombres} ${u.apellido_paterno}${u.apellido_materno ? ' ' + u.apellido_materno : ''}`,
-    email: u.email,
+    email: descifrar(u.email),
     estatus: u.estatus,
     // tu esquema permite varios roles por usuario; tomamos el primero para simplificar la vista
     role: u.rol_usuario[0]?.rol.nombre_rol ?? 'SIN ROL',
