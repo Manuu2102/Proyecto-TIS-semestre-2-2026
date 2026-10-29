@@ -356,17 +356,18 @@ export default function ExpensasPage() {
   const puedeContinuar = periodoValido && faltantes > 0;
 
   // ---------- Registrar agua ----------
-  const aguaMesFuturo = (numeroMes: number) =>
+  // Igual que "Generar expensas": solo el mes actual o meses futuros
+  const aguaMesPasado = (numeroMes: number) =>
     aguaAnio !== "" &&
-    Number(aguaAnio) === anioActual &&
-    numeroMes > mesActual;
+    (Number(aguaAnio) < anioActual ||
+      (Number(aguaAnio) === anioActual && numeroMes < mesActual));
 
   const aguaPeriodoValido =
     aguaMes !== "" &&
     aguaAnio !== "" &&
     Number(aguaAnio) >= ANIO_INICIO &&
     Number(aguaAnio) <= anioActual &&
-    !aguaMesFuturo(Number(aguaMes));
+    !aguaMesPasado(Number(aguaMes));
 
   const aguaPeriodoSel = aguaPeriodoValido
     ? `${aguaAnio}-${aguaMes.padStart(2, "0")}`
@@ -488,7 +489,7 @@ export default function ExpensasPage() {
     if (
       valor !== "" &&
       Number(valor) === anioActual &&
-      Number(aguaMes) > mesActual
+      Number(aguaMes) < mesActual
     ) {
       setAguaMes("");
     }
@@ -947,7 +948,7 @@ export default function ExpensasPage() {
                     <option
                       key={nombre}
                       value={String(i + 1)}
-                      disabled={aguaMesFuturo(i + 1)}
+                      disabled={aguaMesPasado(i + 1)}
                     >
                       {nombre}
                     </option>
@@ -973,7 +974,7 @@ export default function ExpensasPage() {
 
             {!aguaPeriodoValido && (
               <p style={{ fontSize: 11, color: "#9a918b", marginTop: 8 }}>
-                Selecciona el mes y el año. No se pueden elegir meses futuros.
+                Selecciona el mes y el año. No se pueden elegir meses pasados.
               </p>
             )}
 

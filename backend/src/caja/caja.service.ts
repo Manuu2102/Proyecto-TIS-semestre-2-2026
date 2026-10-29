@@ -266,7 +266,7 @@ export class CajaService {
       if (!mov) throw new NotFoundException(`El movimiento ${numero} no existe.`);
       if (!mov.anulado && !mov.anula_a && mov.origen !== 'Manual') {
         throw new BadRequestException(
-          `El movimiento ${numero} fue generado por ${mov.origen} y se anula desde su registro de origen.`,
+          `El movimiento ${numero} fue generado por ${mov.origen} y no se puede anular.`,
         );
       }
       return this.anularEnTx(tx, mov, motivo, idUsuario);

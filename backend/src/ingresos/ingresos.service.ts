@@ -29,7 +29,6 @@ const usuarioSelect = { select: { nombres: true, apellido_paterno: true } } as c
 const incluir = {
   categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
   usuario: usuarioSelect,
-  usuario_ingreso_id_usuario_anuloTousuario: usuarioSelect,
   movimiento_caja: { select: { numero: true } },
 } as const;
 
@@ -39,7 +38,7 @@ const nombreDe = (u: { nombres: string; apellido_paterno: string } | null) =>
 /**
  * HU-15: ingresos extraordinarios. Al registrar, el dinero entra a caja en la misma
  * transacción; si ese movimiento no se puede generar, el ingreso tampoco se guarda.
- * No se eliminan: se anulan con motivo, revirtiendo la caja, y todo queda en auditoría.
+ * Queda registrado en auditoría.
  */
 @Injectable()
 export class IngresosService {
@@ -52,7 +51,6 @@ export class IngresosService {
     comprobante_contenido?: unknown;
     categoria_movimiento: unknown;
     usuario: { nombres: string; apellido_paterno: string };
-    usuario_ingreso_id_usuario_anuloTousuario: { nombres: string; apellido_paterno: string } | null;
     movimiento_caja: { numero: string } | null;
     [k: string]: unknown;
   }) {
@@ -60,7 +58,6 @@ export class IngresosService {
       comprobante_contenido,
       categoria_movimiento,
       usuario,
-      usuario_ingreso_id_usuario_anuloTousuario: anulo,
       movimiento_caja,
       ...resto
     } = i;
@@ -70,7 +67,6 @@ export class IngresosService {
       // En el schema la relación se llama categoria_movimiento; la API responde "categoria"
       categoria: categoria_movimiento,
       registrado_por: nombreDe(usuario),
-      anulado_por: nombreDe(anulo),
       // Movimiento de caja que generó el ingreso
       movimiento: movimiento_caja?.numero ?? null,
     });
@@ -146,7 +142,6 @@ export class IngresosService {
           },
         }),
         ...(filtros.id_categoria && { id_categoria: BigInt(filtros.id_categoria) }),
-        ...(filtros.anulado !== undefined && { anulado: filtros.anulado }),
       },
       // El contenido del comprobante no se devuelve: no se lee de la BD
       omit: { comprobante_contenido: true },
