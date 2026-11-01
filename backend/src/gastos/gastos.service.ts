@@ -29,7 +29,6 @@ const usuarioSelect = { select: { nombres: true, apellido_paterno: true } } as c
 const incluir = {
   categoria_movimiento: { select: { id: true, nombre: true, tipo: true } },
   usuario: usuarioSelect,
-  usuario_gasto_id_usuario_anuloTousuario: usuarioSelect,
   movimiento_caja: { select: { numero: true } },
 } as const;
 
@@ -39,8 +38,7 @@ const nombreDe = (u: { nombres: string; apellido_paterno: string } | null) =>
 /**
  * HU-16: gastos (egresos). Al registrar, el monto se descuenta de caja en la misma
  * transacción; si ese movimiento no se puede generar (p. ej. saldo insuficiente), el gasto
- * tampoco se guarda. No se eliminan: se anulan con motivo, devolviendo el monto a caja,
- * con auditoría.
+ * tampoco se guarda. Queda registrado en auditoría.
  */
 @Injectable()
 export class GastosService {
@@ -53,7 +51,6 @@ export class GastosService {
     comprobante_contenido?: unknown;
     categoria_movimiento: unknown;
     usuario: { nombres: string; apellido_paterno: string };
-    usuario_gasto_id_usuario_anuloTousuario: { nombres: string; apellido_paterno: string } | null;
     movimiento_caja: { numero: string } | null;
     [k: string]: unknown;
   }) {
@@ -61,7 +58,6 @@ export class GastosService {
       comprobante_contenido,
       categoria_movimiento,
       usuario,
-      usuario_gasto_id_usuario_anuloTousuario: anulo,
       movimiento_caja,
       ...resto
     } = i;
@@ -71,7 +67,6 @@ export class GastosService {
       // En el schema la relación se llama categoria_movimiento; la API responde "categoria"
       categoria: categoria_movimiento,
       registrado_por: nombreDe(usuario),
-      anulado_por: nombreDe(anulo),
       // Movimiento de caja que generó el gasto
       movimiento: movimiento_caja?.numero ?? null,
     });
@@ -148,7 +143,6 @@ export class GastosService {
           },
         }),
         ...(filtros.id_categoria && { id_categoria: BigInt(filtros.id_categoria) }),
-        ...(filtros.anulado !== undefined && { anulado: filtros.anulado }),
       },
       // El contenido del comprobante no se devuelve: no se lee de la BD
       omit: { comprobante_contenido: true },
