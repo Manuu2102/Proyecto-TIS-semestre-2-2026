@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
 import {
@@ -90,8 +90,12 @@ async function pedir<T>(ruta: string, opciones?: RequestInit): Promise<T> {
 const cargarDepartamentosApi = () =>
   pedir<Departamento[]>("/expensas/departamentos");
 
-// BACKEND: GET /expensas/mensuales
-const cargarExpensasApi = () => pedir<Expensa[]>("/expensas/mensuales");
+// BACKEND: GET /expensas/mensuales?periodo=YYYY-MM → solo las expensas de ese mes
+const cargarExpensasApi = (periodo: string) =>
+  pedir<Expensa[]>(`/expensas/mensuales?periodo=${periodo}`);
+
+// BACKEND: GET /expensas/periodos → meses con expensas, del más nuevo al más antiguo
+const cargarPeriodosApi = () => pedir<string[]>("/expensas/periodos");
 
 // BACKEND: GET /expensas/tarifas → conceptos y montos de cada categoría (tabla expensa)
 const cargarTarifasApi = () => pedir<Record<Categoria, Concepto[]>>("/expensas/tarifas");
@@ -242,7 +246,12 @@ export default function ExpensasPage() {
   const [rol] = useState(readRol);
   const esAdmin = rol.startsWith("ADMIN");
 
+  // Solo los meses ya pedidos al backend (ver el efecto de carga por período)
   const [expensas, setExpensas] = useState<Expensa[]>([]);
+  const [periodosConExpensas, setPeriodosConExpensas] = useState<string[]>([]);
+  const [periodosCargados, setPeriodosCargados] = useState<string[]>([]);
+  const periodosEnCurso = useRef(new Set<string>());
+  const [tarifasListas, setTarifasListas] = useState(false);
   const [departamentos, setDepartamentos] = useState<Departamento[]>([]);
 
   // Mismo nombre que antes, para no tocar el JSX
@@ -300,12 +309,10 @@ export default function ExpensasPage() {
     const cargar = async () => {
       const tarifas = await cargarTarifasApi();
       setTarifasEditables(tarifas);
-      const data = await cargarExpensasApi();
-      setExpensas(completarTarifas(data, tarifas));
-      const ultimo = Array.from(new Set(data.map((e) => e.periodo)))
-        .sort()
-        .pop();
-      if (ultimo) setPeriodoVista(ultimo);
+      const disponibles = await cargarPeriodosApi();
+      setPeriodosConExpensas(disponibles);
+      if (disponibles.length > 0) setPeriodoVista(disponibles[0]);
+      setTarifasListas(true);
     };
     cargar().catch(console.error);
 
@@ -339,6 +346,8 @@ export default function ExpensasPage() {
     ? `${anio}-${mes.padStart(2, "0")}`
     : "";
 
+  const periodoSelCargado = periodosCargados.includes(periodoSel);
+
   const existentesSel = periodoSel
     ? expensas.filter((e) => e.periodo === periodoSel).length
     : 0;
@@ -353,7 +362,7 @@ export default function ExpensasPage() {
       ).length
     : 0;
 
-  const puedeContinuar = periodoValido && faltantes > 0;
+  const puedeContinuar = periodoValido && periodoSelCargado && faltantes > 0;
 
   // ---------- Registrar agua ----------
   // Igual que "Generar expensas": solo el mes actual o meses futuros
@@ -373,9 +382,46 @@ export default function ExpensasPage() {
     ? `${aguaAnio}-${aguaMes.padStart(2, "0")}`
     : "";
 
+  const aguaPeriodoCargado = periodosCargados.includes(aguaPeriodoSel);
+
   const expensasAgua = aguaPeriodoSel
     ? expensas.filter((e) => e.periodo === aguaPeriodoSel)
     : [];
+
+  // Pide cada mes la primera vez que se necesita: el de la tabla y los de los modales
+  useEffect(() => {
+    if (!tarifasListas) return;
+
+    for (const periodo of [periodoVista, periodoSel, aguaPeriodoSel]) {
+      if (
+        !periodo ||
+        periodosCargados.includes(periodo) ||
+        periodosEnCurso.current.has(periodo)
+      ) {
+        continue;
+      }
+
+      periodosEnCurso.current.add(periodo);
+      cargarExpensasApi(periodo)
+        .then((data) => {
+          const completas = completarTarifas(data, tarifasEditables);
+          setExpensas((prev) => [
+            ...prev.filter((e) => e.periodo !== periodo),
+            ...completas,
+          ]);
+          setPeriodosCargados((prev) => [...prev, periodo]);
+        })
+        .catch(console.error)
+        .finally(() => periodosEnCurso.current.delete(periodo));
+    }
+  }, [
+    tarifasListas,
+    tarifasEditables,
+    periodoVista,
+    periodoSel,
+    aguaPeriodoSel,
+    periodosCargados,
+  ]);
 
   const importeAgua = Number(extraMonto);
   const importeAguaValido =
@@ -403,8 +449,9 @@ export default function ExpensasPage() {
     importeAguaValido &&
     !aguaGuardando;
 
+  // También los meses recién generados, que aún no están en la lista del backend
   const periodos = Array.from(
-    new Set(expensas.map((e) => e.periodo))
+    new Set([...periodosConExpensas, ...expensas.map((e) => e.periodo)])
   ).sort().reverse();
 
   const lista = expensas.filter((e) => e.periodo === periodoVista);
@@ -751,7 +798,9 @@ export default function ExpensasPage() {
 
         {lista.length === 0 ? (
           <div className="empty-state">
-            Todavía no se generaron expensas para este período.
+            {periodosCargados.includes(periodoVista)
+              ? "Todavía no se generaron expensas para este período."
+              : "Cargando expensas del período..."}
           </div>
         ) : (
           <div className="table-wrap">
@@ -978,7 +1027,7 @@ export default function ExpensasPage() {
               </p>
             )}
 
-            {aguaPeriodoValido && expensasAgua.length === 0 && (
+            {aguaPeriodoValido && aguaPeriodoCargado && expensasAgua.length === 0 && (
               <div className="alert" style={{ ...AVISO, marginTop: 12 }}>
                 Todavía no hay expensas generadas para{" "}
                 {nombrePeriodo(aguaPeriodoSel).toLowerCase()}. Primero usa

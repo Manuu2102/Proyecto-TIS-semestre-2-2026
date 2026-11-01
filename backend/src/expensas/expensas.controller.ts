@@ -1,11 +1,8 @@
 import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, StreamableFile, UseGuards } from '@nestjs/common';
 import { ExpensasExportarService } from './expensas-exportar.service.js';
 import { ExportarSaldosDto, FormatoDto } from './dto/exportar.dto.js';
-import { CreateExpensaDto } from './dto/create-expensa.dto.js';
-import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { ExpensasService } from './expensas.service.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
-import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 import { CrearExtrasDto } from './dto/crear-extras.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
 import { ReglaMoraDto } from './dto/regla-mora.dto.js';
@@ -31,37 +28,10 @@ export class ExpensasController {
     private readonly exportar: ExpensasExportarService,
   ) {}
 
-  /** Calcula el reparto por departamento sin guardar nada. */
-  @Post('previsualizar')
-  previsualizar(@Body() dto: CreateExpensaDto) {
-    return this.expensas.previsualizar(dto);
-  }
-
-  /** Crea la expensa y genera las deudas del mes actual. */
-  @Post()
-  create(@Body() dto: CreateExpensaDto) {
-    return this.expensas.create(dto);
-  }
-
-  /** Genera las deudas del mes actual para todas las expensas. */
-  @Post('generar-deudas-mensuales')
-  generarDeudasMensuales() {
-    return this.expensas.generarDeudasMensuales();
-  }
-
   /** Genera las expensas de un mes elegido; si ya estaban todas, responde 409. */
   @Post('generar-mes')
   generarMes(@Body() dto: GenerarMesDto) {
     return this.expensas.generarMes(dto.periodo);
-  }
-
-  /** Genera las deudas de un mes para una expensa existente. */
-  @Post(':id/generar-deudas')
-  generarDeudas(
-    @Param('id', ParseIntPipe) id: number,
-    @Body() dto: GenerarDeudasDto,
-  ) {
-    return this.expensas.generarDeudas(id, dto);
   }
 
   /** Departamentos, deudas pendientes y saldo a favor, para la pantalla de pagos. */
@@ -87,16 +57,6 @@ export class ExpensasController {
     return this.expensas.pagar(id, dto, idUsuario);
   }
 
-  @Post('pagos/anticipado')
-  pagarAnticipado(@Body() dto: PagarAnticipadoDto, @CurrentUser('id') idUsuario: string) {
-    return this.expensas.pagarAnticipado(dto, idUsuario);
-  }
-
-  @Post('aplicar-vencimientos')
-  aplicarVencimientos() {
-    return this.expensas.aplicarVencimientos();
-  }
-
   /** Regla de mora vigente. */
   @Get('mora/regla')
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
@@ -114,6 +74,13 @@ export class ExpensasController {
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
   listarMensuales(@Query('periodo') periodo?: string) {
     return this.expensas.listarMensuales(periodo);
+  }
+
+  /** Meses que tienen deudas, del más nuevo al más antiguo. */
+  @Get('periodos')
+  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
+  listarPeriodos() {
+    return this.expensas.listarPeriodos();
   }
 
   @Get('departamentos')
@@ -176,18 +143,5 @@ export class ExpensasController {
   @Post('fondos')
   depositarFondos(@Body() dto: DepositarFondosDto, @CurrentUser('id') idUsuario: string) {
     return this.expensas.depositarFondos(dto, idUsuario);
-  }
-
-  /** Saldo de fondos de un departamento. */
-  @Get('fondos/:id')
-  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
-  obtenerSaldo(@Param('id', ParseIntPipe) id: number) {
-    return this.expensas.obtenerSaldo(id);
-  }
-  // Las rutas con parámetro van al final
-  @Get(':id')
-  @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.expensas.findOne(id);
   }
 }

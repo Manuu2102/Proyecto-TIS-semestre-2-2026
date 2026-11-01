@@ -7,10 +7,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { Prisma } from '../generated/prisma/client.js';
-import { CreateExpensaDto } from './dto/create-expensa.dto.js';
-import { GenerarDeudasDto } from './dto/generar-deudas.dto.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
-import { PagarAnticipadoDto } from './dto/pagar-anticipado.dto.js';
 import { CrearExtrasDto } from './dto/crear-extras.dto.js';
 import { ActualizarTarifaDto } from './dto/actualizar-tarifa.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
@@ -144,14 +141,6 @@ export class ExpensasService {
     return this.obtenerReglaMora();
   }
 
-  private async validarTipo(idTipo: number | bigint) {
-    const tipo = await this.prisma.tipo_departamento.findUnique({
-      where: { id: BigInt(idTipo) },
-    });
-    if (!tipo) throw new NotFoundException('Tipo de departamento no encontrado');
-    return tipo;
-  }
-
   /** Departamentos activos de un tipo. */
   private async departamentosDelTipo(idTipo: bigint) {
     const departamentos = await this.prisma.departamento.findMany({
@@ -235,89 +224,6 @@ export class ExpensasService {
     await this.consumirFondos(tx, departamentos.map((d) => d.id));
   }
 
-  /** Muestra a qué departamentos se les asignaría la expensa, sin guardar nada. */
-  async previsualizar(dto: CreateExpensaDto) {
-    await this.validarTipo(dto.tipo_departamento);
-    const departamentos = await this.departamentosDelTipo(BigInt(dto.tipo_departamento));
-    return {
-      monto_por_departamento: dto.monto_total.toFixed(2),
-      fecha_vencimiento: calcularVencimiento(mesActual(), await this.diaCobro()),
-      total_departamentos: departamentos.length,
-      departamentos: departamentos.map((d) => ({
-        id_departamento: d.id.toString(),
-        piso: d.piso,
-        numero: d.numero,
-        monto: dto.monto_total.toFixed(2),
-      })),
-    };
-  }
-
-  /** Crea la expensa y genera las deudas del mes actual. */
-  async create(dto: CreateExpensaDto) {
-    await this.validarTipo(dto.tipo_departamento);
-    const departamentos = await this.departamentosDelTipo(BigInt(dto.tipo_departamento));
-    const pendiente = await this.estadoPendiente();
-    const vencimiento = calcularVencimiento(mesActual(), await this.diaCobro());
-
-    try {
-      const expensaId = await this.prisma.$transaction(
-        async (tx) => {
-          const expensa = await tx.expensa.create({
-            data: {
-              nombre: dto.nombre,
-              monto_total: dto.monto_total.toFixed(2),
-              mora_valor: (dto.mora_valor ?? 0).toFixed(2),
-              tipo_departamento: BigInt(dto.tipo_departamento),
-            },
-          });
-          await this.insertarDeudas(
-            tx,
-            expensa.id,
-            expensa.monto_total,
-            departamentos,
-            vencimiento,
-            pendiente.id,
-          );
-          return expensa.id;
-        },
-        { timeout: 30000 },
-      );
-
-      return this.findOne(Number(expensaId));
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Ya existe una expensa con ese nombre');
-      }
-      throw e;
-    }
-  }
-
-  /**
-   * Genera las deudas de un mes para una expensa que ya existe.
-   * Sin `mes`, usa el mes actual. No se permiten meses pasados.
-   */
-  async generarDeudas(id: number | bigint, dto: GenerarDeudasDto) {
-    const expensa = await this.prisma.expensa.findUnique({
-      where: { id: BigInt(id) },
-    });
-    if (!expensa) throw new NotFoundException('Expensa no encontrada');
-    if (expensa.tipo_departamento === null) {
-      throw new BadRequestException('La expensa no tiene tipo de departamento asignado');
-    }
-
-    const mes = dto.mes ? primerDiaDelMes(dto.mes) : mesActual();
-    const existentes = await this.prisma.pago_expensa.findMany({
-      where: { id_expensa: expensa.id, fecha_vencimiento: vencimientosDelMes(mes) },
-      select: { id_departamento: true },
-    });
-    return this.generarDeudasDeExpensa(
-      { id: expensa.id, monto_total: expensa.monto_total, tipo_departamento: expensa.tipo_departamento },
-      mes,
-      new Set(existentes.map((e) => e.id_departamento)),
-      this.contextoGeneracion(),
-    );
-  }
-
   /**
    * Lo que comparten las expensas al generar un mes. Cada dato se consulta la primera vez
    * que se necesita y luego se reutiliza (también los errores, que se repiten igual).
@@ -395,10 +301,10 @@ export class ExpensasService {
   }
 
   /**
-   * Genera las deudas de un mes (por defecto el actual) para todas las expensas.
+   * Genera las deudas de un mes para todas las expensas.
    * Es idempotente: lo que ya existe se omite.
    */
-  async generarDeudasMensuales(mes: Date = mesActual()) {
+  async generarDeudasMensuales(mes: Date) {
     const expensas = await this.prisma.expensa.findMany({
       where: { tipo_departamento: { not: null } }, // ignora expensas sin tipo
       select: { id: true, nombre: true, monto_total: true, tipo_departamento: true },
@@ -519,29 +425,6 @@ export class ExpensasService {
     );
 
     return { actualizadas: resultados.reduce((suma, r) => suma + r.count, 0) };
-  }
-
-  async findOne(id: number) {
-    const expensa = await this.prisma.expensa.findUnique({
-      where: { id: BigInt(id) },
-      include: {
-        pago_expensa: {
-          orderBy: [{ fecha_vencimiento: 'desc' }, { id_departamento: 'asc' }],
-        },
-      },
-    });
-    if (!expensa) throw new NotFoundException('Expensa no encontrada');
-
-    const departamentos = await this.departamentosPorId(
-      expensa.pago_expensa.map((p) => p.id_departamento),
-    );
-    return serialize({
-      ...expensa,
-      pago_expensa: expensa.pago_expensa.map((p) => {
-        const d = departamentos.get(p.id_departamento);
-        return { ...p, departamento: d ? { piso: d.piso, numero: d.numero } : null };
-      }),
-    });
   }
 
   /**
@@ -720,92 +603,6 @@ export class ExpensasService {
   async obtenerSaldo(idDepartamento: number) {
     const saldo = await this.saldoFondos(this.prisma, BigInt(idDepartamento));
     return serialize({ id_departamento: BigInt(idDepartamento), saldo });
-  }
-
-  /** Paga por adelantado N meses de un departamento: crea las deudas ya pagadas y sus facturas. */
-  async pagarAnticipado(dto: PagarAnticipadoDto, idUsuario: string) {
-    const departamento = await this.prisma.departamento.findUnique({
-      where: { id: BigInt(dto.id_departamento) },
-      select: { id: true, tipo_departamento: true },
-    });
-    if (!departamento) throw new NotFoundException('Departamento no encontrado');
-    if (departamento.tipo_departamento === null) {
-      throw new BadRequestException('El departamento no tiene tipo asignado');
-    }
-
-    const expensas = await this.prisma.expensa.findMany({
-      where: {
-        tipo_departamento: departamento.tipo_departamento,
-        ...(dto.id_expensa ? { id: BigInt(dto.id_expensa) } : {}),
-      },
-    });
-    if (expensas.length === 0) {
-      throw new NotFoundException('No hay una expensa para el tipo de este departamento');
-    }
-    if (expensas.length > 1) {
-      throw new BadRequestException(
-        'Hay varias expensas para ese tipo de departamento: indica id_expensa',
-      );
-    }
-    const expensa = expensas[0];
-
-    // El vencimiento de la última deuda es el mes que sigue por cubrir
-    const ultima = await this.prisma.pago_expensa.aggregate({
-      where: { id_departamento: departamento.id, id_expensa: expensa.id },
-      _max: { fecha_vencimiento: true },
-    });
-    const actual = mesActual();
-    const siguiente = ultima._max.fecha_vencimiento;
-    const inicio = siguiente && siguiente > actual ? siguiente : actual;
-
-    const mesesCubiertos = Array.from({ length: dto.meses }, (_, i) => sumarMeses(inicio, i));
-    const fechaPago = hoyLaPaz();
-    const dia = await this.diaCobro();
-
-    try {
-      const facturas = await this.prisma.$transaction(
-        async (tx) => {
-          const pagos = await tx.pago_expensa.createManyAndReturn({
-            data: mesesCubiertos.map((mes) => ({
-              id_departamento: departamento.id,
-              id_expensa: expensa.id,
-              monto: expensa.monto_total,
-              id_estado: ESTADO_PAGADA,
-              fecha_vencimiento: calcularVencimiento(mes, dia),
-            })),
-            select: { id: true, fecha_vencimiento: true },
-          });
-
-          await tx.factura_pago_expensa.createMany({
-            data: pagos.map((p) => ({
-              id_usuario: idUsuario,
-              id_pago_expensa: p.id,
-              fecha_pago: fechaPago,
-              fecha_cubierta: sumarMeses(p.fecha_vencimiento, -1),
-              monto: expensa.monto_total,
-            })),
-          });
-
-          return pagos.length;
-        },
-        { timeout: 30000 },
-      );
-
-      return serialize({
-        id_departamento: departamento.id,
-        id_expensa: expensa.id,
-        meses_pagados: facturas,
-        desde: mesesCubiertos[0],
-        hasta: mesesCubiertos[mesesCubiertos.length - 1],
-        monto_por_mes: expensa.monto_total,
-        monto_total: expensa.monto_total.mul(dto.meses),
-      });
-    } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
-        throw new ConflictException('Ya existen deudas para alguno de esos meses');
-      }
-      throw e;
-    }
   }
 
   /**
@@ -1274,6 +1071,16 @@ export class ExpensasService {
         ocupado: !d.libre,
       };
     });
+  }
+
+  /** Meses cubiertos por alguna deuda (YYYY-MM), del más nuevo al más antiguo. */
+  async listarPeriodos() {
+    const fechas = await this.prisma.pago_expensa.groupBy({ by: ['fecha_vencimiento'] });
+    // La deuda vence el mes siguiente; el período es el mes cubierto
+    const periodos = fechas.map((f) =>
+      sumarMeses(f.fecha_vencimiento, -1).toISOString().slice(0, 7),
+    );
+    return [...new Set(periodos)].sort().reverse();
   }
 
   /**
