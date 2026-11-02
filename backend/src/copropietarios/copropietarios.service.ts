@@ -248,7 +248,7 @@ export class CopropietariosService {
     };
   }
 
-  // FIX: Ahora incluye el departamento en la lista
+    // FIX: Ahora incluye el departamento en la lista Y enmascara el CI/Teléfono
   async listar() {
     const copropietarios = await this.prisma.usuario.findMany({
       where: {
@@ -263,7 +263,7 @@ export class CopropietariosService {
           },
         },
         departamento_usuario: {
-          where: { estatus: true }, // Solo la ocupación actual
+          where: { estatus: true },
           include: {
             departamento: {
               select: { id: true, numero: true, piso: true, codigo: true },
@@ -278,14 +278,27 @@ export class CopropietariosService {
       total: copropietarios.length,
       copropietarios: copropietarios.map((c) => {
         const ocupacion = c.departamento_usuario[0];
+        
+        // 1. Desciframos los datos
+        const datosDescifrados = descifrarUsuario(c);
+        
+        // 2. Enmascaramos el CI y Teléfono (El Jira pide ocultarlo en listados)
+        const ciEnmascarado = datosDescifrados.ci 
+          ? `***${datosDescifrados.ci.slice(-3)}` 
+          : null;
+          
+        const telefonoEnmascarado = datosDescifrados.telefono 
+          ? `***${datosDescifrados.telefono.slice(-3)}` 
+          : null;
+
         return {
-          ...descifrarUsuario(c),
+          ...datosDescifrados,
+          ci: ciEnmascarado,           // <-- SOBREESCRIBIMOS CON EL VALOR OCULTO
+          telefono: telefonoEnmascarado, // <-- SOBREESCRIBIMOS CON EL VALOR OCULTO
           roles: c.rol_usuario.map((ru) => ru.rol.nombre_rol),
-          // "A-101", y su id para poder editarlo desde el front
           departamento: ocupacion ? codigoDepartamento(ocupacion.departamento) : null,
           id_departamento: ocupacion?.departamento.id.toString() ?? null,
           fecha_ocupacion: ocupacion?.fecha_ocupacion ?? null,
-          // Todos los departamentos que ocupa (desde Asociaciones puede tener más de uno)
           departamentos: c.departamento_usuario.map((du) => ({
             id: du.departamento.id.toString(),
             codigo: codigoDepartamento(du.departamento),
@@ -296,7 +309,7 @@ export class CopropietariosService {
       }),
     };
   }
-
+  
   /**
    * Borra el copropietario de forma permanente. Solo si ya estaba dado de baja y no
    * tiene movimientos (pagos, documentos, etc.) que lo referencien.
