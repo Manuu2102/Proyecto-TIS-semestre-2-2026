@@ -13,6 +13,8 @@ import { ActualizarTarifaDto } from './dto/actualizar-tarifa.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
 import { ReglaMoraDto } from './dto/regla-mora.dto.js';
 import { calcularMora, type ReglaMora } from './mora.js';
+import { deudasQueCubre } from './saldo.js';
+import { desdeLaPaz, enLaPaz, horaDesdeTexto, horaTexto, momentoLaPaz } from './hora-la-paz.js';
 
 const ESTADO_PENDIENTE = BigInt(2);
 const ESTADO_PAGADA = BigInt(3);
@@ -56,18 +58,36 @@ const primerDiaDelMes = (fecha: string) => {
 
 const mesActual = () => primerDiaDelMes(hoyLaPaz().toISOString());
 
-// La deuda de un mes vence el mes siguiente, en el día de cobro de mora vigente
-// al crearla. Si luego cambia el día, las deudas ya creadas conservan el suyo.
-const calcularVencimiento = (mes: Date, dia: number) =>
-  new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + 1, dia));
+// La deuda de un mes vence el mes siguiente, en el día y la hora (de La Paz) de la regla
+// vigente al crearla. Si luego cambian, las deudas ya creadas conservan los suyos.
+const calcularVencimiento = (mes: Date, regla: { dia: number; hora: Date }) =>
+  desdeLaPaz(
+    mes.getUTCFullYear(),
+    mes.getUTCMonth() + 1,
+    regla.dia,
+    regla.hora.getUTCHours(),
+    regla.hora.getUTCMinutes(),
+  );
 
-// Rango de vencimientos de las deudas de un mes (vencen en algún día del mes siguiente)
-const vencimientosDelMes = (mes: Date) => ({ gte: sumarMeses(mes, 1), lt: sumarMeses(mes, 2) });
+// Rango de vencimientos de las deudas de un mes (vencen en algún momento del mes siguiente)
+const vencimientosDelMes = (mes: Date) => ({
+  gte: desdeLaPaz(mes.getUTCFullYear(), mes.getUTCMonth() + 1, 1),
+  lt: desdeLaPaz(mes.getUTCFullYear(), mes.getUTCMonth() + 2, 1),
+});
+
+// Mes cubierto por una deuda (vence el mes siguiente), a medianoche UTC del día 1
+const mesCubierto = (vencimiento: Date) => sumarMeses(enLaPaz(vencimiento), -1);
+const periodoDe = (vencimiento: Date) => mesCubierto(vencimiento).toISOString().slice(0, 7);
+
+// Último día (de La Paz) para pagar sin mora: el del minuto anterior al vencimiento
+const ultimoDiaSinMora = (vencimiento: Date) =>
+  enLaPaz(new Date(vencimiento.getTime() - 60_000)).toISOString().slice(0, 10);
 
 // Sin regla configurada (tabla vacía o inexistente): comportamiento anterior,
-// deudas el día 1 y mora = mora_valor de cada expensa por mes.
+// deudas el día 1 a las 00:00 y mora = mora_valor de cada expensa por mes.
 const REGLA_POR_DEFECTO: ReglaMora = {
   dia: 1,
+  hora: new Date(0),
   tipo: 'fijo',
   valor: new Prisma.Decimal(0),
   tope: null,
@@ -75,15 +95,70 @@ const REGLA_POR_DEFECTO: ReglaMora = {
   configurada: false,
 };
 
+/**
+ * Desglose de una deuda: la expensa (salvo en una deuda complementaria, que va en 0) y
+ * cada extra. `concepto` solo existe en extras antiguos guardados como deuda suelta.
+ */
+const conceptosDe = (deuda: {
+  monto: Prisma.Decimal;
+  concepto: string | null;
+  expensa: { nombre: string } | null;
+  pago_expensa_extra: { concepto: string; monto: Prisma.Decimal }[];
+}) => {
+  const lineas = [
+    ...(deuda.monto.gt(0) || deuda.pago_expensa_extra.length === 0
+      ? [{ concepto: deuda.concepto ?? deuda.expensa?.nombre ?? 'Extra', monto: deuda.monto.toNumber() }]
+      : []),
+    ...deuda.pago_expensa_extra.map((e) => ({ concepto: e.concepto, monto: e.monto.toNumber() })),
+  ];
+  const total = deuda.pago_expensa_extra.reduce((t, e) => t.plus(e.monto), deuda.monto);
+  return { lineas, total };
+};
+
+// Campos de una deuda que hacen falta para calcular su total y su mora
+const SELECT_COBRO = {
+  id_expensa: true,
+  monto: true,
+  fecha_vencimiento: true,
+  expensa: { select: { mora_valor: true } },
+  pago_expensa_extra: { select: { monto: true } },
+} as const;
+
+type DeudaCobro = {
+  monto: Prisma.Decimal;
+  fecha_vencimiento: Date;
+  id_expensa: bigint | null;
+  expensa: { mora_valor: Prisma.Decimal } | null;
+  pago_expensa_extra: { monto: Prisma.Decimal }[];
+};
+
+// Lo que se debe sin la mora: expensa + extras de la deuda
+const montoSinMora = (deuda: DeudaCobro) =>
+  deuda.pago_expensa_extra.reduce((total, e) => total.plus(e.monto), deuda.monto);
+
+// Mora de una deuda en el momento `ahora`, con la regla vigente. Si es por porcentaje,
+// se calcula sobre la expensa más los extras.
+const moraDe = (deuda: DeudaCobro, regla: ReglaMora, ahora: Date) =>
+  calcularMora(
+    {
+      monto: montoSinMora(deuda),
+      fecha_vencimiento: deuda.fecha_vencimiento,
+      id_expensa: deuda.id_expensa,
+      mora_valor_expensa: deuda.expensa?.mora_valor ?? null,
+    },
+    regla,
+    ahora,
+  );
+
 @Injectable()
 export class ExpensasService {
   private readonly logger = new Logger(ExpensasService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
-  private async reglaMora() {
+  private async reglaMora(db: Prisma.TransactionClient = this.prisma) {
     try {
-      const regla = await this.prisma.regla_mora.findFirst({ orderBy: { id: 'asc' } });
+      const regla = await db.regla_mora.findFirst({ orderBy: { id: 'asc' } });
       return regla ? { ...regla, configurada: true } : REGLA_POR_DEFECTO;
     } catch (e) {
       // P2021: la tabla aún no se creó en esta base (ver prisma/sql/regla_mora.sql)
@@ -94,15 +169,12 @@ export class ExpensasService {
     }
   }
 
-  /** Día del mes en que se cobra la mora y se generan las deudas nuevas. */
-  private async diaCobro() {
-    return (await this.reglaMora()).dia;
-  }
-
   async obtenerReglaMora() {
     const r = await this.reglaMora();
     return {
       dia: r.dia,
+      // "HH:mm" en hora de La Paz
+      hora: horaTexto(r.hora),
       tipo: r.tipo,
       valor: r.valor.toNumber(),
       tope: r.tope?.toNumber() ?? null,
@@ -115,7 +187,7 @@ export class ExpensasService {
 
   /**
    * Guarda la regla y recalcula la mora de las deudas vencidas sin pagar.
-   * El nuevo día solo se usa para las deudas que se creen desde ahora.
+   * El nuevo día y la nueva hora solo se usan para las deudas que se creen desde ahora.
    */
   async guardarReglaMora(dto: ReglaMoraDto) {
     if (dto.tipo === 'porcentaje' && dto.valor > 100) {
@@ -124,6 +196,7 @@ export class ExpensasService {
 
     const data = {
       dia: dto.dia,
+      ...(dto.hora ? { hora: horaDesdeTexto(dto.hora) } : {}),
       tipo: dto.tipo,
       valor: dto.valor.toFixed(2),
       tope: dto.tope != null ? dto.tope.toFixed(2) : null,
@@ -220,7 +293,7 @@ export class ExpensasService {
       })),
     });
 
-    // Si el departamento tiene fondos, las deudas nuevas se pagan solas
+    // Si el departamento tiene saldo a favor, las deudas nuevas se pagan solas
     await this.consumirFondos(tx, departamentos.map((d) => d.id));
   }
 
@@ -229,11 +302,11 @@ export class ExpensasService {
    * que se necesita y luego se reutiliza (también los errores, que se repiten igual).
    */
   private contextoGeneracion() {
-    let dia: Promise<number> | undefined;
+    let regla: Promise<ReglaMora> | undefined;
     let pendiente: Promise<{ id: bigint }> | undefined;
     const porTipo = new Map<bigint, Promise<{ id: bigint }[]>>();
     return {
-      dia: () => (dia ??= this.diaCobro()),
+      regla: () => (regla ??= this.reglaMora()),
       pendiente: () => (pendiente ??= this.estadoPendiente()),
       departamentos: (tipo: bigint) => {
         let p = porTipo.get(tipo);
@@ -262,7 +335,7 @@ export class ExpensasService {
       throw new BadRequestException('No se pueden generar deudas de meses pasados');
     }
 
-    const vencimiento = calcularVencimiento(mes, await contexto.dia());
+    const vencimiento = calcularVencimiento(mes, await contexto.regla());
     const departamentos = await contexto.departamentos(expensa.tipo_departamento);
 
     const faltantes = departamentos.filter((d) => !conDeuda.has(d.id));
@@ -312,7 +385,7 @@ export class ExpensasService {
     });
 
     // Deudas que ya existen ese mes, de todas las expensas en una sola consulta.
-    // Se busca por mes y no por fecha exacta: el día de vencimiento puede haber cambiado.
+    // Se busca por mes y no por fecha exacta: el día y la hora de vencimiento pueden haber cambiado.
     const existentes = await this.prisma.pago_expensa.findMany({
       where: {
         id_expensa: { in: expensas.map((e) => e.id) },
@@ -357,49 +430,32 @@ export class ExpensasService {
   }
 
   /**
-   * Pasa a vencida (4) las deudas pendientes (2) cuya fecha de vencimiento ya llegó
+   * Pasa a vencida (4) las deudas pendientes (2) cuyo vencimiento (fecha y hora) ya llegó
    * y calcula la mora con la regla vigente:
-   *   por unidad = % del monto o monto fijo (limitado por el tope, si hay)
-   *   unidades   = meses (cuenta uno más cada vez que llega el día del vencimiento)
-   *                o días desde el vencimiento, contando el propio día
+   *   por unidad = % de lo que se debe (expensa + extras) o monto fijo (limitado por el tope)
+   *   unidades   = meses (uno más cada vez que llega el día y la hora del vencimiento)
+   *                o días (uno más cada 24 horas desde el vencimiento, contando el primero)
    * A las que ya están vencidas les actualiza la mora. Las pagadas (3) no se tocan.
-   * Las deudas sin expensa (extras) pasan a vencida con mora 0.
+   * Las deudas que el saldo a favor cubre ya se pagaron al crearse, así que aquí no se miran fondos.
    * Es idempotente: recalcula el total, no suma sobre lo anterior.
    */
   async aplicarVencimientos() {
-    const hoy = hoyLaPaz();
+    const ahora = new Date();
     const regla = await this.reglaMora();
 
     const deudas = await this.prisma.pago_expensa.findMany({
       where: {
         id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] },
-        fecha_vencimiento: { lte: hoy },
+        fecha_vencimiento: { lte: ahora },
       },
-      select: {
-        id: true,
-        id_estado: true,
-        id_expensa: true,
-        monto: true,
-        monto_mora: true,
-        fecha_vencimiento: true,
-        expensa: { select: { mora_valor: true } },
-      },
+      select: { id: true, id_estado: true, monto_mora: true, ...SELECT_COBRO },
     });
 
     // Solo se escriben las deudas cuyo estado o mora cambian
     const cambios = deudas
       .map((d) => ({
         id: d.id,
-        mora: calcularMora(
-          {
-            monto: d.monto,
-            fecha_vencimiento: d.fecha_vencimiento,
-            id_expensa: d.id_expensa,
-            mora_valor_expensa: d.expensa?.mora_valor ?? null,
-          },
-          regla,
-          hoy,
-        ),
+        mora: moraDe(d, regla, ahora),
         cambia: d.id_estado !== ESTADO_VENCIDA,
         moraAnterior: d.monto_mora,
       }))
@@ -429,31 +485,34 @@ export class ExpensasService {
 
   /**
    * Paga una deuda completa: crea la factura y la pasa a estado "pagada".
-   * No hay pagos parciales: el monto recibido debe ser el total (monto + mora).
+   * No hay pagos parciales: el monto recibido debe ser el total (expensa + extras + mora).
+   * La mora se calcula en el momento del pago: no depende de que el cron ya haya pasado.
    */
   async pagar(idPago: number, dto: PagarExpensaDto, idUsuario: string) {
     const pago = await this.prisma.pago_expensa.findUnique({
       where: { id: BigInt(idPago) },
+      select: { id: true, id_estado: true, ...SELECT_COBRO },
     });
     if (!pago) throw new NotFoundException('Deuda no encontrada');
     if (pago.id_estado === ESTADO_PAGADA) {
       throw new ConflictException('Esta deuda ya está pagada');
     }
 
-    const monto = pago.monto.plus(pago.monto_mora);
+    const mora = moraDe(pago, await this.reglaMora(), new Date());
+    const monto = montoSinMora(pago).plus(mora);
     if (dto.monto !== undefined && !monto.equals(dto.monto.toFixed(2))) {
       throw new BadRequestException(
         `El pago debe cubrir el total de la deuda: Bs. ${monto.toFixed(2)}`,
       );
     }
-    // La deuda vence el día 1 del mes siguiente; el mes cubierto es el anterior
-    const fechaCubierta = sumarMeses(pago.fecha_vencimiento, -1);
+    // La deuda vence el mes siguiente; el mes cubierto es el anterior
+    const fechaCubierta = mesCubierto(pago.fecha_vencimiento);
 
     const factura = await this.prisma.$transaction(async (tx) => {
       // El filtro por estado evita doble pago si llegan dos requests a la vez
       const { count } = await tx.pago_expensa.updateMany({
         where: { id: pago.id, id_estado: { not: ESTADO_PAGADA } },
-        data: { id_estado: ESTADO_PAGADA },
+        data: { id_estado: ESTADO_PAGADA, monto_mora: mora },
       });
       if (count === 0) throw new ConflictException('Esta deuda ya está pagada');
 
@@ -497,18 +556,19 @@ export class ExpensasService {
   }
 
   /**
-   * Paga con los fondos de cada departamento sus deudas pendientes o vencidas, de la más
-   * antigua a la más nueva. Cada deuda se paga completa o no se paga: si los fondos no la
-   * cubren, se detiene y el saldo queda intacto.
+   * Paga con el saldo a favor de cada departamento sus deudas sin pagar (expensa + extras +
+   * la mora del momento, que es 0 si aún no vencen), de la más antigua a la más nueva
+   * (deudasQueCubre): cada una completa, y se detiene en la primera que no cubre.
+   * Devuelve cuántas deudas pagó.
    * Los saldos y las deudas se leen en una consulta cada uno, no una por departamento.
    */
   private async consumirFondos(tx: Prisma.TransactionClient, idsDepartamento: bigint[]) {
     const ids = [...new Set(idsDepartamento)];
-    if (ids.length === 0) return;
+    if (ids.length === 0) return 0;
 
     const saldos = await this.saldosFondos(tx, ids);
     const conSaldo = ids.filter((id) => saldos.get(id)?.gt(0));
-    if (conSaldo.length === 0) return;
+    if (conSaldo.length === 0) return 0;
 
     const deudas = await tx.pago_expensa.findMany({
       where: {
@@ -516,13 +576,7 @@ export class ExpensasService {
         id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] },
       },
       orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
-      select: {
-        id: true,
-        id_departamento: true,
-        monto: true,
-        monto_mora: true,
-        fecha_vencimiento: true,
-      },
+      select: { id: true, id_departamento: true, id_estado: true, ...SELECT_COBRO },
     });
     // Se agrupan por departamento conservando el orden de la consulta
     const deudasPorDepartamento = new Map<bigint, typeof deudas>();
@@ -533,19 +587,32 @@ export class ExpensasService {
     }
 
     const hoy = hoyLaPaz();
+    const ahora = new Date();
+    const regla = await this.reglaMora(tx);
+    let pagadas = 0;
     for (const idDepartamento of conSaldo) {
-      let saldo = saldos.get(idDepartamento)!;
+      const conTotal = (deudasPorDepartamento.get(idDepartamento) ?? []).map((d) => {
+        const mora = moraDe(d, regla, ahora);
+        return { ...d, mora, total: montoSinMora(d).plus(mora) };
+      });
 
-      for (const deuda of deudasPorDepartamento.get(idDepartamento) ?? []) {
-        const total = deuda.monto.plus(deuda.monto_mora);
-        if (saldo.lt(total)) break;
+      for (const { id, fecha_vencimiento, mora, total } of deudasQueCubre(
+        saldos.get(idDepartamento)!,
+        conTotal,
+      )) {
+        // El filtro por estado evita pagar dos veces una deuda que se pagó mientras tanto
+        const { count } = await tx.pago_expensa.updateMany({
+          where: { id, id_estado: { not: ESTADO_PAGADA } },
+          data: { id_estado: ESTADO_PAGADA, monto_mora: mora },
+        });
+        if (count === 0) continue;
 
         const factura = await tx.factura_pago_expensa.create({
           data: {
             id_usuario: null,
-            id_pago_expensa: deuda.id,
+            id_pago_expensa: id,
             fecha_pago: hoy,
-            fecha_cubierta: sumarMeses(deuda.fecha_vencimiento, -1),
+            fecha_cubierta: mesCubierto(fecha_vencimiento),
             monto: total,
           },
         });
@@ -558,17 +625,17 @@ export class ExpensasService {
             id_factura: factura.id,
           },
         });
-        await tx.pago_expensa.update({
-          where: { id: deuda.id },
-          data: { id_estado: ESTADO_PAGADA },
-        });
-
-        saldo = saldo.minus(total);
+        pagadas++;
       }
     }
+    return pagadas;
   }
 
-  /** Registra fondos para un departamento. Solo si está al día. */
+  /**
+   * Registra fondos para un departamento, aunque tenga deudas: el depósito paga al instante
+   * sus deudas sin pagar, de la más antigua a la más nueva (las vencidas con su mora),
+   * mientras alcance.
+   */
   async depositarFondos(dto: DepositarFondosDto, idUsuario: string) {
     const departamento = await this.prisma.departamento.findUnique({
       where: { id: BigInt(dto.id_departamento) },
@@ -576,26 +643,23 @@ export class ExpensasService {
     });
     if (!departamento) throw new NotFoundException('Departamento no encontrado');
 
-    const pendientes = await this.prisma.pago_expensa.count({
-      where: { id_departamento: departamento.id, id_estado: { not: ESTADO_PAGADA } },
-    });
-    if (pendientes > 0) {
-      throw new ConflictException(
-        'El departamento tiene deudas pendientes: los fondos solo se pueden registrar cuando está al día',
-      );
-    }
-
-    await this.prisma.movimiento_fondo.create({
-      data: {
-        id_departamento: departamento.id,
-        tipo: 'deposito',
-        monto: dto.monto.toFixed(2),
-        fecha: dto.fecha ? new Date(dto.fecha) : hoyLaPaz(),
-        metodo: dto.metodo,
-        referencia: dto.referencia,
-        id_usuario: idUsuario,
+    await this.prisma.$transaction(
+      async (tx) => {
+        await tx.movimiento_fondo.create({
+          data: {
+            id_departamento: departamento.id,
+            tipo: 'deposito',
+            monto: dto.monto.toFixed(2),
+            fecha: dto.fecha ? new Date(dto.fecha) : hoyLaPaz(),
+            metodo: dto.metodo,
+            referencia: dto.referencia,
+            id_usuario: idUsuario,
+          },
+        });
+        await this.consumirFondos(tx, [departamento.id]);
       },
-    });
+      { timeout: 30000 },
+    );
 
     return this.obtenerSaldo(dto.id_departamento);
   }
@@ -630,6 +694,7 @@ export class ExpensasService {
           monto: true,
           monto_mora: true,
           fecha_vencimiento: true,
+          pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
         },
         orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
       }),
@@ -675,8 +740,12 @@ export class ExpensasService {
       deudas: deudas.filter((p) => numeros.has(p.id_departamento)).map((p) => ({
         id: p.id.toString(),
         departamento: numeros.get(p.id_departamento)!,
-        periodo: sumarMeses(p.fecha_vencimiento, -1).toISOString().slice(0, 7),
-        monto: p.monto.toNumber(),
+        periodo: periodoDe(p.fecha_vencimiento),
+        // Momento (hora de La Paz) desde el que corre la mora
+        vence: momentoLaPaz(p.fecha_vencimiento),
+        // Expensa + extras, sin la mora
+        monto: p.pago_expensa_extra.reduce((t, e) => t.plus(e.monto), p.monto).toNumber(),
+        extras: p.pago_expensa_extra.map((e) => ({ concepto: e.concepto, monto: e.monto.toNumber() })),
         mora: p.monto_mora.toNumber(),
         vencida: p.id_estado === ESTADO_VENCIDA,
       })),
@@ -810,6 +879,7 @@ export class ExpensasService {
         fecha_vencimiento: true,
         concepto: true,
         expensa: { select: { nombre: true } },
+        pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
         factura_pago_expensa: {
           select: { id: true, fecha_pago: true, monto: true, metodo: true, referencia: true, id_usuario: true },
         },
@@ -838,6 +908,7 @@ export class ExpensasService {
       monto: number;
       desglose?: { concepto: string; monto: number }[];
       vencimiento?: string;
+      vence?: string;
     };
     type Mes = {
       periodo: string;
@@ -855,15 +926,15 @@ export class ExpensasService {
     let pendiente = new Prisma.Decimal(0);
 
     for (const d of deudas) {
-      const periodo = sumarMeses(d.fecha_vencimiento, -1).toISOString().slice(0, 7);
+      const periodo = periodoDe(d.fecha_vencimiento);
       let mes = meses.get(periodo);
       if (!mes) {
-        const v = d.fecha_vencimiento;
+        const v = enLaPaz(d.fecha_vencimiento);
         mes = {
           periodo,
           // Se emite el mismo día del mes anterior al vencimiento
           emision: new Date(Date.UTC(v.getUTCFullYear(), v.getUTCMonth() - 1, v.getUTCDate())),
-          vencimiento: v,
+          vencimiento: d.fecha_vencimiento,
           desglose: [],
           monto: new Prisma.Decimal(0),
           mora: new Prisma.Decimal(0),
@@ -871,13 +942,11 @@ export class ExpensasService {
         };
         meses.set(periodo, mes);
       }
-      mes.desglose.push({
-        concepto: d.concepto ?? d.expensa?.nombre ?? 'Extra',
-        monto: d.monto.toNumber(),
-      });
-      mes.monto = mes.monto.plus(d.monto);
+      const conceptos = conceptosDe(d);
+      mes.desglose.push(...conceptos.lineas);
+      mes.monto = mes.monto.plus(conceptos.total);
       mes.mora = mes.mora.plus(d.monto_mora);
-      if (d.id_estado !== ESTADO_PAGADA) pendiente = pendiente.plus(d.monto).plus(d.monto_mora);
+      if (d.id_estado !== ESTADO_PAGADA) pendiente = pendiente.plus(conceptos.total).plus(d.monto_mora);
 
       for (const f of d.factura_pago_expensa) {
         if (f.id_usuario === null) {
@@ -906,13 +975,14 @@ export class ExpensasService {
           (mes.conFondos ? ' (pagada con saldo a favor)' : ''),
         monto: mes.monto.toNumber(),
         desglose: mes.desglose,
-        // Último día para pagar sin mora
-        vencimiento: iso(new Date(mes.vencimiento.getTime() - 86400000)),
+        // Último día para pagar sin mora y momento exacto en que empieza a correr
+        vencimiento: ultimoDiaSinMora(mes.vencimiento),
+        vence: momentoLaPaz(mes.vencimiento),
       });
       if (mes.mora.gt(0)) {
         movimientos.push({
           id: `mor-${mes.periodo}`,
-          fecha: iso(mes.vencimiento),
+          fecha: iso(enLaPaz(mes.vencimiento)),
           tipo: 'mora',
           detalle: `Mora de la expensa de ${nombrePeriodo(mes.periodo)}`,
           monto: mes.mora.toNumber(),
@@ -1077,9 +1147,7 @@ export class ExpensasService {
   async listarPeriodos() {
     const fechas = await this.prisma.pago_expensa.groupBy({ by: ['fecha_vencimiento'] });
     // La deuda vence el mes siguiente; el período es el mes cubierto
-    const periodos = fechas.map((f) =>
-      sumarMeses(f.fecha_vencimiento, -1).toISOString().slice(0, 7),
-    );
+    const periodos = fechas.map((f) => periodoDe(f.fecha_vencimiento));
     return [...new Set(periodos)].sort().reverse();
   }
 
@@ -1104,6 +1172,7 @@ export class ExpensasService {
           fecha_vencimiento: true,
           concepto: true,
           expensa: { select: { nombre: true } },
+          pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
           id_departamento: true,
         },
         orderBy: { id: 'asc' },
@@ -1119,6 +1188,7 @@ export class ExpensasService {
       categoria: string;
       periodo: string;
       fechaLimite: string;
+      vence: string;
       desglose: { concepto: string; monto: number }[];
       total: Prisma.Decimal;
       mora: Prisma.Decimal;
@@ -1127,8 +1197,8 @@ export class ExpensasService {
     const grupos = new Map<string, Grupo>();
 
     for (const p of pagos) {
-      // La deuda vence el día 1 del mes siguiente; el período es el mes cubierto
-      const periodoFila = sumarMeses(p.fecha_vencimiento, -1).toISOString().slice(0, 7);
+      // La deuda vence el mes siguiente; el período es el mes cubierto
+      const periodoFila = periodoDe(p.fecha_vencimiento);
       const departamento = departamentos.get(p.id_departamento);
       if (!departamento) continue;
       const numero = departamento.numero;
@@ -1142,10 +1212,9 @@ export class ExpensasService {
           departamento: numero,
           categoria: (tipoId !== null && nombres.get(tipoId)) || '-',
           periodo: periodoFila,
-          // Último día del mes cubierto
-          fechaLimite: new Date(p.fecha_vencimiento.getTime() - 86400000)
-            .toISOString()
-            .slice(0, 10),
+          // Último día para pagar sin mora y momento exacto en que empieza a correr
+          fechaLimite: ultimoDiaSinMora(p.fecha_vencimiento),
+          vence: momentoLaPaz(p.fecha_vencimiento),
           desglose: [],
           total: new Prisma.Decimal(0),
           mora: new Prisma.Decimal(0),
@@ -1154,11 +1223,9 @@ export class ExpensasService {
         grupos.set(clave, g);
       }
 
-      g.desglose.push({
-        concepto: p.concepto ?? p.expensa?.nombre ?? 'Extra',
-        monto: p.monto.toNumber(),
-      });
-      g.total = g.total.plus(p.monto).plus(p.monto_mora);
+      const conceptos = conceptosDe(p);
+      g.desglose.push(...conceptos.lineas);
+      g.total = g.total.plus(conceptos.total).plus(p.monto_mora);
       g.mora = g.mora.plus(p.monto_mora);
       if (p.id_estado !== ESTADO_PAGADA) g.pendiente = true;
     }
@@ -1174,21 +1241,29 @@ export class ExpensasService {
           desglose: g.desglose,
           total: g.total.toNumber(),
           fechaLimite: g.fechaLimite,
+          vence: g.vence,
           estado: g.pendiente ? 'Pendiente' : 'Pagado',
         };
       })
       .sort((a, b) => b.periodo.localeCompare(a.periodo) || a.departamento - b.departamento);
   }
 
-  /** Añade deudas extra a departamentos específicos para un mes. */
+  /**
+   * Añade extras a la deuda de un mes (el actual o el siguiente, ya generados) de cada
+   * departamento. Se suman a la deuda del mes y se pagan con ella, en una sola factura.
+   * Si esa deuda ya se pagó (a mano o con el saldo a favor), van a una deuda complementaria
+   * del mismo mes (monto 0 + los extras), con el mismo vencimiento, su propia mora y su
+   * propia factura. Así la mora solo corre sobre lo que falta pagar.
+   */
   async crearExtras(dto: CrearExtrasDto) {
     const mes = primerDiaDelMes(`${dto.periodo}-01`);
-    // Igual que generarMes: solo el mes actual o meses futuros
-    if (mes < mesActual()) {
+    const actual = mesActual();
+    if (mes < actual) {
       throw new BadRequestException('No se pueden registrar extras de meses pasados');
     }
-    // Misma fecha de vencimiento que las deudas que genera el cron para ese mes
-    const vencimiento = calcularVencimiento(mes, await this.diaCobro());
+    if (mes > sumarMeses(actual, 1)) {
+      throw new BadRequestException('Solo se pueden registrar extras del mes actual o del siguiente');
+    }
 
     const numeros = [...new Set(dto.extras.map((e) => e.departamento))];
     const departamentos = await this.prisma.departamento.findMany({
@@ -1206,18 +1281,19 @@ export class ExpensasService {
     }
     const idPorNumero = new Map(departamentos.map((d) => [d.numero, d.id]));
 
-    // Solo a departamentos que ya tienen la expensa de ese mes (los extras tienen id_expensa null)
-    const conExpensa = await this.prisma.pago_expensa.findMany({
+    // Deudas de expensa de ese mes de cada departamento, de la más antigua a la más nueva
+    const deudasDelMes = await this.prisma.pago_expensa.findMany({
       where: {
         id_departamento: { in: [...idPorNumero.values()] },
         id_expensa: { not: null },
         fecha_vencimiento: vencimientosDelMes(mes),
       },
-      select: { id_departamento: true },
-      distinct: ['id_departamento'],
+      select: { id: true, id_departamento: true, id_expensa: true, id_estado: true, fecha_vencimiento: true },
+      orderBy: { id: 'asc' },
     });
-    const tienen = new Set(conExpensa.map((p) => p.id_departamento));
-    const sinExpensa = numeros.filter((n) => !tienen.has(idPorNumero.get(n)!));
+    const sinExpensa = numeros.filter(
+      (n) => !deudasDelMes.some((d) => d.id_departamento === idPorNumero.get(n)),
+    );
     if (sinExpensa.length > 0) {
       throw new BadRequestException(
         `Primero genera las expensas de ${dto.periodo} para: Dpto. ${sinExpensa.join(', ')}.`,
@@ -1226,20 +1302,42 @@ export class ExpensasService {
 
     const pendiente = await this.estadoPendiente();
 
-    // Deudas sueltas: sin expensa asociada (id_expensa null)
     await this.prisma.$transaction(
       async (tx) => {
-        await tx.pago_expensa.createMany({
+        // Deuda del mes a la que se suman los extras de cada departamento
+        const destino = new Map<bigint, bigint>();
+        for (const idDepartamento of new Set(idPorNumero.values())) {
+          const delDepartamento = deudasDelMes.filter((d) => d.id_departamento === idDepartamento);
+          const sinPagar = delDepartamento.find((d) => d.id_estado !== ESTADO_PAGADA);
+          if (sinPagar) {
+            destino.set(idDepartamento, sinPagar.id);
+            continue;
+          }
+          // Ya pagada por adelantado: deuda complementaria del mismo mes
+          const base = delDepartamento[0];
+          const complementaria = await tx.pago_expensa.create({
+            data: {
+              id_departamento: idDepartamento,
+              id_expensa: base.id_expensa,
+              monto: 0,
+              id_estado: pendiente.id,
+              fecha_vencimiento: base.fecha_vencimiento,
+            },
+            select: { id: true },
+          });
+          destino.set(idDepartamento, complementaria.id);
+        }
+
+        await tx.pago_expensa_extra.createMany({
           data: dto.extras.map((extra) => ({
-            id_departamento: idPorNumero.get(extra.departamento)!,
-            id_expensa: null,
+            id_pago_expensa: destino.get(idPorNumero.get(extra.departamento)!)!,
             concepto: extra.concepto.trim(),
             monto: extra.monto.toFixed(2),
-            id_estado: pendiente.id,
-            fecha_vencimiento: vencimiento,
           })),
         });
-        await this.consumirFondos(tx, [...idPorNumero.values()]);
+
+        // Si el saldo a favor cubre la deuda con sus extras, se paga sola
+        await this.consumirFondos(tx, [...destino.keys()]);
       },
       { timeout: 30000 },
     );

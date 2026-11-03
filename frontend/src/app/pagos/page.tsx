@@ -858,7 +858,6 @@ export default function PagosPage() {
 
   const anticipoValido =
     !!deptoAnt &&
-    deudaAnt === 0 &&
     antMontoNum !== null &&
     antFecha !== "";
 

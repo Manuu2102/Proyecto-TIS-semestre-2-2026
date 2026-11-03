@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, Streamabl
 import { ExpensasExportarService } from './expensas-exportar.service.js';
 import { ExportarSaldosDto, FormatoDto } from './dto/exportar.dto.js';
 import { ExpensasService } from './expensas.service.js';
+import { ExpensasCron } from './expensas.cron.js';
 import { PagarExpensaDto } from './dto/pagar-expensa.dto.js';
 import { CrearExtrasDto } from './dto/crear-extras.dto.js';
 import { DepositarFondosDto } from './dto/depositar-fondos.dto.js';
@@ -26,6 +27,7 @@ export class ExpensasController {
   constructor(
     private readonly expensas: ExpensasService,
     private readonly exportar: ExpensasExportarService,
+    private readonly cron: ExpensasCron,
   ) {}
 
   /** Genera las expensas de un mes elegido; si ya estaban todas, responde 409. */
@@ -64,10 +66,15 @@ export class ExpensasController {
     return this.expensas.obtenerReglaMora();
   }
 
-  /** Cambia la regla de mora; el nuevo día solo aplica a las deudas futuras. */
+  /**
+   * Cambia la regla de mora; el nuevo día y la nueva hora solo aplican a las deudas futuras.
+   * La revisión diaria de moras pasa a correr a la nueva hora.
+   */
   @Put('mora/regla')
-  guardarReglaMora(@Body() dto: ReglaMoraDto) {
-    return this.expensas.guardarReglaMora(dto);
+  async guardarReglaMora(@Body() dto: ReglaMoraDto) {
+    const regla = await this.expensas.guardarReglaMora(dto);
+    this.cron.programar(regla.hora);
+    return regla;
   }
 
   @Get('mensuales')
@@ -133,7 +140,7 @@ export class ExpensasController {
   async exportarSaldos(@Query() q: ExportarSaldosDto, @CurrentUser('id') idUsuario: string) {
     return descarga(await this.exportar.exportarSaldos(q, idUsuario));
   }
-  /** Añade deudas extra a departamentos específicos. */
+  /** Añade extras a la deuda del mes actual o del siguiente de departamentos específicos. */
   @Post('extras')
   crearExtras(@Body() dto: CrearExtrasDto) {
     return this.expensas.crearExtras(dto);
