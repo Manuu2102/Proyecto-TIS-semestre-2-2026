@@ -958,12 +958,13 @@ model pago_expensa {
   id_expensa           BigInt?
   monto                Decimal                @db.Decimal(12, 2)
   id_estado            BigInt
-  fecha_vencimiento    DateTime               @db.Date
+  fecha_vencimiento    DateTime               @db.Timestamptz(6)
   monto_mora           Decimal                @default(0) @db.Decimal(12, 2)
   concepto             String?                @db.VarChar(100)
   factura_pago_expensa factura_pago_expensa[]
   estado_deuda         estado_deuda           @relation(fields: [id_estado], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_departamento_expensa_estado_expensa")
   expensa              expensa?               @relation(fields: [id_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_pago_expensa_expensa")
+  pago_expensa_extra   pago_expensa_extra[]
 
   @@index([id_departamento, id_estado, fecha_vencimiento], map: "idx_pago_expensa_depto_estado")
   @@index([id_estado, fecha_vencimiento], map: "idx_pago_expensa_estado_venc")
@@ -1023,6 +1024,7 @@ model regla_mora {
   tope       Decimal? @db.Decimal(12, 2)
   frecuencia String   @db.VarChar(10)
   updated_at DateTime @default(now()) @db.Timestamp(6)
+  hora       DateTime @default(dbgenerated("'00:00:00'::time without time zone")) @db.Time(6)
 
   @@schema("public")
 }
@@ -1115,6 +1117,20 @@ model usuario {
   rol_usuario                                               rol_usuario[]
   users                                                     users                  @relation(fields: [id], references: [id], onDelete: Cascade, onUpdate: NoAction)
 
+  @@schema("public")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model pago_expensa_extra {
+  id              BigInt       @id @default(autoincrement())
+  id_pago_expensa BigInt
+  concepto        String       @db.VarChar(100)
+  monto           Decimal      @db.Decimal(12, 2)
+  created_at      DateTime     @default(now()) @db.Timestamp(6)
+  pago_expensa    pago_expensa @relation(fields: [id_pago_expensa], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([id_pago_expensa], map: "idx_pago_expensa_extra_pago")
   @@schema("public")
 }
 
