@@ -25,12 +25,16 @@ export class DatosPruebaController {
     }
 
     // El orden respeta las claves foráneas
-    const [movimientos, facturas, extras, deudas] = await this.prisma.$transaction([
-      this.prisma.movimiento_fondo.deleteMany(),
-      this.prisma.factura_pago_expensa.deleteMany(),
-      this.prisma.pago_expensa_extra.deleteMany(),
-      this.prisma.pago_expensa.deleteMany(),
-    ]);
+    // maxWait alto: con el pooler de Supabase lleno, espera una conexión libre en vez de fallar (P2028)
+    const [movimientos, facturas, extras, deudas] = await this.prisma.$transaction(
+      async (tx) => [
+        await tx.movimiento_fondo.deleteMany(),
+        await tx.factura_pago_expensa.deleteMany(),
+        await tx.pago_expensa_extra.deleteMany(),
+        await tx.pago_expensa.deleteMany(),
+      ],
+      { maxWait: 15000, timeout: 30000 },
+    );
 
     return {
       movimiento_fondo: movimientos.count,

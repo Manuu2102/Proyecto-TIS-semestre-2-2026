@@ -469,7 +469,7 @@ function datosRecibo(recibo: Recibo): [string, string][] {
     ["Departamento", `Dpto. ${recibo.departamento}`],
     ["Expensa pagada", nombrePeriodo(recibo.periodo)],
     ["Monto pagado", bs(recibo.montoPagado)],
-    ["Descontado de la mora", bs(recibo.descuentoMora)],
+    ["Mora incluida", bs(recibo.descuentoMora)],
     ["Fecha de pago", fechaCorta(recibo.fechaPago)],
     ["Método de pago", recibo.metodo],
     ["Referencia", recibo.referencia || "—"],
@@ -1961,7 +1961,7 @@ export default function PagosPage() {
               </div>
 
               <div style={FILA}>
-                <span>Se descontará de la mora</span>
+                <span>Mora incluida</span>
                 <strong>
                   {masAntigua.moraRestante > 0
                     ? bs(aplicacion.aMora)

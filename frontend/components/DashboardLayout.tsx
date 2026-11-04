@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
 import { supabase } from "@/lib/supabase";
+import { irAlLoginPorExpiracion, vencimientoToken } from "@/lib/api";
 
 type NavigationItem = {
   key: string;
@@ -103,6 +104,9 @@ function initials(name: string) {
 }
 
 
+// Para useSyncExternalStore: la sesión no cambia mientras la página está abierta
+const sinSuscripcion = () => () => {};
+
 function readSession(): { nombre: string; rol: string } | null {
   if (typeof window === "undefined") return null;
   const activa = sessionStorage.getItem("sesionActiva");
@@ -115,7 +119,10 @@ function readSession(): { nombre: string; rol: string } | null {
 
 export function DashboardLayout({ children, active }: { children: React.ReactNode; active: string }) {
   const [mobile, setMobile] = useState(false);
-  const [session] = useState<{ nombre: string; rol: string } | null>(() => readSession());
+  // undefined = aún no se leyó. sessionStorage solo existe en el navegador: se lee después
+  // de montar para que el primer render coincida con el del servidor (evita el error de hidratación).
+  const enNavegador = useSyncExternalStore(sinSuscripcion, () => true, () => false);
+  const session = useMemo(() => (enNavegador ? readSession() : undefined), [enNavegador]);
   const [loggingOut, setLoggingOut] = useState(false);
   const pathname = usePathname();
   const router = useRouter();
@@ -127,8 +134,23 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
   );
 
   useEffect(() => {
-    if (!session) router.replace("/login");
+    // Solo cuando ya se leyó y no hay sesión
+    if (session === null) router.replace("/login");
   }, [session, router]);
+
+  // Al vencer el token se vuelve al login (también si ya venció al abrir la página)
+  useEffect(() => {
+    if (!session) return;
+    const vence = vencimientoToken();
+    if (vence === null) return;
+    const espera = vence - Date.now();
+    if (espera <= 0) {
+      irAlLoginPorExpiracion();
+      return;
+    }
+    const temporizador = setTimeout(irAlLoginPorExpiracion, espera);
+    return () => clearTimeout(temporizador);
+  }, [session]);
 
   useEffect(() => {
     if (!session || pathname === "/dashboard" || pathname === "/login") return;
