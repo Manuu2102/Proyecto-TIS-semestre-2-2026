@@ -28,6 +28,11 @@ const adminSections: NavigationSection[] = [
     { key: "asociaciones", label: "Asociaciones", href: "/asociaciones", icon: UsersIcon },
     { key: "ocupantes", label: "Historial de ocupantes", href: "/historial-ocupantes", icon: HomeIcon },
   ] },
+  // NUEVO: módulo de personal (empleados)
+  { title: "Personal", items: [
+    { key: "personal", label: "Empleados", href: "/personal", icon: UsersIcon },
+     { key: "pagos-personal", label: "Pagos a empleados", href: "/pagos-personal", icon: WalletIcon }, // NUEVA
+  ] },
   { title: "Finanzas", items: [
     { key: "finanzas", label: "Resumen financiero", href: "/finanzas", icon: WalletIcon },
     { key: "expensas", label: "Expensas", href: "/expensas", icon: WalletIcon },

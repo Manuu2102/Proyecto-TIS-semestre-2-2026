@@ -364,7 +364,7 @@ export default function ExpensasPage() {
 
   const puedeContinuar = periodoValido && periodoSelCargado && faltantes > 0;
 
-  // ---------- Registrar agua ----------
+  // ---------- Registrar Extra ----------
   // Igual que "Generar expensas": solo el mes actual o meses futuros
   const aguaMesPasado = (numeroMes: number) =>
     aguaAnio !== "" &&
@@ -688,7 +688,7 @@ export default function ExpensasPage() {
               onClick={abrirAgua}
               disabled={generando}
             >
-              Registrar agua
+              Registrar Extra
             </button>
             <button
               className="btn btn-primary"
