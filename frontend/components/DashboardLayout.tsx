@@ -41,12 +41,11 @@ const adminSections: NavigationSection[] = [
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
     { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
   ] },
-  // NUEVO: se agrega "Comunicados" junto a Mantenimiento (solo para administrador)
+  // Operaciones: "Ajustes" abre la página de Mantenimiento (/mantenimiento) y debajo Comunicados
   { title: "Operaciones", items: [
-    { key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon },
+    { key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon },
     { key: "comunicados", label: "Comunicados", href: "/comunicados", icon: BellIcon },
   ] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [
     { key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon },
