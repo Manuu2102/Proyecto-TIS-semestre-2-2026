@@ -41,7 +41,7 @@ const adminSections: NavigationSection[] = [
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
     { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
   ] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
+  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [
     { key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon },
@@ -56,7 +56,7 @@ const ownerSections: NavigationSection[] = [
   { title: "Principal", items: [{ key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutIcon }] },
   { title: "Mi vivienda", items: [{ key: "departamentos", label: "Mi departamento", href: "/dashboard", icon: BuildingIcon }] },
   { title: "Finanzas", items: [{ key: "finanzas", label: "Expensas y finanzas", href: "/finanzas", icon: WalletIcon }] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
+  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [{ key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon }] },
 ];
@@ -65,14 +65,14 @@ const tenantSections: NavigationSection[] = [
   { title: "Principal", items: [{ key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutIcon }] },
   { title: "Mi vivienda", items: [{ key: "departamentos", label: "Mi departamento", href: "/dashboard", icon: BuildingIcon }] },
   { title: "Finanzas", items: [{ key: "finanzas", label: "Expensas y finanzas", href: "/finanzas", icon: WalletIcon }] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
+  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
 ];
 
 const directorSections: NavigationSection[] = [
   { title: "Principal", items: [{ key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutIcon }] },
   { title: "Finanzas", items: [{ key: "finanzas", label: "Expensas y finanzas", href: "/finanzas", icon: WalletIcon }] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
+  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [{ key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon }] },
 ];
