@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'; // <-- IMPORT AGREGADO
+import { APP_GUARD } from '@nestjs/core'; // <-- IMPORT AGREGADO
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
@@ -26,6 +28,12 @@ import { RolesModule } from './roles/roles.module.js';
     ConfigModule.forRoot({
       isGlobal: true,
     }),
+    // 🚨 CONFIGURACIÓN DEL RATE LIMITING
+    ThrottlerModule.forRoot([{
+      ttl: 60000, // 1 minuto
+      limit: 100, // Límite global de 100 peticiones por minuto por IP
+    }]),
+    
     AuthModule,
     PrismaModule,
     UsuariosModule,
@@ -47,6 +55,13 @@ import { RolesModule } from './roles/roles.module.js';
   ],
 
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      // Aplicamos el Guard del límite a TODA la aplicación
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}

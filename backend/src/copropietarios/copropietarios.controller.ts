@@ -8,6 +8,7 @@ import {
   Param,
   UseGuards,
 } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler'; // <-- IMPORT AGREGADO
 import { CopropietariosService } from './copropietarios.service.js';
 import { CrearCopropietarioDto } from './dto/crear-copropietarios.dto.js';
 import { ActualizarCopropietarioDto } from './dto/actualizar-copropietarios.dto.js';
@@ -23,6 +24,7 @@ export class CopropietariosController {
 
   @Post()
   @Roles('ADMINISTRADOR')
+  @Throttle({ default: { limit: 3, ttl: 60000 } }) // <-- SOLO 3 CREACIONES POR MINUTO
   crear(
     @Body() dto: CrearCopropietarioDto,
     @CurrentUser('id') adminId: string,
