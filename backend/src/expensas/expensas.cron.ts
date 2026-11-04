@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap, OnModuleDestroy } from '@ne
 import { Cron } from '@nestjs/schedule';
 import { ExpensasService } from './expensas.service.js';
 import { momentoLaPaz, proximaHoraLaPaz } from './hora-la-paz.js';
+import { ahora } from './reloj.js';
 
 /**
  * Revisión de moras (aplicarVencimientos). Es idempotente, así que correr de más no duplica nada:
@@ -14,6 +15,7 @@ import { momentoLaPaz, proximaHoraLaPaz } from './hora-la-paz.js';
 export class ExpensasCron implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(ExpensasCron.name);
   private siguiente?: NodeJS.Timeout;
+  private horaRegla?: string;
 
   constructor(private readonly expensas: ExpensasService) {}
 
@@ -43,12 +45,24 @@ export class ExpensasCron implements OnApplicationBootstrap, OnModuleDestroy {
   /** Programa la revisión diaria a la hora "HH:mm" de La Paz. Reemplaza la anterior. */
   programar(hora: string) {
     clearTimeout(this.siguiente);
-    const proxima = proximaHoraLaPaz(hora);
+    this.horaRegla = hora;
+    const proxima = proximaHoraLaPaz(hora, ahora());
     this.siguiente = setTimeout(async () => {
       await this.ejecutar(`regla ${hora}`);
       this.programar(hora);
-    }, proxima.getTime() - Date.now());
+    }, proxima.getTime() - ahora().getTime());
     this.logger.log(`Próxima revisión de moras: ${momentoLaPaz(proxima).replace('T', ' ')} (hora de La Paz)`);
+  }
+
+  /**
+   * Para el reloj simulado: corre la revisión con la hora actual (simulada)
+   * y reprograma la revisión diaria a partir de esa hora.
+   */
+  async revisarAhora(motivo: string) {
+    const v = await this.expensas.aplicarVencimientos();
+    this.logger.log(`Vencimientos (${motivo}): ${v.actualizadas} deudas actualizadas`);
+    if (this.horaRegla) this.programar(this.horaRegla);
+    return v;
   }
 
   private async ejecutar(motivo: string) {
