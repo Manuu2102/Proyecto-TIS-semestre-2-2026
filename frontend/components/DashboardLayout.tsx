@@ -28,10 +28,10 @@ const adminSections: NavigationSection[] = [
     { key: "asociaciones", label: "Asociaciones", href: "/asociaciones", icon: UsersIcon },
     { key: "ocupantes", label: "Historial de ocupantes", href: "/historial-ocupantes", icon: HomeIcon },
   ] },
-  // NUEVO: módulo de personal (empleados)
+  // NUEVO: módulo de personal (empleados y sus pagos)
   { title: "Personal", items: [
     { key: "personal", label: "Empleados", href: "/personal", icon: UsersIcon },
-     { key: "pagos-personal", label: "Pagos a empleados", href: "/pagos-personal", icon: WalletIcon }, // NUEVA
+    { key: "pagos-personal", label: "Pagos a empleados", href: "/pagos-personal", icon: WalletIcon },
   ] },
   { title: "Finanzas", items: [
     { key: "finanzas", label: "Resumen financiero", href: "/finanzas", icon: WalletIcon },
@@ -41,7 +41,11 @@ const adminSections: NavigationSection[] = [
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
     { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
   ] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon }] },
+  // NUEVO: se agrega "Comunicados" junto a Mantenimiento (solo para administrador)
+  { title: "Operaciones", items: [
+    { key: "mantenimiento", label: "Mantenimiento", href: "/mantenimiento", icon: WrenchIcon },
+    { key: "comunicados", label: "Comunicados", href: "/comunicados", icon: BellIcon },
+  ] },
   { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
   { title: "Seguridad", items: [
     { key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon },

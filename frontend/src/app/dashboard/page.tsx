@@ -21,8 +21,11 @@ const adminActions: Action[] = [
   ["Parqueos y bauleras", "Espacios y asignaciones", "/espacios", BuildingIcon],
   ["Asociaciones", "Comités y relaciones", "/asociaciones", UsersIcon],
   ["Historial de ocupantes", "Trazabilidad de unidades", "/historial-ocupantes", HomeIcon],
+  ["Empleados", "Registro y datos del personal", "/personal", UsersIcon], // NUEVA
+  ["Pagos a empleados", "Sueldos, anticipos e historial", "/pagos-personal", WalletIcon], // NUEVA
   ["Expensas y finanzas", "Pagos, saldos y movimientos", "/finanzas", WalletIcon],
   ["Mantenimiento", "Solicitudes y tareas", "/mantenimiento", WrenchIcon],
+  ["Comunicados", "Avisos por WhatsApp y correo", "/comunicados", FileIcon], // NUEVA
   ["Gestión documental", "Actas, reglamentos y archivos", "/documentos", FileIcon],
   ["Seguridad y auditoría", "Accesos y actividad", "/seguridad", ShieldIcon],
   ["Nube y respaldos", "Copias y protección de datos", "/respaldo", ShieldIcon],
