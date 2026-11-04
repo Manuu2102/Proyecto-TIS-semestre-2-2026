@@ -17,6 +17,7 @@ import {
 type Categoria = "A" | "B" | "C";
 type EstadoDepto = "Al día" | "Pendiente" | "En mora";
 type Frecuencia = "mes" | "dia";
+type TipoMora = "porcentaje" | "fijo";
 
 type Departamento = {
   id: string;
@@ -28,7 +29,9 @@ type Departamento = {
 
 type ReglaMora = {
   diaInicio: number;
-  porcentaje: number;
+  tipo: TipoMora;
+  // Porcentaje de la expensa o monto fijo en Bs., según `tipo`
+  valor: number;
   montoMaximo: number;
   frecuencia: Frecuencia;
 };
@@ -91,7 +94,8 @@ const METODOS = ["QR"];
 // Se muestra hasta que llega la regla del backend (GET /expensas/mora/regla).
 const REGLA_INICIAL: ReglaMora = {
   diaInicio: 1,
-  porcentaje: 0,
+  tipo: "porcentaje",
+  valor: 0,
   montoMaximo: 0,
   frecuencia: "mes",
 };
@@ -220,12 +224,10 @@ function imprimirHtml(titulo: string, cuerpo: string) {
 // LLAMADAS AL BACKEND
 // ============================================================
 
-// Forma de la regla en el backend. El modal actual solo maneja
-// porcentaje con tope; el tipo "fijo" existe en el backend pero
-// el modal todavía no tiene selector para elegirlo.
+// Forma de la regla en el backend
 type ReglaMoraApi = {
   dia: number;
-  tipo: "porcentaje" | "fijo";
+  tipo: TipoMora;
   valor: number;
   tope: number | null;
   frecuencia: Frecuencia;
@@ -233,7 +235,8 @@ type ReglaMoraApi = {
 
 const deReglaApi = (regla: ReglaMoraApi): ReglaMora => ({
   diaInicio: regla.dia,
-  porcentaje: regla.valor,
+  tipo: regla.tipo,
+  valor: regla.valor,
   montoMaximo: regla.tope ?? 0,
   frecuencia: regla.frecuencia,
 });
@@ -409,9 +412,10 @@ async function guardarReglaApi(
     method: "PUT",
     body: JSON.stringify({
       dia: regla.diaInicio,
-      tipo: "porcentaje",
-      valor: regla.porcentaje,
-      tope: regla.montoMaximo,
+      tipo: regla.tipo,
+      valor: regla.valor,
+      // Con monto fijo no hay límite
+      tope: regla.tipo === "porcentaje" ? regla.montoMaximo : null,
       frecuencia: regla.frecuencia,
     }),
   });
@@ -497,7 +501,10 @@ function textoRegla(regla: ReglaMora) {
       ? "por cada mes de atraso"
       : "por cada día de atraso";
 
-  return `sin mora antes del día ${regla.diaInicio}; desde ese día, el menor valor entre ${regla.porcentaje}% de la expensa y ${bs(regla.montoMaximo)}, ${frecuencia}`;
+  if (regla.tipo === "fijo") {
+    return `sin mora antes del día ${regla.diaInicio}; desde ese día, ${bs(regla.valor)} ${frecuencia}`;
+  }
+  return `sin mora antes del día ${regla.diaInicio}; desde ese día, el menor valor entre ${regla.valor}% de la expensa y ${bs(regla.montoMaximo)}, ${frecuencia}`;
 }
 
 const AVISO = {
@@ -593,6 +600,7 @@ export default function PagosPage() {
   // Configuración de mora
   const [reglaOpen, setReglaOpen] = useState(false);
   const [rDia, setRDia] = useState("");
+  const [rTipo, setRTipo] = useState<TipoMora>("porcentaje");
   const [rPorcentaje, setRPorcentaje] = useState("");
   const [rMaximo, setRMaximo] = useState("");
   const [rFrecuencia, setRFrecuencia] = useState<Frecuencia>("mes");
@@ -722,7 +730,13 @@ export default function PagosPage() {
       : "";
 
   const errPorcentaje =
-    rPorcentaje.trim() === ""
+    rTipo === "fijo"
+      ? rPorcentaje.trim() === ""
+        ? "El monto fijo es obligatorio."
+        : rPorcentajeNum === null
+        ? "Ingresa un monto mayor a Bs. 0 con máximo dos decimales."
+        : ""
+      : rPorcentaje.trim() === ""
       ? "El porcentaje es obligatorio."
       : rPorcentajeNum === null
       ? "Ingresa un porcentaje mayor a 0 con máximo dos decimales."
@@ -730,8 +744,11 @@ export default function PagosPage() {
       ? "El porcentaje no puede superar el 100%."
       : "";
 
+  // El límite solo aplica al porcentaje
   const errMaximo =
-    rMaximo.trim() === ""
+    rTipo === "fijo"
+      ? ""
+      : rMaximo.trim() === ""
       ? "El límite en bolivianos es obligatorio."
       : rMaximoNum === null
       ? "Ingresa un monto mayor a Bs. 0."
@@ -742,19 +759,21 @@ export default function PagosPage() {
     !errPorcentaje &&
     !errMaximo &&
     rPorcentajeNum !== null &&
-    rMaximoNum !== null
+    (rTipo === "fijo" || rMaximoNum !== null)
       ? {
           diaInicio: rDiaNum,
-          porcentaje: rPorcentajeNum,
-          montoMaximo: rMaximoNum,
+          tipo: rTipo,
+          valor: rPorcentajeNum,
+          montoMaximo: rTipo === "fijo" ? 0 : rMaximoNum ?? 0,
           frecuencia: rFrecuencia,
         }
       : null;
 
   function abrirRegla() {
     setRDia(String(regla.diaInicio));
-    setRPorcentaje(String(regla.porcentaje));
-    setRMaximo(String(regla.montoMaximo));
+    setRTipo(regla.tipo);
+    setRPorcentaje(String(regla.valor));
+    setRMaximo(regla.montoMaximo ? String(regla.montoMaximo) : "");
     setRFrecuencia(regla.frecuencia);
     setRIntentado(false);
     setRServidor("");
@@ -1562,8 +1581,33 @@ export default function PagosPage() {
           >
             Antes del día de inicio no se cobra mora. Desde ese día
             se calcula automáticamente por día o por mes de atraso,
-            aplicando el porcentaje y el límite en bolivianos.
+            como porcentaje de la expensa (con límite en bolivianos)
+            o como monto fijo.
           </p>
+
+          <div className="field" style={{ marginBottom: 12 }}>
+            <span>
+              Tipo de mora <b>*</b>
+            </span>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button
+                type="button"
+                className={`btn ${rTipo === "porcentaje" ? "btn-primary" : "btn-secondary"}`}
+                aria-pressed={rTipo === "porcentaje"}
+                onClick={() => setRTipo("porcentaje")}
+              >
+                Porcentaje (%)
+              </button>
+              <button
+                type="button"
+                className={`btn ${rTipo === "fijo" ? "btn-primary" : "btn-secondary"}`}
+                aria-pressed={rTipo === "fijo"}
+                onClick={() => setRTipo("fijo")}
+              >
+                Monto fijo (Bs.)
+              </button>
+            </div>
+          </div>
 
           <div className="form-grid">
             <label className="field">
@@ -1605,12 +1649,12 @@ export default function PagosPage() {
 
             <label className="field">
               <span>
-                Porcentaje de mora (%) <b>*</b>
+                {rTipo === "fijo" ? "Monto fijo de mora (Bs.)" : "Porcentaje de mora (%)"} <b>*</b>
               </span>
               <input
                 type="number"
                 min="0.01"
-                max="100"
+                max={rTipo === "fijo" ? undefined : "100"}
                 step="0.01"
                 value={rPorcentaje}
                 onChange={(e) => setRPorcentaje(e.target.value)}
@@ -1622,6 +1666,7 @@ export default function PagosPage() {
                 )}
             </label>
 
+            {rTipo === "porcentaje" && (
             <label className="field">
               <span>
                 Límite por unidad de atraso (Bs.) <b>*</b>
@@ -1638,6 +1683,7 @@ export default function PagosPage() {
                 <small style={ERR}>{errMaximo}</small>
               )}
             </label>
+            )}
           </div>
 
           {rServidor && (

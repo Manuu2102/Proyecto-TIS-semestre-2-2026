@@ -15,6 +15,7 @@ import { ReglaMoraDto } from './dto/regla-mora.dto.js';
 import { calcularMora, type ReglaMora } from './mora.js';
 import { deudasQueCubre } from './saldo.js';
 import { desdeLaPaz, enLaPaz, horaDesdeTexto, horaTexto, momentoLaPaz } from './hora-la-paz.js';
+import { ahora as relojAhora } from './reloj.js';
 
 const ESTADO_PENDIENTE = BigInt(2);
 const ESTADO_PAGADA = BigInt(3);
@@ -48,7 +49,7 @@ const sumarMeses = (mes: Date, n: number) =>
 // Fecha de hoy en La Paz, como Date en UTC a medianoche (para columnas @db.Date)
 const hoyLaPaz = () =>
   new Date(
-    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(new Date()),
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(relojAhora()),
   );
 
 const primerDiaDelMes = (fecha: string) => {
@@ -440,7 +441,7 @@ export class ExpensasService {
    * Es idempotente: recalcula el total, no suma sobre lo anterior.
    */
   async aplicarVencimientos() {
-    const ahora = new Date();
+    const ahora = relojAhora();
     const regla = await this.reglaMora();
 
     const deudas = await this.prisma.pago_expensa.findMany({
@@ -498,7 +499,7 @@ export class ExpensasService {
       throw new ConflictException('Esta deuda ya está pagada');
     }
 
-    const mora = moraDe(pago, await this.reglaMora(), new Date());
+    const mora = moraDe(pago, await this.reglaMora(), relojAhora());
     const monto = montoSinMora(pago).plus(mora);
     if (dto.monto !== undefined && !monto.equals(dto.monto.toFixed(2))) {
       throw new BadRequestException(
@@ -587,7 +588,7 @@ export class ExpensasService {
     }
 
     const hoy = hoyLaPaz();
-    const ahora = new Date();
+    const ahora = relojAhora();
     const regla = await this.reglaMora(tx);
     let pagadas = 0;
     for (const idDepartamento of conSaldo) {
