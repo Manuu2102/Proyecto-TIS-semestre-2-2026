@@ -16,6 +16,7 @@ import { calcularMora, type ReglaMora } from './mora.js';
 import { deudasQueCubre } from './saldo.js';
 import { desdeLaPaz, enLaPaz, horaDesdeTexto, horaTexto, momentoLaPaz } from './hora-la-paz.js';
 import { ahora as relojAhora } from './reloj.js';
+import { auditarInserciones, usuarioEnTransaccion } from '../lib/auditoria.js';
 
 const ESTADO_PENDIENTE = BigInt(2);
 const ESTADO_PAGADA = BigInt(3);
@@ -27,17 +28,13 @@ const serialize = <T>(data: T): T =>
   );
 
 /**
- * Como Promise.all, pero espera las consultas una tras otra. Las consultas de Prisma no
- * empiezan hasta que se esperan, así que cada pantalla ocupa una sola conexión a la vez
- * (el pooler de Supabase en modo session admite pocas para todo el equipo).
+ * Lanza las consultas a la vez (Promise.all). DATABASE_URL usa el pooler de Supabase en
+ * modo transaction (puerto 6543), que admite muchas conexiones; el pool de Prisma limita
+ * a 10 por backend. Si se vuelve al modo session (5432), conviene esperarlas en orden.
  */
-const enOrden = async <T extends readonly unknown[] | []>(
+const enOrden = <T extends readonly unknown[] | []>(
   consultas: T,
-): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> => {
-  const resultados: unknown[] = [];
-  for (const consulta of consultas) resultados.push(await consulta);
-  return resultados as { -readonly [K in keyof T]: Awaited<T[K]> };
-};
+): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> => Promise.all(consultas);
 
 // Nombre de cada tipo de departamento ("A", "B", "C"...), por id
 const nombresDeTipos = (tipos: { id: bigint; nombre: string | null }[]) =>
@@ -190,7 +187,7 @@ export class ExpensasService {
    * Guarda la regla y recalcula la mora de las deudas vencidas sin pagar.
    * El nuevo día y la nueva hora solo se usan para las deudas que se creen desde ahora.
    */
-  async guardarReglaMora(dto: ReglaMoraDto) {
+  async guardarReglaMora(dto: ReglaMoraDto, idUsuario: string | null = null) {
     if (dto.tipo === 'porcentaje' && dto.valor > 100) {
       throw new BadRequestException('El porcentaje no puede superar el 100%');
     }
@@ -204,12 +201,16 @@ export class ExpensasService {
       frecuencia: dto.frecuencia,
       updated_at: new Date(),
     };
-    const actual = await this.prisma.regla_mora.findFirst({ orderBy: { id: 'asc' } });
-    if (actual) {
-      await this.prisma.regla_mora.update({ where: { id: actual.id }, data });
-    } else {
-      await this.prisma.regla_mora.create({ data });
-    }
+    // En una transacción para que el trigger de auditoría registre quién cambió la regla
+    await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idUsuario);
+      const actual = await tx.regla_mora.findFirst({ orderBy: { id: 'asc' } });
+      if (actual) {
+        await tx.regla_mora.update({ where: { id: actual.id }, data });
+      } else {
+        await tx.regla_mora.create({ data });
+      }
+    });
 
     await this.aplicarVencimientos();
     return this.obtenerReglaMora();
@@ -331,6 +332,7 @@ export class ExpensasService {
     mes: Date,
     conDeuda: Set<bigint>,
     contexto: ReturnType<ExpensasService['contextoGeneracion']>,
+    idUsuario: string | null = null,
   ) {
     if (mes < mesActual()) {
       throw new BadRequestException('No se pueden generar deudas de meses pasados');
@@ -348,15 +350,17 @@ export class ExpensasService {
 
     try {
       await this.prisma.$transaction(
-        (tx) =>
-          this.insertarDeudas(
+        async (tx) => {
+          await usuarioEnTransaccion(tx, idUsuario);
+          await this.insertarDeudas(
             tx,
             expensa.id,
             expensa.monto_total,
             faltantes,
             vencimiento,
             pendiente.id,
-          ),
+          );
+        },
         { timeout: 30000 },
       );
     } catch (e) {
@@ -378,7 +382,7 @@ export class ExpensasService {
    * Genera las deudas de un mes para todas las expensas.
    * Es idempotente: lo que ya existe se omite.
    */
-  async generarDeudasMensuales(mes: Date) {
+  async generarDeudasMensuales(mes: Date, idUsuario: string | null = null) {
     const expensas = await this.prisma.expensa.findMany({
       where: { tipo_departamento: { not: null } }, // ignora expensas sin tipo
       select: { id: true, nombre: true, monto_total: true, tipo_departamento: true },
@@ -411,6 +415,7 @@ export class ExpensasService {
           mes,
           conDeuda.get(expensa.id) ?? new Set(),
           contexto,
+          idUsuario,
         );
         resultado.generadas++;
       } catch (e) {
@@ -510,6 +515,7 @@ export class ExpensasService {
     const fechaCubierta = mesCubierto(pago.fecha_vencimiento);
 
     const factura = await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idUsuario);
       // El filtro por estado evita doble pago si llegan dos requests a la vez
       const { count } = await tx.pago_expensa.updateMany({
         where: { id: pago.id, id_estado: { not: ESTADO_PAGADA } },
@@ -646,6 +652,7 @@ export class ExpensasService {
 
     await this.prisma.$transaction(
       async (tx) => {
+        await usuarioEnTransaccion(tx, idUsuario);
         await tx.movimiento_fondo.create({
           data: {
             id_departamento: departamento.id,
@@ -1061,7 +1068,7 @@ export class ExpensasService {
   }
 
   /** Cambia el monto de la expensa de una categoría; aplica a las deudas que se generen después. */
-  async actualizarTarifa(dto: ActualizarTarifaDto) {
+  async actualizarTarifa(dto: ActualizarTarifaDto, idUsuario: string | null = null) {
     const tipos = await this.prisma.tipo_departamento.findMany({ select: { id: true, nombre: true } });
     const tipo = tipos.find((t) => t.nombre?.trim().toUpperCase() === dto.categoria);
     if (!tipo) throw new NotFoundException(`No existe la categoría ${dto.categoria}`);
@@ -1080,9 +1087,13 @@ export class ExpensasService {
       );
     }
 
-    await this.prisma.expensa.update({
-      where: { id: expensas[0].id },
-      data: { monto_total: dto.monto.toFixed(2) },
+    // En una transacción para que el trigger de auditoría registre quién cambió la tarifa
+    await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idUsuario);
+      await tx.expensa.update({
+        where: { id: expensas[0].id },
+        data: { monto_total: dto.monto.toFixed(2) },
+      });
     });
     return this.listarTarifas();
   }
@@ -1091,7 +1102,7 @@ export class ExpensasService {
    * Genera las expensas de un mes elegido. Solo crea las que faltan; si ya estaban
    * todas generadas, responde 409 y no genera nada.
    */
-  async generarMes(periodo: string) {
+  async generarMes(periodo: string, idUsuario: string | null = null) {
     const mes = primerDiaDelMes(`${periodo}-01`);
     if (mes < mesActual()) {
       throw new BadRequestException('No se pueden generar expensas de meses pasados');
@@ -1107,7 +1118,7 @@ export class ExpensasService {
       previas.map((p) => p.id_departamento),
     );
     const antes = new Set([...departamentosPrevios.values()].map((d) => d.numero));
-    const r = await this.generarDeudasMensuales(mes);
+    const r = await this.generarDeudasMensuales(mes, idUsuario);
     if (r.generadas === 0) {
       if (r.errores > 0) throw new BadRequestException('No se pudieron generar las expensas. Intenta nuevamente.');
       throw new ConflictException('Ya se generaron las expensas de este mes');
@@ -1256,7 +1267,7 @@ export class ExpensasService {
    * del mismo mes (monto 0 + los extras), con el mismo vencimiento, su propia mora y su
    * propia factura. Así la mora solo corre sobre lo que falta pagar.
    */
-  async crearExtras(dto: CrearExtrasDto) {
+  async crearExtras(dto: CrearExtrasDto, idUsuario: string | null = null) {
     const mes = primerDiaDelMes(`${dto.periodo}-01`);
     const actual = mesActual();
     if (mes < actual) {
@@ -1305,6 +1316,7 @@ export class ExpensasService {
 
     await this.prisma.$transaction(
       async (tx) => {
+        await usuarioEnTransaccion(tx, idUsuario);
         // Deuda del mes a la que se suman los extras de cada departamento
         const destino = new Map<bigint, bigint>();
         for (const idDepartamento of new Set(idPorNumero.values())) {
@@ -1329,13 +1341,15 @@ export class ExpensasService {
           destino.set(idDepartamento, complementaria.id);
         }
 
-        await tx.pago_expensa_extra.createMany({
+        const extras = await tx.pago_expensa_extra.createManyAndReturn({
           data: dto.extras.map((extra) => ({
             id_pago_expensa: destino.get(idPorNumero.get(extra.departamento)!)!,
             concepto: extra.concepto.trim(),
             monto: extra.monto.toFixed(2),
           })),
         });
+        // pago_expensa_extra no tiene trigger de auditoría en la base: se registra aquí
+        await auditarInserciones(tx, 'pago_expensa_extra', extras, idUsuario);
 
         // Si el saldo a favor cubre la deuda con sus extras, se paga sola
         await this.consumirFondos(tx, [...destino.keys()]);

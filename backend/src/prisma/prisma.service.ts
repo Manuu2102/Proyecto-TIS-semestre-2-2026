@@ -7,6 +7,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
   constructor() {
     const adapter = new PrismaPg({
       connectionString: process.env.DATABASE_URL,
+      // La base está lejos (~300 ms por consulta, ~1,8 s por conexión nueva). Se
+      // mantienen algunas conexiones abiertas para no reconectar en cada pantalla.
+      max: 10,
+      min: 2,
+      idleTimeoutMillis: 5 * 60_000,
+      keepAlive: true,
     });
 
     super({ adapter });
@@ -14,6 +20,8 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
   async onModuleInit() {
     await this.$connect();
+    // Abre las conexiones mínimas al arrancar, sin bloquear el inicio si falla
+    void Promise.all([this.$queryRaw`SELECT 1`, this.$queryRaw`SELECT 1`]).catch(() => {});
   }
 
   async conUsuario<T>(

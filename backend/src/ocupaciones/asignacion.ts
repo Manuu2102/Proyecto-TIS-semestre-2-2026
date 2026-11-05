@@ -1,5 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
+// Fechas del día en hora de Bolivia (new Date() da el día UTC: después de las 20:00 ya es mañana)
+import { aFecha, hoyISO } from '../lib/formato.js';
 
 /**
  * Ayudas compartidas por copropietarios e inquilinos para manejar la ocupación
@@ -36,7 +38,7 @@ export async function cerrarOcupacion(
 ) {
   await tx.departamento_usuario.update({
     where: { id: ocupacion.id },
-    data: { estatus: false, fecha_fin_ocupacion: new Date() },
+    data: { estatus: false, fecha_fin_ocupacion: aFecha(hoyISO()) },
   });
 
   const quedan = await tx.departamento_usuario.count({
