@@ -32,8 +32,8 @@ export class ExpensasController {
 
   /** Genera las expensas de un mes elegido; si ya estaban todas, responde 409. */
   @Post('generar-mes')
-  generarMes(@Body() dto: GenerarMesDto) {
-    return this.expensas.generarMes(dto.periodo);
+  generarMes(@Body() dto: GenerarMesDto, @CurrentUser('id') idUsuario: string) {
+    return this.expensas.generarMes(dto.periodo, idUsuario);
   }
 
   /** Departamentos, deudas pendientes y saldo a favor, para la pantalla de pagos. */
@@ -71,8 +71,8 @@ export class ExpensasController {
    * La revisión diaria de moras pasa a correr a la nueva hora.
    */
   @Put('mora/regla')
-  async guardarReglaMora(@Body() dto: ReglaMoraDto) {
-    const regla = await this.expensas.guardarReglaMora(dto);
+  async guardarReglaMora(@Body() dto: ReglaMoraDto, @CurrentUser('id') idUsuario: string) {
+    const regla = await this.expensas.guardarReglaMora(dto, idUsuario);
     this.cron.programar(regla.hora);
     return regla;
   }
@@ -105,8 +105,8 @@ export class ExpensasController {
 
   /** Cambia el monto de la expensa de una categoría. */
   @Put('tarifas')
-  actualizarTarifa(@Body() dto: ActualizarTarifaDto) {
-    return this.expensas.actualizarTarifa(dto);
+  actualizarTarifa(@Body() dto: ActualizarTarifaDto, @CurrentUser('id') idUsuario: string) {
+    return this.expensas.actualizarTarifa(dto, idUsuario);
   }
 
   /** Departamentos para el buscador del estado de cuenta. */
@@ -142,8 +142,8 @@ export class ExpensasController {
   }
   /** Añade extras a la deuda del mes actual o del siguiente de departamentos específicos. */
   @Post('extras')
-  crearExtras(@Body() dto: CrearExtrasDto) {
-    return this.expensas.crearExtras(dto);
+  crearExtras(@Body() dto: CrearExtrasDto, @CurrentUser('id') idUsuario: string) {
+    return this.expensas.crearExtras(dto, idUsuario);
   }
 
   /** Registra fondos para un departamento. */

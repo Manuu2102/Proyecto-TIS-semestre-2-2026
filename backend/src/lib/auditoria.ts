@@ -21,6 +21,40 @@ const aJson = (datos: unknown) =>
       ) as Prisma.InputJsonValue);
 
 /**
+ * Indica a los triggers de auditoría de la base (fn_auditoria, que lee auth.uid()) qué
+ * usuario hace los cambios de esta transacción. Sin esto, quedan registrados como "Sistema".
+ * Solo vale dentro de la transacción (set_config local), así que es seguro con el pooler.
+ * Hace lo mismo que PrismaService.conUsuario, pero sirve en transacciones que ya existen.
+ */
+export async function usuarioEnTransaccion(tx: Prisma.TransactionClient, usuarioId: string | null) {
+  if (!usuarioId) return;
+  const claims = JSON.stringify({ sub: usuarioId, role: 'authenticated' });
+  await tx.$executeRaw`SELECT set_config('request.jwt.claims', ${claims}, true)`;
+}
+
+/**
+ * Registra filas insertadas en una tabla que no tiene trigger de auditoría, con el mismo
+ * formato que deja fn_auditoria (accion INSERT, datos_nuevos = la fila completa).
+ */
+export async function auditarInserciones(
+  tx: Prisma.TransactionClient,
+  tabla: string,
+  filas: { id: bigint }[],
+  usuarioId: string | null,
+) {
+  if (filas.length === 0) return;
+  await tx.auditoria.createMany({
+    data: filas.map((fila) => ({
+      usuario_id: usuarioId,
+      tabla_afectada: tabla,
+      registro_id: fila.id.toString(),
+      accion: 'INSERT',
+      datos_nuevos: aJson(fila),
+    })),
+  });
+}
+
+/**
  * Registra una operación en la tabla auditoria dentro de la misma transacción,
  * así la auditoría y el cambio se guardan juntos o no se guarda ninguno.
  * La operación concreta (p. ej. ANULAR) queda en datos_nuevos.operacion.

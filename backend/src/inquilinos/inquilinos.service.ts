@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { olvidarUsuario } from '../auth/usuario-cache.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { Prisma } from '../generated/prisma/client.js';
 import { CrearInquilinoDto } from './dto/crear-inquilino.dto.js';
@@ -18,6 +19,8 @@ import {
   ocuparDepartamento,
   validarSinOtroConRol,
 } from '../ocupaciones/asignacion.js';
+// Fechas del día en hora de Bolivia (new Date() da el día UTC: después de las 20:00 ya es mañana)
+import { aFecha, hoyISO } from '../lib/formato.js';
 
 @Injectable()
 export class InquilinosService {
@@ -108,7 +111,7 @@ export class InquilinosService {
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
             email: cifrarEmail(data.email),
             estatus: true,
-            fecha_de_registro: new Date(),
+            fecha_de_registro: aFecha(hoyISO()),
             telefono: cifrarTelefono(data.telefono),
             rol_usuario: {
               create: { id_rol: this.ID_ROL_INQUILINO },
@@ -120,7 +123,7 @@ export class InquilinosService {
           tx,
           nuevoUsuario.id,
           idDepartamento,
-          data.fecha_inicio ? new Date(data.fecha_inicio) : new Date(),
+          data.fecha_inicio ? new Date(data.fecha_inicio) : aFecha(hoyISO()),
         );
 
         return nuevoUsuario;
@@ -192,7 +195,7 @@ export class InquilinosService {
         await cerrarOcupaciones(tx, id);
       }
       if (nuevoDepto && data.estatus !== false) {
-        await ocuparDepartamento(tx, id, nuevoDepto, fechaInicio ?? new Date());
+        await ocuparDepartamento(tx, id, nuevoDepto, fechaInicio ?? aFecha(hoyISO()));
       } else if (fechaInicio && actual && data.estatus !== false) {
         // Mismo departamento: solo se corrige la fecha de inicio
         await tx.departamento_usuario.update({
@@ -220,6 +223,8 @@ export class InquilinosService {
         },
       });
     });
+
+    olvidarUsuario(id);
 
     return {
       message: 'Inquilino actualizado correctamente',
@@ -308,6 +313,7 @@ export class InquilinosService {
         await tx.rol_usuario.deleteMany({ where: { id_usuario: id } });
         await tx.usuario.delete({ where: { id } });
       });
+      olvidarUsuario(id);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
         throw new ConflictException(

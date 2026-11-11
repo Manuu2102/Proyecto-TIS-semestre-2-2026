@@ -5,6 +5,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { olvidarUsuario } from '../auth/usuario-cache.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { CrearCopropietarioDto } from './dto/crear-copropietarios.dto.js';
 import { ActualizarCopropietarioDto } from './dto/actualizar-copropietarios.dto.js';
@@ -18,6 +19,8 @@ import {
   ocuparDepartamento,
   validarSinOtroConRol,
 } from '../ocupaciones/asignacion.js';
+// Fechas del día en hora de Bolivia (new Date() da el día UTC: después de las 20:00 ya es mañana)
+import { aFecha, hoyISO } from '../lib/formato.js';
 
 @Injectable()
 export class CopropietariosService {
@@ -103,7 +106,7 @@ export class CopropietariosService {
             fecha_de_nacimiento: new Date(data.fecha_de_nacimiento),
             email: cifrarEmail(data.email),
             estatus: true, // FIX: Forzado a true, ignorando lo que venga del front
-            fecha_de_registro: new Date(),
+            fecha_de_registro: aFecha(hoyISO()),
             telefono: cifrarTelefono(data.telefono),
             rol_usuario: {
               create: {
@@ -126,7 +129,7 @@ export class CopropietariosService {
             data: {
               id_usuario: nuevoUsuario.id,
               id_departamento: idDepartamento,
-              fecha_ocupacion: new Date(),
+              fecha_ocupacion: aFecha(hoyISO()),
               estatus: true,
             },
           });
@@ -217,7 +220,7 @@ export class CopropietariosService {
         await cerrarOcupaciones(tx, id);
       }
       if (nuevoDepto && data.estatus !== false) {
-        await ocuparDepartamento(tx, id, nuevoDepto, new Date());
+        await ocuparDepartamento(tx, id, nuevoDepto, aFecha(hoyISO()));
       }
 
       return tx.usuario.update({
@@ -241,6 +244,8 @@ export class CopropietariosService {
         },
       });
     });
+
+    olvidarUsuario(id);
 
     return {
       message: 'Copropietario actualizado correctamente',
@@ -329,6 +334,7 @@ export class CopropietariosService {
         await tx.rol_usuario.deleteMany({ where: { id_usuario: id } });
         await tx.usuario.delete({ where: { id } });
       });
+      olvidarUsuario(id);
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
         throw new ConflictException(
