@@ -2,7 +2,7 @@ import { api, apiPost, apiPatch, apiDelete } from './api';
 import { hoyISO } from './formato';
 
 // =====================================================================
-// Tipos
+// Tipos (y tipos de respuesta del backend)
 // =====================================================================
 export type Empleado = {
   id: number;
@@ -14,7 +14,31 @@ export type Empleado = {
   sueldo: number; 
   fechaRegistro: string;
   activo: boolean;
-  historial_personal?: any[];
+  historial_personal?: unknown[]; // <-- CORREGIDO AQUÍ (antes era any[])
+};
+
+// Tipo para lo que devuelve el backend
+export type EmpleadoBackend = {
+  id: string | number;
+  nombre: string;
+  apellido_paterno: string;
+  apellido_materno?: string | null;
+  email: string;
+  cargo: string;
+  ci: string | number;
+  telefono?: string | null;
+  salario: string | number;
+  fecha_inicio: string;
+  estatus: boolean;
+  historial_personal?: unknown[];
+};
+
+export type PagoBackend = {
+  id: string | number;
+  id_personal: string | number;
+  monto: string | number;
+  created_at?: string;
+  tipo_pago?: { nombre: string };
 };
 
 export type EmpleadoForm = Omit<Empleado, 'id' | 'fechaRegistro' | 'activo' | 'historial_personal'>;
@@ -71,7 +95,7 @@ export const CARGOS_SUGERIDOS = ['Portero', 'Limpieza', 'Seguridad', 'Jardinerí
 // =====================================================================
 
 export async function listarEmpleados(): Promise<Empleado[]> {
-  const empleados = await api<any[]>('/personal');
+  const empleados = await api<EmpleadoBackend[]>('/personal');
   return empleados.map(e => ({
     id: Number(e.id),
     nombre: `${e.nombre} ${e.apellido_paterno} ${e.apellido_materno || ''}`.trim(),
@@ -92,7 +116,7 @@ export async function crearEmpleado(d: EmpleadoForm): Promise<Empleado> {
   const apellido_paterno = partes[1] || '';
   const apellido_materno = partes.slice(2).join(' ') || '';
 
-  const res = await apiPost<any>('/personal', {
+  const res = await apiPost<EmpleadoBackend>('/personal', {
     nombre: nombre,
     apellido_paterno: apellido_paterno,
     apellido_materno: apellido_materno,
@@ -119,14 +143,13 @@ export async function crearEmpleado(d: EmpleadoForm): Promise<Empleado> {
   };
 }
 
-// 🚨 ACTUALIZADO: Función para editar empleado
 export async function actualizarEmpleado(id: number, d: EmpleadoForm): Promise<Empleado> {
   const partes = d.nombre.trim().split(' ');
   const nombre = partes[0] || d.nombre;
   const apellido_paterno = partes[1] || '';
   const apellido_materno = partes.slice(2).join(' ') || '';
 
-  const res = await apiPatch<any>(`/personal/${id}`, {
+  const res = await apiPatch<EmpleadoBackend>(`/personal/${id}`, {
     nombre: nombre,
     apellido_paterno: apellido_paterno,
     apellido_materno: apellido_materno,
@@ -157,9 +180,8 @@ export async function eliminarEmpleado(id: number): Promise<void> {
 // PAGOS Y ANTICIPOS
 // =====================================================================
 
-// 🚨 AGREGADO: Función que faltaba para los anticipos
 export async function listarAnticipos(): Promise<Anticipo[]> {
-  const movimientos = await api<any[]>('/personal/pagos');
+  const movimientos = await api<PagoBackend[]>('/personal/pagos');
   return movimientos
     .filter(m => m.tipo_pago?.nombre === 'Anticipo')
     .map(m => ({
@@ -173,7 +195,7 @@ export async function listarAnticipos(): Promise<Anticipo[]> {
 }
 
 export async function listarMovimientosPago(): Promise<MovimientoPago[]> {
-  const movimientos = await api<any[]>('/personal/pagos');
+  const movimientos = await api<PagoBackend[]>('/personal/pagos');
   return movimientos.map(m => ({
     id: Number(m.id),
     empleadoId: Number(m.id_personal),
@@ -188,7 +210,7 @@ export async function listarMovimientosPago(): Promise<MovimientoPago[]> {
 }
 
 export async function registrarMovimientoPago(d: NuevoMovimientoPago): Promise<MovimientoPago> {
-  const res = await apiPost<any>('/personal/pagos', {
+  const res = await apiPost<PagoBackend>('/personal/pagos', {
     id_personal: d.empleadoId,
     monto: d.monto,
     tipo_pago: d.tipo,
