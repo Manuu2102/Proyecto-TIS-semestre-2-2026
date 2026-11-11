@@ -22,6 +22,7 @@ import { IngresosModule } from './ingresos/ingresos.module.js';
 import { GastosModule } from './gastos/gastos.module.js';
 import { CajaModule } from './caja/caja.module.js';
 import { RolesModule } from './roles/roles.module.js';
+import { PersonalModule } from './personal/personal.module.js';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { RolesModule } from './roles/roles.module.js';
     GastosModule,
     CajaModule,
     RolesModule,
+    PersonalModule,
     ScheduleModule.forRoot(),
   ],
 
