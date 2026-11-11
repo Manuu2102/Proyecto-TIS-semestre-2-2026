@@ -2120,17 +2120,6 @@ export default function PagosPage() {
             </div>
           )}
 
-          {deptoAnt && deudaAnt > 0 && (
-            <div
-              className="alert alert-error"
-              style={{ marginBottom: 12 }}
-            >
-              Este departamento tiene expensas pendientes (
-              {bs(deudaAnt)}). El anticipo solo se puede registrar
-              cuando no tiene deudas.
-            </div>
-          )}
-
           <div className="form-grid">
             <label className="field">
               <span>

@@ -1007,7 +1007,9 @@ model personal {
   email              String               @unique @db.VarChar(255)
   estatus            Boolean
   fecha_inicio       DateTime             @db.Date
+  cargo              String               @default("Empleado")
   salario            Decimal              @db.Decimal(8, 2)
+  telefono           String?              @db.VarChar(255)
   historial_personal historial_personal[]
   pago_personal      pago_personal[]
 

@@ -1,7 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { olvidarUsuario } from '../auth/usuario-cache.js';
 import { SupabaseService } from '../supabase/supabase.service.js';
 import { cifrarCi, cifrarEmail, cifrarTelefono, descifrar, descifrarUsuario } from '../lib/cifrado.js';
+// Fechas del día en hora de Bolivia (new Date() da el día UTC: después de las 20:00 ya es mañana)
+import { aFecha, hoyISO } from '../lib/formato.js';
 
 @Injectable()
 export class UsuariosService {
@@ -56,7 +59,7 @@ export class UsuariosService {
           fecha_de_nacimiento: data.fecha_de_nacimiento,
           email: cifrarEmail(data.email),
           estatus: true,
-          fecha_de_registro: new Date(),
+          fecha_de_registro: aFecha(hoyISO()),
           telefono: cifrarTelefono(data.telefono),
         },
       });
@@ -94,6 +97,8 @@ async assignRole(adminId: string, idUsuario: string, idRol: number) {
       data: { id_rol: idRol, id_usuario: idUsuario },
     });
   });
+
+  olvidarUsuario(idUsuario);
 
   return {
     message: 'Rol asignado correctamente',
@@ -143,6 +148,7 @@ async assignRole(adminId: string, idUsuario: string, idRol: number) {
     await this.prisma.conUsuario(adminId, (tx) =>
       tx.usuario.delete({ where: { id: idUsuario } }),
     );
+    olvidarUsuario(idUsuario);
 
     await this.supabase.adminClient.auth.admin.deleteUser(idUsuario);
 

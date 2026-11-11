@@ -4,6 +4,7 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { passportJwtSecret } from 'jwks-rsa';
 import { PrismaService } from '../prisma/prisma.service.js';
+import { guardarUsuarioEnCache, usuarioEnCache } from './usuario-cache.js';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -31,6 +32,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: any) {
+    const enCache = usuarioEnCache(payload.sub);
+    if (enCache) return enCache;
+
     const usuario = await this.prisma.usuario.findUnique({
       where: { id: payload.sub },
       select: {
@@ -49,10 +53,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException('Usuario no encontrado o inactivo');
     }
 
-    return {
+    const sesion = {
       id: usuario.id,
       nombres: usuario.nombres,
       roles: usuario.rol_usuario.map((ru) => ru.rol.nombre_rol),
     };
+    guardarUsuarioEnCache(sesion);
+    return sesion;
   }
 }

@@ -63,6 +63,10 @@ const TABLA_LABEL: Record<string, string> = {
   usuario: "un usuario",
   expensa: "una expensa",
   pago_expensa: "un pago de expensa",
+  factura_pago_expensa: "un cobro de expensa",
+  pago_expensa_extra: "un cargo extra de expensa",
+  movimiento_fondo: "un movimiento de saldo a favor",
+  regla_mora: "la regla de mora",
   rol_usuario: "un rol de usuario",
   personal: "un empleado",
   pago_personal: "un pago de personal",
@@ -89,9 +93,20 @@ function formatFecha(iso: string) {
   };
 }
 
+// Fecha y hora guardada en la base ("2026-11-05T04:13:24.524", con o sin zona).
+// La base trabaja en UTC: sin zona también es UTC, así que se muestra en hora de Bolivia.
+const FECHA_HORA = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/;
+
+function formatFechaHora(v: string) {
+  const fecha = new Date(/(Z|[+-]\d{2}:?\d{2})$/.test(v) ? v : `${v}Z`);
+  if (Number.isNaN(fecha.getTime())) return v;
+  return fecha.toLocaleString("es-BO", { timeZone: "America/La_Paz" });
+}
+
 function formatValor(v: unknown) {
   if (v === null || v === undefined) return "—";
   if (typeof v === "boolean") return v ? "Sí" : "No";
+  if (typeof v === "string" && FECHA_HORA.test(v)) return formatFechaHora(v);
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
