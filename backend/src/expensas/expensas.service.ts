@@ -17,9 +17,12 @@ import { deudasQueCubre } from './saldo.js';
 import { desdeLaPaz, enLaPaz, horaDesdeTexto, horaTexto, momentoLaPaz } from './hora-la-paz.js';
 import { ahora as relojAhora } from './reloj.js';
 
-const ESTADO_PENDIENTE = BigInt(2);
+// Foto de comprobante enviada y esperando al admin: no vence ni suma mora
+// (aplicarVencimientos y consumirFondos solo miran pendientes y vencidas)
+export const ESTADO_EN_REVISION = BigInt(1);
+export const ESTADO_PENDIENTE = BigInt(2);
 const ESTADO_PAGADA = BigInt(3);
-const ESTADO_VENCIDA = BigInt(4);
+export const ESTADO_VENCIDA = BigInt(4);
 
 const serialize = <T>(data: T): T =>
   JSON.parse(
@@ -46,11 +49,12 @@ const nombresDeTipos = (tipos: { id: bigint; nombre: string | null }[]) =>
 const sumarMeses = (mes: Date, n: number) =>
   new Date(Date.UTC(mes.getUTCFullYear(), mes.getUTCMonth() + n, 1));
 
-// Fecha de hoy en La Paz, como Date en UTC a medianoche (para columnas @db.Date)
-const hoyLaPaz = () =>
-  new Date(
-    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(relojAhora()),
-  );
+// Fecha (de La Paz) de un instante, como Date en UTC a medianoche (para columnas @db.Date)
+const fechaLaPaz = (instante: Date) =>
+  new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'America/La_Paz' }).format(instante));
+
+// Fecha de hoy en La Paz
+const hoyLaPaz = () => fechaLaPaz(relojAhora());
 
 const primerDiaDelMes = (fecha: string) => {
   const d = new Date(fecha);
@@ -498,6 +502,11 @@ export class ExpensasService {
     if (pago.id_estado === ESTADO_PAGADA) {
       throw new ConflictException('Esta deuda ya está pagada');
     }
+    if (pago.id_estado === ESTADO_EN_REVISION) {
+      throw new ConflictException(
+        'Esta deuda tiene un comprobante en revisión: apruébalo o recházalo primero',
+      );
+    }
 
     const mora = moraDe(pago, await this.reglaMora(), relojAhora());
     const monto = montoSinMora(pago).plus(mora);
@@ -512,10 +521,12 @@ export class ExpensasService {
     const factura = await this.prisma.$transaction(async (tx) => {
       // El filtro por estado evita doble pago si llegan dos requests a la vez
       const { count } = await tx.pago_expensa.updateMany({
-        where: { id: pago.id, id_estado: { not: ESTADO_PAGADA } },
+        where: { id: pago.id, id_estado: { in: [ESTADO_PENDIENTE, ESTADO_VENCIDA] } },
         data: { id_estado: ESTADO_PAGADA, monto_mora: mora },
       });
-      if (count === 0) throw new ConflictException('Esta deuda ya está pagada');
+      if (count === 0) {
+        throw new ConflictException('Esta deuda ya está pagada o tiene un comprobante en revisión');
+      }
 
       return tx.factura_pago_expensa.create({
         data: {
@@ -531,6 +542,93 @@ export class ExpensasService {
     });
 
     return serialize(factura);
+  }
+
+  /**
+   * Paga una deuda en revisión al aprobarse la foto de su comprobante (peticion_pago).
+   * La mora se calcula al momento en que se envió la foto: mientras estuvo en revisión no
+   * corrió. Se usa dentro de la transacción que aprueba la petición.
+   */
+  async pagarDeudaEnRevision(
+    tx: Prisma.TransactionClient,
+    idPago: bigint,
+    enviadaEn: Date,
+    idPeticion: bigint,
+    idUsuario: string,
+  ) {
+    const pago = await tx.pago_expensa.findUnique({
+      where: { id: idPago },
+      select: { id: true, ...SELECT_COBRO },
+    });
+    if (!pago) throw new NotFoundException('Deuda no encontrada');
+
+    const mora = moraDe(pago, await this.reglaMora(tx), enviadaEn);
+    const { count } = await tx.pago_expensa.updateMany({
+      where: { id: pago.id, id_estado: ESTADO_EN_REVISION },
+      data: { id_estado: ESTADO_PAGADA, monto_mora: mora },
+    });
+    if (count === 0) throw new ConflictException('La deuda ya no está en revisión');
+
+    return tx.factura_pago_expensa.create({
+      data: {
+        id_usuario: idUsuario,
+        id_pago_expensa: pago.id,
+        fecha_pago: fechaLaPaz(enviadaEn),
+        fecha_cubierta: mesCubierto(pago.fecha_vencimiento),
+        monto: montoSinMora(pago).plus(mora),
+        metodo: 'QR',
+        referencia: `Petición #${idPeticion}`,
+      },
+    });
+  }
+
+  /**
+   * Deudas sin pagar de los departamentos que ocupa un usuario, para que elija cuál
+   * pagar por QR. El total incluye la mora registrada.
+   */
+  async deudasDeUsuario(idUsuario: string) {
+    const ocupaciones = await this.prisma.departamento_usuario.findMany({
+      where: { id_usuario: idUsuario, estatus: true },
+      select: { departamento: { select: { id: true, numero: true } } },
+    });
+    const numeros = new Map(ocupaciones.map((o) => [o.departamento.id, o.departamento.numero]));
+    if (numeros.size === 0) return [];
+
+    const deudas = await this.prisma.pago_expensa.findMany({
+      where: { id_departamento: { in: [...numeros.keys()] }, id_estado: { not: ESTADO_PAGADA } },
+      select: {
+        id: true,
+        id_departamento: true,
+        id_estado: true,
+        monto: true,
+        monto_mora: true,
+        fecha_vencimiento: true,
+        concepto: true,
+        expensa: { select: { nombre: true } },
+        pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
+      },
+      orderBy: [{ fecha_vencimiento: 'asc' }, { id: 'asc' }],
+    });
+
+    return deudas.map((d) => {
+      const conceptos = conceptosDe(d);
+      return {
+        id: d.id.toString(),
+        departamento: numeros.get(d.id_departamento)!,
+        periodo: periodoDe(d.fecha_vencimiento),
+        vence: momentoLaPaz(d.fecha_vencimiento),
+        desglose: conceptos.lineas,
+        monto: conceptos.total.toNumber(),
+        mora: d.monto_mora.toNumber(),
+        total: conceptos.total.plus(d.monto_mora).toNumber(),
+        estado:
+          d.id_estado === ESTADO_EN_REVISION
+            ? 'en_revision'
+            : d.id_estado === ESTADO_VENCIDA
+              ? 'vencida'
+              : 'pendiente',
+      };
+    });
   }
 
   /** Saldo de fondos por departamento: depósitos menos consumos. */
@@ -749,6 +847,8 @@ export class ExpensasService {
         extras: p.pago_expensa_extra.map((e) => ({ concepto: e.concepto, monto: e.monto.toNumber() })),
         mora: p.monto_mora.toNumber(),
         vencida: p.id_estado === ESTADO_VENCIDA,
+        // Tiene una foto de comprobante esperando aprobación (no corre la mora)
+        en_revision: p.id_estado === ESTADO_EN_REVISION,
       })),
       aFavor,
     };
@@ -1309,7 +1409,11 @@ export class ExpensasService {
         const destino = new Map<bigint, bigint>();
         for (const idDepartamento of new Set(idPorNumero.values())) {
           const delDepartamento = deudasDelMes.filter((d) => d.id_departamento === idDepartamento);
-          const sinPagar = delDepartamento.find((d) => d.id_estado !== ESTADO_PAGADA);
+          // Una deuda en revisión ya tiene su comprobante enviado: sumarle extras haría que
+          // al aprobarse quede pagado algo que no se pagó. Se trata como pagada.
+          const sinPagar = delDepartamento.find(
+            (d) => d.id_estado !== ESTADO_PAGADA && d.id_estado !== ESTADO_EN_REVISION,
+          );
           if (sinPagar) {
             destino.set(idDepartamento, sinPagar.id);
             continue;
