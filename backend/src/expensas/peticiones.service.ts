@@ -16,8 +16,10 @@ import {
 } from './expensas.service.js';
 import { ListarPeticionesDto } from './dto/peticion-pago.dto.js';
 import { MailService } from '../mail/mail.service.js';
+import { descifrar } from '../lib/cifrado.js';
 import { correoPagoAprobado, correoPagoRechazado } from './correos-peticion.js';
 import { enLaPaz } from './hora-la-paz.js';
+import { usuarioEnTransaccion } from '../lib/auditoria.js';
 
 const TIPOS_IMAGEN = ['image/png', 'image/jpeg', 'image/webp'];
 export const TAMANO_MAXIMO_FOTO = 5 * 1024 * 1024; // 5 MB
@@ -151,6 +153,8 @@ export class PeticionesService {
 
     try {
       const peticion = await this.prisma.$transaction(async (tx) => {
+        // Para que los triggers de auditoría registren quién hizo el cambio
+        await usuarioEnTransaccion(tx, idUsuario);
         // Solo pendientes (2) y vencidas (4): el filtro evita mandar a revisión una deuda
         // que se pagó o que otra petición tomó mientras tanto
         const { count } = await tx.pago_expensa.updateMany({
@@ -223,6 +227,7 @@ export class PeticionesService {
     const peticion = await this.buscarEnRevision(idPeticion);
 
     const factura = await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idAdmin);
       const { count } = await tx.peticion_pago.updateMany({
         where: { id: peticion.id, estado: 'en_revision' },
         data: { estado: 'aprobada', id_usuario_revisor: idAdmin, fecha_revision: new Date() },
@@ -252,6 +257,7 @@ export class PeticionesService {
     const peticion = await this.buscarEnRevision(idPeticion);
 
     await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idAdmin);
       const { count } = await tx.peticion_pago.updateMany({
         where: { id: peticion.id, estado: 'en_revision' },
         data: {
@@ -288,8 +294,9 @@ export class PeticionesService {
         select: { email: true },
       });
       if (!usuario?.email) return;
+      // El email se guarda cifrado en la BD (lib/cifrado.ts)
       await this.mail.enviar(
-        usuario.email,
+        descifrar(usuario.email),
         armar({
           nombre: peticion.copropietario.nombre,
           departamento: peticion.departamento,
