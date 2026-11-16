@@ -7,9 +7,10 @@ import { CheckIcon, EditIcon, FileIcon, MailIcon, PlusIcon, SearchIcon, TrashIco
 import { fechaCorta, normalizar } from "../../../lib/formato";
 import {
   actualizarComunicado, crearComunicado, eliminarComunicado, ETIQUETA_ROL, listarComunicados,
-  listarContactos, MENSAJE_MAX, resolverDestinatarios, ROLES, textoDestinatarios, validarComunicado,
+  listarContactos, MENSAJE_MAX, resolverDestinatarios, ROLES, textoDestinatarios, textoResumenCorreos, validarComunicado,
 } from "../../../lib/comunicados";
 import type {
+  ResumenCorreos,
   Canal, Comunicado, ComunicadoForm, Contacto, ErroresComunicado, ModoDestinatarios, Rol,
 } from "../../../lib/comunicados";
 
@@ -312,12 +313,13 @@ export default function ComunicadosPage() {
   /** Devuelve el mensaje de error si falla; null si todo salió bien. */
   async function guardar(datos: ComunicadoForm, enviarAhora: boolean): Promise<string | null> {
     try {
+      let correos: ResumenCorreos | null = null;
       if (editando) await actualizarComunicado(editando.id, datos, enviarAhora);
-      else await crearComunicado(datos, enviarAhora);
+      else correos = (await crearComunicado(datos, enviarAhora)).correos;
       await recargar();
       setMensaje(
         enviarAhora
-          ? "Comunicado enviado correctamente."
+          ? `Comunicado enviado correctamente.${correos ? ` ${textoResumenCorreos(correos)}` : ""}`
           : editando?.estado === "Enviado"
             ? "Los cambios del comunicado se guardaron correctamente."
             : "Borrador guardado correctamente."
@@ -543,7 +545,7 @@ function ComunicadoFormulario({
   const [canales, setCanales] = useState<Canal[]>(inicial?.canales ?? []);
   const [modo, setModo] = useState<ModoDestinatarios>(inicial?.destinatarios.modo ?? "todos");
   const [cargos, setCargos] = useState<Rol[]>(inicial?.destinatarios.cargos ?? []);
-  const [personas, setPersonas] = useState<number[]>(inicial?.destinatarios.personas ?? []);
+  const [personas, setPersonas] = useState<string[]>(inicial?.destinatarios.personas ?? []);
   const [vista, setVista] = useState<Canal>("WhatsApp");
   const [errores, setErrores] = useState<ErroresComunicado>({});
   const [errorGeneral, setErrorGeneral] = useState("");
@@ -553,7 +555,8 @@ function ComunicadoFormulario({
 
   const esEnviado = inicial?.estado === "Enviado";
   const destinatarios = { modo, cargos, personas };
-  const alcance = resolverDestinatarios(destinatarios, contactos).length;
+  const listaAlcance = resolverDestinatarios(destinatarios, contactos);
+  const alcance = listaAlcance.length;
   const usaCorreo = canales.includes("Correo");
 
   function limpiar(campo: keyof ErroresComunicado) {
@@ -757,6 +760,35 @@ function ComunicadoFormulario({
                     );
                   })}
                 </div>
+              </div>
+            )}
+
+            {/* Con "Todos" o "Por cargo" también se ve a quién le llega */}
+            {modo !== "especificas" && (
+              <div>
+                <p className="cm-label">Destinatarios</p>
+                {listaAlcance.length === 0 ? (
+                  <p className="cm-sec-help" style={{ margin: 0 }}>
+                    {contactos.length === 0
+                      ? "No hay copropietarios ni inquilinos activos registrados."
+                      : "Nadie coincide con los cargos elegidos."}
+                  </p>
+                ) : (
+                  <div className="cm-people">
+                    {listaAlcance.map((c) => (
+                      <div key={c.id} className="cm-person" style={{ cursor: "default" }}>
+                        <span className="cm-avatar">{iniciales(c.nombre)}</span>
+                        <span style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                          <span className="cm-person-name">{c.nombre}</span>
+                          <span className="cm-person-rol">
+                            {c.rol}
+                            {usaCorreo && !c.email.includes("@") && " · sin correo registrado"}
+                          </span>
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
 

@@ -11,7 +11,7 @@ import {
 } from "../../../components/Icons";
 
 type Categoria = "A" | "B" | "C";
-type Estado = "Pendiente" | "Pagado";
+type Estado = "Pendiente" | "En revisión" | "Pagado";
 
 type Concepto = {
   concepto: string;
@@ -225,6 +225,7 @@ function plural(numero: number, singular: string, pluralTexto: string) {
 
 const ESTADO_CLASE: Record<Estado, string> = {
   Pendiente: "status-warning",
+  "En revisión": "status-info",
   Pagado: "status-success",
 };
 
@@ -456,7 +457,7 @@ export default function ExpensasPage() {
 
   const lista = expensas.filter((e) => e.periodo === periodoVista);
   const montoTotal = lista.reduce((suma, e) => suma + e.total, 0);
-  const pendientes = lista.filter((e) => e.estado === "Pendiente").length;
+  const pendientes = lista.filter((e) => e.estado !== "Pagado").length;
 
   function abrirModal() {
     setPaso("form");

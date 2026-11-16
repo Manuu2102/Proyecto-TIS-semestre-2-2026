@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
+import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, LockIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
 import { supabase } from "@/lib/supabase";
 import { irAlLoginPorExpiracion, vencimientoToken } from "@/lib/api";
 
@@ -38,6 +38,7 @@ const adminSections: NavigationSection[] = [
     { key: "finanzas", label: "Resumen financiero", href: "/finanzas", icon: WalletIcon },
     { key: "expensas", label: "Expensas", href: "/expensas", icon: WalletIcon },
     { key: "pagos", label: "Pagos y mora", href: "/pagos", icon: WalletIcon },
+    { key: "peticiones-pago", label: "Peticiones de pago", href: "/peticiones-pago", icon: WalletIcon },
     { key: "estado-cuenta", label: "Estado de cuenta", href: "/estado-cuenta", icon: WalletIcon },
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
     { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
@@ -57,13 +58,17 @@ const adminSections: NavigationSection[] = [
   ] },
 ];
 
+// "Mi departamento" abre el dashboard del copropietario (cumple la función del Dashboard)
 const ownerSections: NavigationSection[] = [
-  { title: "Principal", items: [{ key: "dashboard", label: "Dashboard", href: "/dashboard", icon: LayoutIcon }] },
   { title: "Mi vivienda", items: [{ key: "departamentos", label: "Mi departamento", href: "/dashboard", icon: BuildingIcon }] },
-  { title: "Finanzas", items: [{ key: "finanzas", label: "Expensas y finanzas", href: "/finanzas", icon: WalletIcon }] },
-  { title: "Operaciones", items: [{ key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon }] },
-  { title: "Documentos", items: [{ key: "documentos", label: "Gestión documental", href: "/documentos", icon: FileIcon }] },
-  { title: "Seguridad", items: [{ key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon }] },
+  { title: "Finanzas", items: [
+    { key: "mis-expensas", label: "Expensas", href: "/mis-expensas", icon: WalletIcon },
+    { key: "mi-estado-cuenta", label: "Estado de cuenta", href: "/mi-estado-cuenta", icon: WalletIcon },
+    { key: "mis-extras", label: "Extras", href: "/mis-extras", icon: WalletIcon },
+  ] },
+  // Solo consulta: el copropietario ve y descarga los documentos del edificio
+  { title: "Documentos", items: [{ key: "mis-documentos", label: "Documentos", href: "/mis-documentos", icon: FileIcon }] },
+  { title: "Mi cuenta", items: [{ key: "mi-contrasena", label: "Cambiar contraseña", href: "/mi-contrasena", icon: LockIcon }] },
 ];
 
 const tenantSections: NavigationSection[] = [

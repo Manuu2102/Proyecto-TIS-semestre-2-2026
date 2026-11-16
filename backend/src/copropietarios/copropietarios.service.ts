@@ -80,7 +80,8 @@ export class CopropietariosService {
 
     const { data: authData, error } = await this.supabase.client.auth.signUp({
       email: data.email,
-      password: data.password ?? data.ci,
+      // La contraseña inicial del copropietario es siempre su CI
+      password: data.ci,
     });
 
     if (error || !authData.user) {

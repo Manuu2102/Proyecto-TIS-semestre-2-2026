@@ -9,7 +9,7 @@ import { MESES, TIPO_XLSX, bs, fechaCorta } from '../lib/formato.js';
 
 type Formato = 'pdf' | 'excel';
 type Archivo = { contenido: Buffer; nombre: string; tipo: string };
-type EstadoDepto = 'Al día' | 'En mora' | 'Pendiente';
+type EstadoDepto = 'Al día' | 'En mora' | 'Pendiente' | 'En revisión';
 
 type FilaSaldo = {
   numero: number;
@@ -78,7 +78,13 @@ export class ExpensasExportarService {
         mora,
         saldoTotal: r2(adeudado + mora - (resumen.aFavor[d.numero] ?? 0)),
         estado:
-          pendientes.length === 0 ? 'Al día' : pendientes.some((x) => x.vencida) ? 'En mora' : 'Pendiente',
+          pendientes.length === 0
+            ? 'Al día'
+            : pendientes.some((x) => x.vencida)
+              ? 'En mora'
+              : pendientes.every((x) => x.en_revision)
+                ? 'En revisión'
+                : 'Pendiente',
       };
     });
 

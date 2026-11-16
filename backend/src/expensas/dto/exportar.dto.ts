@@ -16,7 +16,7 @@ export class ExportarSaldosDto extends FormatoDto {
   categoria?: string;
 
   @IsOptional()
-  @IsIn(['Al día', 'En mora', 'Pendiente'], { message: 'El estado no es válido.' })
+  @IsIn(['Al día', 'En mora', 'Pendiente', 'En revisión'], { message: 'El estado no es válido.' })
   estado?: string;
 
   @IsOptional()

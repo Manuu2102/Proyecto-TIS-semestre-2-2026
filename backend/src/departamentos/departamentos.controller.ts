@@ -41,6 +41,13 @@ export class DepartamentosController {
     return this.departamentosService.listarTipos();
   }
 
+  /** Mis departamentos (copropietario o inquilino) y mi actividad reciente. Va antes de ':id'. */
+  @Get('mios')
+  @Roles('COPROPIETARIO', 'INQUILINO')
+  misDepartamentos(@CurrentUser('id') idUsuario: string) {
+    return this.departamentosService.misDepartamentos(idUsuario);
+  }
+
   @Get(':id')
   @Roles('ADMINISTRADOR', 'CONSULTA', 'DIRECTORIO')
   buscarPorId(@Param('id', ParseIntPipe) id: number) {

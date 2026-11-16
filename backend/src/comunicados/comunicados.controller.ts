@@ -27,6 +27,13 @@ export class ComunicadosController {
     return this.comunicadosService.crear(dto, adminId);
   }
 
+  /** Copropietarios e inquilinos activos que pueden recibir comunicados. Va antes de ':id'. */
+  @Get('contactos')
+  @Roles('ADMINISTRADOR')
+  contactos() {
+    return this.comunicadosService.contactos();
+  }
+
   @Get()
   @Roles('ADMINISTRADOR') // <-- Cumple SAE-389: Solo el admin puede ver el historial
   listar(@CurrentUser('id') adminId: string) {

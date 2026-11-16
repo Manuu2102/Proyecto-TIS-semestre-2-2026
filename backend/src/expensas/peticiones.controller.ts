@@ -66,6 +66,24 @@ export class PeticionesController {
     return this.expensas.deudasDeUsuario(idUsuario);
   }
 
+  /** Expensas pagadas de mis departamentos (fecha y método del pago). */
+  @Get('mis-pagos')
+  misPagos(@CurrentUser('id') idUsuario: string) {
+    return this.expensas.pagosDeUsuario(idUsuario);
+  }
+
+  /** Extras de mis departamentos, con el estado de la deuda en la que están. */
+  @Get('mis-extras')
+  misExtras(@CurrentUser('id') idUsuario: string) {
+    return this.expensas.extrasDeUsuario(idUsuario);
+  }
+
+  /** Saldo a favor (fondos) de mis departamentos: { saldo }. */
+  @Get('mi-saldo')
+  miSaldo(@CurrentUser('id') idUsuario: string) {
+    return this.expensas.saldoFavorDeUsuario(idUsuario);
+  }
+
   /** Envía la foto del comprobante de una deuda (multipart, campo "foto"). */
   @Post('deudas/:id/comprobante')
   @UseInterceptors(subida('foto'))
