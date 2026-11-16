@@ -23,6 +23,7 @@ import { GastosModule } from './gastos/gastos.module.js';
 import { CajaModule } from './caja/caja.module.js';
 import { RolesModule } from './roles/roles.module.js';
 import { PersonalModule } from './personal/personal.module.js';
+import { ComunicadosModule } from './comunicados/comunicados.module.js';
 
 @Module({
   imports: [
@@ -53,6 +54,7 @@ import { PersonalModule } from './personal/personal.module.js';
     CajaModule,
     RolesModule,
     PersonalModule,
+    ComunicadosModule,
     ScheduleModule.forRoot(),
   ],
 
