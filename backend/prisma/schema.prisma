@@ -978,12 +978,22 @@ model pago_expensa {
 
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model pago_personal {
-  id           BigInt    @id @default(autoincrement())
-  id_personal  BigInt
-  monto        Decimal   @db.Decimal(10, 2)
-  id_tipo_pago BigInt
-  personal     personal  @relation(fields: [id_personal], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_personal_foreign")
-  tipo_pago    tipo_pago @relation(fields: [id_tipo_pago], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_tipo_pago_foreign")
+  id                    BigInt    @id @default(autoincrement())
+  id_personal           BigInt
+  monto                 Decimal   @db.Decimal(10, 2)
+  fecha                 DateTime  @default(dbgenerated("CURRENT_DATE")) @db.Date
+  periodo               DateTime? @db.Date
+  metodo                String    @default("Efectivo") @db.VarChar(20)
+  referencia            String?   @db.VarChar(255)
+  estado                String    @default("Pagado") @db.VarChar(20)
+  comprobante_nombre    String?   @db.VarChar(255)
+  comprobante_contenido Bytes?
+  comprobante_mime      String?   @db.VarChar(100)
+  comprobante_peso      BigInt?
+  created_at            DateTime  @default(now()) @db.Timestamptz(6)
+  id_tipo_pago          BigInt
+  personal              personal  @relation(fields: [id_personal], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_personal_foreign")
+  tipo_pago             tipo_pago @relation(fields: [id_tipo_pago], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "pago_personal_id_tipo_pago_foreign")
 
   @@schema("public")
 }
@@ -1089,7 +1099,7 @@ model tipo_documento {
 /// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
 model tipo_pago {
   id            BigInt          @id @default(autoincrement())
-  nombre        String          @db.VarChar(100)
+  nombre        String          @unique @db.VarChar(100)
   pago_personal pago_personal[]
 
   @@schema("public")

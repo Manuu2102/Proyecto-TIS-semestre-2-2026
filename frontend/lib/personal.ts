@@ -1,4 +1,4 @@
-import { api, apiPost, apiPatch, apiDelete } from './api';
+import { api, apiPost, apiPatch, apiDelete, apiPostForm, apiArchivoUrl } from './api';
 import { hoyISO } from './formato';
 
 // =====================================================================
@@ -37,6 +37,14 @@ export type PagoBackend = {
   id: string | number;
   id_personal: string | number;
   monto: string | number;
+  fecha: string;
+  periodo?: string | null;
+  metodo: string;
+  referencia?: string | null;
+  estado: string;
+  comprobante_nombre?: string | null;
+  comprobante_mime?: string | null;
+  tiene_comprobante?: boolean;
   created_at?: string;
   tipo_pago?: { nombre: string };
 };
@@ -66,7 +74,7 @@ export type MovimientoPago = {
   fecha: string;
   metodo: MetodoPago;
   estado: EstadoMovimiento;
-  comprobante: Comprobante;
+  comprobante: Comprobante | null; // url se carga al abrirlo (obtenerComprobante)
 };
 
 export type NuevoMovimientoPago = {
@@ -180,52 +188,58 @@ export async function eliminarEmpleado(id: number): Promise<void> {
 // PAGOS Y ANTICIPOS
 // =====================================================================
 
-export async function listarAnticipos(): Promise<Anticipo[]> {
-  const movimientos = await api<PagoBackend[]>('/personal/pagos');
-  return movimientos
-    .filter(m => m.tipo_pago?.nombre === 'Anticipo')
-    .map(m => ({
-      id: Number(m.id),
-      empleadoId: Number(m.id_personal),
-      monto: Number(m.monto),
-      fecha: m.created_at?.split('T')[0] || '',
-      metodo: 'Efectivo',
-      estado: 'Por descontar'
-    }));
+const aFecha = (v?: string | null) => (v ? v.split('T')[0] : '');
+const aMetodo = (v: string): MetodoPago => (v === 'Transferencia' ? 'Transferencia' : 'Efectivo');
+const aEstado = (v: string): EstadoMovimiento =>
+  v === 'Por descontar' || v === 'Descontado' ? v : 'Pagado';
+
+function aMovimiento(m: PagoBackend): MovimientoPago {
+  const esAnticipo = m.tipo_pago?.nombre === 'Anticipo';
+  const fecha = aFecha(m.fecha);
+  return {
+    id: Number(m.id),
+    empleadoId: Number(m.id_personal),
+    tipo: esAnticipo ? 'Anticipo' : 'Pago',
+    concepto: esAnticipo ? 'Anticipo de sueldo' : conceptoSueldo(aFecha(m.periodo) || fecha),
+    monto: Number(m.monto),
+    fecha,
+    metodo: aMetodo(m.metodo),
+    estado: aEstado(m.estado),
+    comprobante: m.tiene_comprobante
+      ? { nombre: m.comprobante_nombre || 'comprobante', tipo: m.comprobante_mime || 'application/pdf', url: `/personal/pagos/${m.id}/comprobante` }
+      : null,
+  };
 }
 
 export async function listarMovimientosPago(): Promise<MovimientoPago[]> {
-  const movimientos = await api<PagoBackend[]>('/personal/pagos');
-  return movimientos.map(m => ({
+  const pagos = await api<PagoBackend[]>('/personal/pagos');
+  return pagos.map(aMovimiento);
+}
+
+export async function listarAnticipos(): Promise<Anticipo[]> {
+  const pagos = await api<PagoBackend[]>('/personal/pagos?tipo=Anticipo');
+  return pagos.map((m) => ({
     id: Number(m.id),
     empleadoId: Number(m.id_personal),
-    tipo: m.tipo_pago?.nombre === 'Anticipo' ? 'Anticipo' : 'Pago',
-    concepto: m.tipo_pago?.nombre || 'Pago',
     monto: Number(m.monto),
-    fecha: m.created_at?.split('T')[0] || '',
-    metodo: 'Efectivo',
-    estado: m.tipo_pago?.nombre === 'Anticipo' ? 'Por descontar' : 'Pagado',
-    comprobante: { nombre: 'comprobante.pdf', tipo: 'application/pdf', url: '#' }
+    fecha: aFecha(m.fecha),
+    metodo: aMetodo(m.metodo),
+    estado: m.estado === 'Descontado' ? 'Descontado' : 'Por descontar',
   }));
 }
 
 export async function registrarMovimientoPago(d: NuevoMovimientoPago): Promise<MovimientoPago> {
-  const res = await apiPost<PagoBackend>('/personal/pagos', {
-    id_personal: d.empleadoId,
-    monto: d.monto,
-    tipo_pago: d.tipo,
-    fecha: d.fecha
-  });
-  
-  return {
-    id: Number(res.id),
-    empleadoId: Number(res.id_personal),
-    tipo: d.tipo,
-    concepto: d.tipo === 'Pago' ? conceptoSueldo(d.fecha) : 'Anticipo de sueldo',
-    monto: Number(res.monto),
-    fecha: d.fecha,
-    metodo: d.metodo,
-    estado: d.tipo === 'Pago' ? 'Pagado' : 'Por descontar',
-    comprobante: { nombre: 'comprobante.pdf', tipo: 'application/pdf', url: '#' }
-  };
+  const form = new FormData();
+  form.append('id_personal', String(d.empleadoId));
+  form.append('tipo_pago', d.tipo === 'Anticipo' ? 'Anticipo' : 'Sueldo');
+  form.append('monto', d.monto.toFixed(2));
+  form.append('fecha', d.fecha);
+  form.append('metodo', d.metodo);
+  form.append('comprobante', d.archivo);
+  return aMovimiento(await apiPostForm<PagoBackend>('/personal/pagos', form));
+}
+
+/** Descarga el comprobante con el token y devuelve una URL local para verlo. Liberar con URL.revokeObjectURL. */
+export async function obtenerComprobante(c: Comprobante): Promise<Comprobante> {
+  return { ...c, url: await apiArchivoUrl(c.url) };
 }

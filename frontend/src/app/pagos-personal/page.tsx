@@ -7,7 +7,7 @@ import { CheckIcon, FileIcon, PlusIcon, SearchIcon, WalletIcon } from "../../../
 import { fechaCorta, formatoBs, hoyISO, normalizar, soloDecimal } from "../../../lib/formato";
 import {
   COMPROBANTE_MAX_MB, conceptoSueldo, limiteAnticipo, listarEmpleados,
-  listarMovimientosPago, registrarMovimientoPago,
+  listarMovimientosPago, obtenerComprobante, registrarMovimientoPago,
 } from "../../../lib/personal";
 import type {
   Comprobante, Empleado, EstadoMovimiento, MetodoPago, MovimientoPago,
@@ -91,6 +91,19 @@ export default function PagosPersonalPage() {
   const anticiposPorDescontar = movimientos
     .filter((m) => m.tipo === "Anticipo" && m.estado === "Por descontar")
     .reduce((total, m) => total + m.monto, 0);
+
+  async function abrirComprobante(c: Comprobante) {
+    try {
+      setVerComprobante(await obtenerComprobante(c));
+    } catch (e) {
+      setError((e as Error).message || "No se pudo abrir el comprobante.");
+    }
+  }
+
+  function cerrarComprobante() {
+    if (verComprobante?.url.startsWith("blob:")) URL.revokeObjectURL(verComprobante.url);
+    setVerComprobante(null);
+  }
 
   /** Devuelve el mensaje de error si falla; null si todo salió bien. */
   async function registrar(datos: NuevoMovimientoPago): Promise<string | null> {
@@ -217,10 +230,12 @@ export default function PagosPersonalPage() {
                         <td>{m.metodo}</td>
                         <td><span className={claseEstado[m.estado]}><span />{m.estado}</span></td>
                         <td>
-                          <button className="btn btn-ghost btn-sm" onClick={() => setVerComprobante(m.comprobante)}>
-                            <FileIcon size={14} />
-                            Ver
-                          </button>
+                          {m.comprobante ? (
+                            <button className="btn btn-ghost btn-sm" onClick={() => abrirComprobante(m.comprobante!)}>
+                              <FileIcon size={14} />
+                              Ver
+                            </button>
+                          ) : "—"}
                         </td>
                       </tr>
                     );
@@ -274,7 +289,7 @@ export default function PagosPersonalPage() {
         )}
       </Modal>
 
-      <Modal open={verComprobante !== null} title="Comprobante de pago" onClose={() => setVerComprobante(null)}>
+      <Modal open={verComprobante !== null} title="Comprobante de pago" onClose={cerrarComprobante}>
         {verComprobante && (
           <div className="modal-form">
             <p className="field-hint" style={{ marginTop: 0 }}>{verComprobante.nombre}</p>
@@ -288,7 +303,7 @@ export default function PagosPersonalPage() {
               <a className="btn btn-secondary" href={verComprobante.url} target="_blank" rel="noopener noreferrer">
                 Abrir en otra pestaña
               </a>
-              <button type="button" className="btn btn-primary" onClick={() => setVerComprobante(null)}>Cerrar</button>
+              <button type="button" className="btn btn-primary" onClick={cerrarComprobante}>Cerrar</button>
             </div>
           </div>
         )}
