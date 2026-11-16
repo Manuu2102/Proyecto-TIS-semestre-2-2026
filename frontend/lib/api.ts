@@ -48,6 +48,39 @@ export const apiPatch = <T>(path: string, body?: unknown) =>
 
 export const apiDelete = <T>(path: string) => api<T>(path, { method: "DELETE" });
 
+/** Respuesta con error: cierra sesión si el token venció o lanza el mensaje del backend. */
+async function fallar(res: Response, token: string | null): Promise<never> {
+  if (res.status === 401 && token) {
+    irAlLoginPorExpiracion();
+    throw new Error("La sesión expiró. Inicia sesión nuevamente.");
+  }
+  const err = await res.json().catch(() => ({}));
+  const mensaje = Array.isArray(err.message) ? err.message.join(" ") : err.message;
+  throw new Error(mensaje || `Error ${res.status}`);
+}
+
+/** POST multipart (con archivos). El navegador pone el Content-Type con su boundary. */
+export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
+  const token = sessionStorage.getItem("token");
+  const res = await fetch(`${API}${path}`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) return fallar(res, token);
+  return res.json();
+}
+
+/** Trae un archivo protegido y devuelve una URL local (blob:) para mostrarlo o abrirlo. */
+export async function apiArchivoUrl(path: string): Promise<string> {
+  const token = sessionStorage.getItem("token");
+  const res = await fetch(`${API}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) return fallar(res, token);
+  return URL.createObjectURL(await res.blob());
+}
+
 /**
  * Descarga un archivo generado por el backend (PDF, Excel). Usa el nombre que envía el
  * servidor en Content-Disposition; si el backend rechaza, lanza el error con su mensaje.
