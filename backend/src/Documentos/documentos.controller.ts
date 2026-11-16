@@ -43,7 +43,7 @@ export class DocumentosController {
   }
 
   @Get()
-  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA')
+  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA', 'COPROPIETARIO')
   listar(
     @Query() filtros: ConsultarDocumentosDto,
     @CurrentUser('id') idUsuario: string,
@@ -52,13 +52,13 @@ export class DocumentosController {
   }
 
   @Get('tipos')
-  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA')
+  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA', 'COPROPIETARIO')
   listarTipos() {
     return this.documentosService.listarTipos();
   }
 
   @Get(':id')
-  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA')
+  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA', 'COPROPIETARIO')
   buscarPorId(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser('id') idUsuario: string,
@@ -67,7 +67,7 @@ export class DocumentosController {
   }
 
   @Get(':id/descargar')
-  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA')
+  @Roles('ADMINISTRADOR', 'DIRECTORIO', 'CONSULTA', 'COPROPIETARIO')
   async descargar(
     @Param('id', ParseIntPipe) id: number,
     @CurrentUser('id') idUsuario: string,

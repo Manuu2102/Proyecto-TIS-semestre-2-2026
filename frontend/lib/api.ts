@@ -71,6 +71,18 @@ export async function apiPostForm<T>(path: string, form: FormData): Promise<T> {
   return res.json();
 }
 
+/** PUT multipart (con archivos). */
+export async function apiPutForm<T>(path: string, form: FormData): Promise<T> {
+  const token = sessionStorage.getItem("token");
+  const res = await fetch(`${API}${path}`, {
+    method: "PUT",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: form,
+  });
+  if (!res.ok) return fallar(res, token);
+  return res.json();
+}
+
 /** Trae un archivo protegido y devuelve una URL local (blob:) para mostrarlo o abrirlo. */
 export async function apiArchivoUrl(path: string): Promise<string> {
   const token = sessionStorage.getItem("token");

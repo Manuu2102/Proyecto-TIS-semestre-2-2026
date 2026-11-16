@@ -53,7 +53,7 @@ type PagoHistorialApi = {
   monto: number;
 };
 
-type MensualApi = { departamento: number; estado: "Pendiente" | "Pagado" };
+type MensualApi = { departamento: number; estado: "Pendiente" | "En revisión" | "Pagado" };
 type DeptoApi = { numero: number; ocupado: boolean };
 
 // =====================================================================

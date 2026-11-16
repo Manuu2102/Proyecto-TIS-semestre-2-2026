@@ -13,13 +13,15 @@ import {
 import { Type } from 'class-transformer';
 
 export class CrearCopropietarioDto {
+  // Se ignora: la contraseña inicial siempre es el CI. Se deja para no romper clientes anteriores.
   @IsOptional()
   @IsString()
-  @MinLength(8)
   password?: string;
 
+  // También es la contraseña inicial: Supabase y el login piden al menos 6 caracteres
   @IsNumberString()
   @IsNotEmpty()
+  @MinLength(6, { message: 'El CI debe tener al menos 6 dígitos (se usa como contraseña inicial)' })
   ci: string;
 
   @IsString()

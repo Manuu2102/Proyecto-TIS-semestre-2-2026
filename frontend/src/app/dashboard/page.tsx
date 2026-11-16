@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { api } from "../../../lib/api";
+import { ESTADOS, bs, cargarDeudasApi, fechaLarga, nombrePeriodo, type Deuda } from "../../../lib/mi-cuenta";
 import {
   BellIcon, BuildingIcon, CameraIcon, CheckIcon, CreditCardIcon, FileIcon,
   HomeIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon,
@@ -149,8 +150,48 @@ function AdminDashboard({ name }: { name: string }) {
   </>;
 }
 
-function OwnerDashboard({ name, unit }: { name: string; unit: string }) {
-  const [photos, setPhotos] = useState<string[]>(() => readUnitPhotos(unit));
+// =====================================================================
+// Mi departamento (copropietario)
+// =====================================================================
+
+type Espacio = { numero: number; piso: number; discapacitados?: boolean };
+type MiDepartamento = {
+  id: string;
+  numero: number;
+  codigo: string;
+  piso: number;
+  tipo: string | null;
+  superficie_m2: number;
+  dormitorios: number;
+  banos: number;
+  salas: number;
+  amueblado: boolean;
+  descripcion: string | null;
+  desde: string;
+  parqueos: Espacio[];
+  bauleras: Espacio[];
+  ocupantes: { nombre: string; rol: string | null; desde: string }[];
+};
+type MisDepartamentos = {
+  departamentos: MiDepartamento[];
+  actividad: { eventos30Dias: number; ultimos: { accion: string; tabla: string; fecha: string }[] };
+};
+
+// BACKEND: GET /departamentos/mios → mis departamentos y mi actividad reciente
+const cargarMisDepartamentosApi = () => api<MisDepartamentos>("/departamentos/mios");
+// BACKEND: GET /documentos → documentos visibles para mí (solo se usa el total)
+const contarDocumentosApi = () => api<{ total: number }>("/documentos").then((r) => r.total);
+
+const ACCIONES: Record<string, string> = { INSERT: "Registro", UPDATE: "Cambio", DELETE: "Eliminación" };
+const textoActividad = (a: { accion: string; tabla: string }) =>
+  `${ACCIONES[a.accion] ?? a.accion} en ${a.tabla.replace(/_/g, " ")}`;
+const fechaCortaLocal = (iso: string) =>
+  new Date(iso).toLocaleDateString("es-BO", { day: "numeric", month: "short" });
+const espacios = (lista: Espacio[]) => (lista.length ? lista.map((e) => `N° ${e.numero}`).join(", ") : "—");
+
+// Fotos del departamento: por ahora se guardan solo en este navegador (no hay tabla en la BD)
+function FotosDepartamento({ clave, etiqueta }: { clave: string; etiqueta: string }) {
+  const [photos, setPhotos] = useState<string[]>(() => readUnitPhotos(clave));
 
   function addPhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -159,23 +200,101 @@ function OwnerDashboard({ name, unit }: { name: string; unit: string }) {
     reader.onload = () => {
       const next = [...photos, String(reader.result)];
       setPhotos(next);
-      localStorage.setItem(`edificio_unit_photos_${unit}`, JSON.stringify(next));
+      try { localStorage.setItem(`edificio_unit_photos_${clave}`, JSON.stringify(next)); } catch { /* sin espacio */ }
     };
     reader.readAsDataURL(file);
     event.target.value = "";
   }
 
   return <>
+    <div style={{ display: "flex", justifyContent: "flex-end", padding: "0 18px" }}>
+      <label className="upload-photo-btn"><CameraIcon size={17}/> Subir foto<input type="file" accept="image/*" onChange={addPhoto}/></label>
+    </div>
+    <div className="owner-photo-grid">{photos.length ? photos.map((photo, index) => <img key={`${photo.slice(-20)}-${index}`} src={photo} alt={`Foto de ${etiqueta} ${index + 1}`} />) : <div className="photo-empty"><CameraIcon size={26}/><strong>Aún no hay fotografías</strong><span>Sube imágenes del departamento para que el inquilino pueda conocerlo.</span></div>}</div>
+  </>;
+}
+
+function OwnerDashboard({ name }: { name: string }) {
+  const [datos, setDatos] = useState<MisDepartamentos | null>(null);
+  const [deudas, setDeudas] = useState<Deuda[] | null>(null);
+  const [documentos, setDocumentos] = useState<number | null>(null);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    cargarMisDepartamentosApi()
+      .then(setDatos)
+      .catch((e) => setError(e instanceof Error ? e.message : "No se pudo cargar tu departamento."));
+    // Si alguna de estas falla, solo esa cifra queda sin dato
+    cargarDeudasApi().then(setDeudas).catch(() => setDeudas(null));
+    contarDocumentosApi().then(setDocumentos).catch(() => setDocumentos(null));
+  }, []);
+
+  const depto = datos?.departamentos[0] ?? null;
+  const otros = (datos?.departamentos.length ?? 0) - 1;
+  const etiqueta = depto ? `Dpto. ${depto.numero}` : datos ? "Sin departamento" : "…";
+  const deudaTotal = deudas?.reduce((t, d) => t + d.total, 0) ?? 0;
+  const actual = deudas && deudas.length ? deudas[deudas.length - 1] : null;
+  const vencidas = deudas?.filter((d) => d.estado === "vencida").length ?? 0;
+
+  const notaDepto = depto
+    ? `Piso ${depto.piso}${depto.tipo ? ` · Tipo ${depto.tipo}` : ""}${otros > 0 ? ` · y ${otros} más` : ""}`
+    : "Unidad de tu propiedad";
+  const notaExpensas = !deudas
+    ? "Sin dato"
+    : deudas.length === 0
+      ? "Al día"
+      : vencidas > 0
+        ? `${vencidas} vencida${vencidas > 1 ? "s" : ""}`
+        : `${deudas.length} pendiente${deudas.length > 1 ? "s" : ""}`;
+
+  return <>
     <div className="page-heading"><div><span className="eyebrow">COPROPIETARIO</span><h1>Mi espacio y mis finanzas</h1><p>Hola, {name.split(" ")[0]}. Aquí tienes la información exclusiva de tu propiedad.</p></div></div>
-    <RoleHero eyebrow="MI PROPIEDAD" title={<>Tu departamento,<br/><span>a tu manera.</span></>} text={`Administra ${unit}, comparte fotografías con tus ocupantes y controla tus obligaciones financieras.`} />
-    <div className="metric-grid"><Metric icon={BuildingIcon} label="Mi departamento" value={unit} note="Unidad de tu propiedad"/><Metric icon={WalletIcon} label="Expensas" value="Bs. 1.280" note="Septiembre · Al día"/><Metric icon={ShieldIcon} label="Auditoría" value="24" note="Eventos recientes"/><Metric icon={FileIcon} label="Documentos" value="18" note="Disponibles para ti"/></div>
+    {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
+    <RoleHero eyebrow="MI PROPIEDAD" title={<>Tu departamento,<br/><span>a tu manera.</span></>} text={`Administra ${etiqueta}, comparte fotografías con tus ocupantes y controla tus obligaciones financieras.`} />
+    <div className="metric-grid">
+      <Metric icon={BuildingIcon} label="Mi departamento" value={etiqueta} note={notaDepto}/>
+      <Metric icon={WalletIcon} label="Expensas" value={deudas ? bs(deudaTotal) : "—"} note={notaExpensas}/>
+      <Metric icon={ShieldIcon} label="Actividad" value={datos ? String(datos.actividad.eventos30Dias) : "…"} note="Eventos en los últimos 30 días"/>
+      <Metric icon={FileIcon} label="Documentos" value={documentos === null ? "—" : String(documentos)} note="Disponibles para ti"/>
+    </div>
 
     <section className="owner-grid">
-      <div className="panel owner-property-panel"><div className="panel-heading"><div><h3>Mi departamento {unit}</h3><p>Las fotografías que subas aquí podrán ser visualizadas por el inquilino de esta unidad.</p></div><label className="upload-photo-btn"><CameraIcon size={17}/> Subir foto<input type="file" accept="image/*" onChange={addPhoto}/></label></div><div className="owner-photo-grid">{photos.length ? photos.map((photo, index) => <img key={`${photo.slice(-20)}-${index}`} src={photo} alt={`Foto de ${unit} ${index + 1}`} />) : <div className="photo-empty"><CameraIcon size={26}/><strong>Aún no hay fotografías</strong><span>Sube imágenes del departamento para que el inquilino pueda conocerlo.</span></div>}</div></div>
-      <div className="panel"><div className="panel-heading"><div><h3>Mis finanzas</h3><p>Resumen de tus obligaciones como copropietario.</p></div></div><div className="finance-summary"><span className="eyebrow">EXPENSAS SEPTIEMBRE 2026</span><strong>Bs. 1.280,00</strong><span className="status status-success"><i/> Al día</span><Link href="/finanzas" className="btn btn-primary">Ver finanzas</Link></div></div>
+      <div className="panel owner-property-panel">
+        <div className="panel-heading"><div><h3>Mi departamento {depto ? depto.numero : ""}</h3><p>Las fotografías que subas aquí podrán ser visualizadas por el inquilino de esta unidad.</p></div></div>
+        {depto && (
+          <div className="role-list">
+            <div><BuildingIcon size={18}/><span>Piso {depto.piso} · {depto.superficie_m2} m² · {depto.dormitorios} dormitorios · {depto.banos} baños{depto.amueblado ? " · Amueblado" : ""}</span><b>Código {depto.codigo}</b></div>
+            <div><HomeIcon size={18}/><span>Parqueos: {espacios(depto.parqueos)} · Bauleras: {espacios(depto.bauleras)}</span><b>Desde {fechaLarga(depto.desde)}</b></div>
+            <div><UsersIcon size={18}/><span>{depto.ocupantes.length ? depto.ocupantes.map((o) => `${o.nombre}${o.rol ? ` (${o.rol.toLowerCase()})` : ""}`).join(", ") : "Sin otros ocupantes"}</span><b>Ocupantes</b></div>
+          </div>
+        )}
+        {depto && <FotosDepartamento key={depto.numero} clave={`dpto-${depto.numero}`} etiqueta={etiqueta} />}
+        {datos && !depto && <div className="empty-state">No tienes un departamento asignado. Consulta con la administración.</div>}
+      </div>
+      <div className="panel">
+        <div className="panel-heading"><div><h3>Mis finanzas</h3><p>Resumen de tus obligaciones como copropietario.</p></div></div>
+        <div className="finance-summary">
+          <span className="eyebrow">{actual ? `EXPENSAS ${nombrePeriodo(actual.periodo).toUpperCase()}` : "EXPENSAS"}</span>
+          <strong>{deudas ? bs(actual ? actual.total : 0) : "—"}</strong>
+          {deudas && (actual
+            ? <span className={ESTADOS[actual.estado].clase}><i/> {ESTADOS[actual.estado].texto}</span>
+            : <span className="status status-success"><i/> Al día</span>)}
+          <Link href="/mis-expensas" className="btn btn-primary">Ver expensas</Link>
+        </div>
+      </div>
     </section>
 
-    <section className="dashboard-bottom"><div className="panel"><div className="panel-heading"><div><h3>Auditoría de mi actividad</h3><p>Acciones realizadas recientemente en tu cuenta.</p></div></div><div className="role-list"><div><ShieldIcon size={18}/><span>Inicio de sesión registrado</span><b>Hoy</b></div><div><CameraIcon size={18}/><span>Fotografías de la unidad</span><b>{photos.length}</b></div><div><WalletIcon size={18}/><span>Última expensa registrada</span><b>Aprobada</b></div></div></div><div className="panel"><div className="panel-heading"><div><h3>Accesos de copropietario</h3><p>Funciones que puedes utilizar.</p></div></div><div className="quick-grid"><Link href="/finanzas" className="quick-action"><WalletIcon size={19}/><span>Expensas y finanzas</span><b>→</b></Link><Link href="/seguridad" className="quick-action"><ShieldIcon size={19}/><span>Seguridad y auditoría</span><b>→</b></Link><Link href="/documentos" className="quick-action"><FileIcon size={19}/><span>Mis documentos</span><b>→</b></Link><Link href="/mantenimiento" className="quick-action"><WrenchIcon size={19}/><span>Mantenimiento</span><b>→</b></Link></div></div></section>
+    <section className="dashboard-bottom">
+      <div className="panel">
+        <div className="panel-heading"><div><h3>Mi actividad reciente</h3><p>Acciones realizadas recientemente con tu cuenta.</p></div></div>
+        <div className="role-list">
+          {datos && datos.actividad.ultimos.length
+            ? datos.actividad.ultimos.map((a, i) => <div key={i}><ShieldIcon size={18}/><span>{textoActividad(a)}</span><b>{fechaCortaLocal(a.fecha)}</b></div>)
+            : <div><ShieldIcon size={18}/><span>{datos ? "Sin actividad registrada" : "Cargando…"}</span><b>—</b></div>}
+        </div>
+      </div>
+      <div className="panel"><div className="panel-heading"><div><h3>Accesos de copropietario</h3><p>Funciones que puedes utilizar.</p></div></div><div className="quick-grid"><Link href="/mis-expensas" className="quick-action"><WalletIcon size={19}/><span>Expensas</span><b>→</b></Link><Link href="/mi-estado-cuenta" className="quick-action"><WalletIcon size={19}/><span>Estado de cuenta</span><b>→</b></Link><Link href="/mis-extras" className="quick-action"><WalletIcon size={19}/><span>Extras</span><b>→</b></Link><Link href="/mis-documentos" className="quick-action"><FileIcon size={19}/><span>Documentos del edificio</span><b>→</b></Link></div></div>
+    </section>
   </>;
 }
 
@@ -231,7 +350,7 @@ export default function DashboardPage() {
     if (!session) return null;
     const { role, name, unit } = session;
     if (role === "ADMINISTRADOR") return <AdminDashboard name={name} />;
-    if (role === "COPROPIETARIO") return <OwnerDashboard name={name} unit={unit} key={unit} />;
+    if (role === "COPROPIETARIO") return <OwnerDashboard name={name} />;
     if (role === "INQUILINO") return <TenantDashboard name={name} unit={unit} key={unit} />;
     return <GenericDashboard role={role} name={name} />;
   }, [session]);

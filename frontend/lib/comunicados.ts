@@ -10,12 +10,13 @@ export type Rol = 'Copropietario' | 'Inquilino' | 'Personal';
 export type EstadoComunicado = 'Enviado' | 'Borrador';
 export type ModoDestinatarios = 'todos' | 'cargo' | 'especificas';
 
-export type Contacto = { id: number; nombre: string; rol: Rol; email: string; telefono: string };
+// id = uuid del usuario
+export type Contacto = { id: string; nombre: string; rol: Rol; email: string; telefono: string };
 
 export type Destinatarios = {
   modo: ModoDestinatarios;
   cargos: Rol[];
-  personas: number[];
+  personas: string[];
 };
 
 export type Comunicado = {
@@ -36,7 +37,8 @@ export type ComunicadoForm = Pick<
 >;
 
 export const MENSAJE_MAX = 1000;
-export const ROLES: Rol[] = ['Copropietario', 'Inquilino', 'Personal'];
+// Los comunicados por correo van a copropietarios e inquilinos (el personal no está en la lista de contactos)
+export const ROLES: Rol[] = ['Copropietario', 'Inquilino'];
 export const ETIQUETA_ROL: Record<Rol, string> = {
   Copropietario: 'Copropietarios',
   Inquilino: 'Inquilinos',
@@ -124,27 +126,45 @@ export async function listarComunicados(): Promise<Comunicado[]> {
   return res.map(adaptarComunicado);
 }
 
-// LISTAR CONTACTOS (Mock temporal, ya que no hay endpoint)
+// BACKEND: GET /comunicados/contactos → copropietarios e inquilinos activos (con su correo)
 export async function listarContactos(): Promise<Contacto[]> {
-  // Como no hay endpoint real de contactos, devolvemos algunos de prueba
-  return [
-    { id: 1, nombre: 'Ana Rivera', rol: 'Copropietario', email: 'ana@test.com', telefono: '123' },
-    { id: 2, nombre: 'Carlos Mamani', rol: 'Personal', email: 'carlos@test.com', telefono: '456' },
-  ];
+  return api<Contacto[]>('/comunicados/contactos');
 }
 
+/** Resultado del envío por correo (null si no se envió por correo). */
+export type ResumenCorreos = { destinatarios: number; enviados: number; fallidos: number; sinCorreo: number };
+
 // CREAR
-export async function crearComunicado(d: ComunicadoForm, enviar: boolean): Promise<Comunicado> {
+// BACKEND: POST /comunicados. Si se envía ahora con el canal Correo, el backend manda el correo
+// a los destinatarios elegidos (copropietarios e inquilinos activos). WhatsApp no se toca.
+export async function crearComunicado(
+  d: ComunicadoForm,
+  enviar: boolean,
+): Promise<{ comunicado: Comunicado; correos: ResumenCorreos | null }> {
   const errores = validarComunicado(d, enviar);
   if (Object.keys(errores).length > 0) throw new Error(Object.values(errores)[0]);
 
-  const res = await apiPost<ComunicadoBackend>('/comunicados', {
+  const porCorreo = enviar && d.canales.includes('Correo');
+  const res = await apiPost<ComunicadoBackend & { correos: ResumenCorreos | null }>('/comunicados', {
     titulo: d.titulo,
     contenido: d.mensaje,
     tipo: d.canales.includes('Correo') ? 'Correo' : 'WhatsApp', // Traducimos los canales al tipo
+    ...(porCorreo && {
+      enviar_correo: true,
+      asunto: d.asunto.trim() || d.titulo,
+      destinatarios: d.destinatarios,
+    }),
   });
-  
-  return adaptarComunicado(res);
+
+  return { comunicado: adaptarComunicado(res), correos: res.correos ?? null };
+}
+
+/** Texto para el aviso de la pantalla según cómo salió el envío por correo. */
+export function textoResumenCorreos(r: ResumenCorreos): string {
+  const partes = [`Correo enviado a ${r.enviados} de ${r.destinatarios} ${r.destinatarios === 1 ? 'persona' : 'personas'}.`];
+  if (r.sinCorreo > 0) partes.push(`${r.sinCorreo} sin correo registrado.`);
+  if (r.fallidos > 0) partes.push(`${r.fallidos} no se pudieron enviar (revisa la configuración de correo del servidor).`);
+  return partes.join(' ');
 }
 
 // ACTUALIZAR (El backend no tiene PATCH aún, pero lo dejamos listo)

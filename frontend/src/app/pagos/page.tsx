@@ -15,7 +15,7 @@ import {
 } from "../../../components/Icons";
 
 type Categoria = "A" | "B" | "C";
-type EstadoDepto = "Al día" | "Pendiente" | "En mora";
+type EstadoDepto = "Al día" | "Pendiente" | "En revisión" | "En mora";
 type Frecuencia = "mes" | "dia";
 type TipoMora = "porcentaje" | "fijo";
 
@@ -45,6 +45,8 @@ type Expensa = {
   moraRestante: number;
   moraPagada: number;
   vencida: boolean;
+  // Tiene un comprobante del copropietario esperando aprobación
+  enRevision: boolean;
 };
 
 type Movimiento = {
@@ -250,6 +252,7 @@ type ResumenPagos = {
     monto: number;
     mora: number;
     vencida: boolean;
+    en_revision: boolean;
   }[];
   aFavor: Record<number, number>;
 };
@@ -271,6 +274,7 @@ async function cargarPagosApi() {
     moraRestante: deuda.mora,
     moraPagada: 0,
     vencida: deuda.vencida,
+    enRevision: deuda.en_revision,
   }));
 
   return {
@@ -449,6 +453,8 @@ function filaDe(
       ? "Al día"
       : pendientes.some((expensa) => expensa.vencida)
       ? "En mora"
+      : pendientes.every((expensa) => expensa.enRevision)
+      ? "En revisión"
       : "Pendiente";
 
   return {
@@ -535,6 +541,8 @@ function BadgeEstado({ estado }: { estado: EstadoDepto }) {
       ? "status-success"
       : estado === "Pendiente"
       ? "status-warning"
+      : estado === "En revisión"
+      ? "status-info"
       : "";
 
   const rojo =
@@ -1305,6 +1313,7 @@ export default function PagosPage() {
                 <option value="">Todos</option>
                 <option value="Al día">Al día</option>
                 <option value="Pendiente">Pendiente</option>
+                <option value="En revisión">En revisión</option>
                 <option value="En mora">En mora</option>
               </select>
             </label>
@@ -1812,6 +1821,8 @@ export default function PagosPage() {
                               estado={
                                 expensa.vencida
                                   ? "En mora"
+                                  : expensa.enRevision
+                                  ? "En revisión"
                                   : "Pendiente"
                               }
                             />

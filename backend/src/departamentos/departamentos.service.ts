@@ -261,4 +261,94 @@ export class DepartamentosService {
       })),
     };
   }
+
+  /**
+   * Departamentos que ocupa el usuario (copropietario o inquilino), con sus parqueos,
+   * bauleras y los demás ocupantes, más un resumen de su actividad reciente (auditoría).
+   */
+  async misDepartamentos(idUsuario: string) {
+    const ocupaciones = await this.prisma.departamento_usuario.findMany({
+      where: { id_usuario: idUsuario, estatus: true },
+      select: {
+        fecha_ocupacion: true,
+        departamento: {
+          select: {
+            id: true,
+            numero: true,
+            codigo: true,
+            piso: true,
+            superficie_m2: true,
+            habitaciones: true,
+            dormitorios: true,
+            banos: true,
+            salas: true,
+            amueblado: true,
+            descripcion: true,
+            tipo_departamento_departamento_tipo_departamentoTotipo_departamento: { select: { nombre: true } },
+            departamento_parqueo: { select: { parqueo: { select: { numero: true, piso: true, discapacitados: true } } } },
+            departamento_baulera: { select: { baulera: { select: { numero: true, piso: true } } } },
+            departamento_usuario: {
+              where: { estatus: true, id_usuario: { not: idUsuario } },
+              select: {
+                fecha_ocupacion: true,
+                usuario: {
+                  select: {
+                    nombres: true,
+                    apellido_paterno: true,
+                    rol_usuario: { select: { rol: { select: { nombre_rol: true } } } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { id: 'asc' },
+    });
+
+    // Actividad del usuario en los últimos 30 días (lo registran los triggers de auditoría)
+    const hace30Dias = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const [eventos30Dias, ultimos] = await Promise.all([
+      this.prisma.auditoria.count({ where: { usuario_id: idUsuario, fecha_hora: { gte: hace30Dias } } }),
+      this.prisma.auditoria.findMany({
+        where: { usuario_id: idUsuario },
+        select: { accion: true, tabla_afectada: true, fecha_hora: true },
+        orderBy: { fecha_hora: 'desc' },
+        take: 5,
+      }),
+    ]);
+
+    return {
+      departamentos: ocupaciones.map(({ fecha_ocupacion, departamento: d }) => ({
+        id: d.id.toString(),
+        numero: d.numero,
+        codigo: d.codigo,
+        piso: d.piso,
+        tipo: d.tipo_departamento_departamento_tipo_departamentoTotipo_departamento?.nombre ?? null,
+        superficie_m2: d.superficie_m2,
+        habitaciones: d.habitaciones,
+        dormitorios: d.dormitorios,
+        banos: d.banos,
+        salas: d.salas,
+        amueblado: d.amueblado,
+        descripcion: d.descripcion,
+        desde: fecha_ocupacion.toISOString().slice(0, 10),
+        parqueos: d.departamento_parqueo.map((x) => x.parqueo),
+        bauleras: d.departamento_baulera.map((x) => x.baulera),
+        ocupantes: d.departamento_usuario.map((o) => ({
+          nombre: `${o.usuario.nombres} ${o.usuario.apellido_paterno}`.trim(),
+          rol: o.usuario.rol_usuario[0]?.rol.nombre_rol ?? null,
+          desde: o.fecha_ocupacion.toISOString().slice(0, 10),
+        })),
+      })),
+      actividad: {
+        eventos30Dias,
+        ultimos: ultimos.map((a) => ({
+          accion: a.accion,
+          tabla: a.tabla_afectada,
+          fecha: a.fecha_hora.toISOString(),
+        })),
+      },
+    };
+  }
 }

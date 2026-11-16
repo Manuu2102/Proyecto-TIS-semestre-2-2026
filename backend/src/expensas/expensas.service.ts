@@ -81,6 +81,13 @@ const vencimientosDelMes = (mes: Date) => ({
 const mesCubierto = (vencimiento: Date) => sumarMeses(enLaPaz(vencimiento), -1);
 const periodoDe = (vencimiento: Date) => mesCubierto(vencimiento).toISOString().slice(0, 7);
 
+// Método de un pago para mostrar al copropietario. Sin usuario = lo pagaron los fondos.
+const metodoTexto = (factura: { metodo: string | null; id_usuario: string | null } | undefined) => {
+  if (!factura) return '-';
+  if (factura.metodo === 'QR') return 'Pago con QR';
+  return factura.metodo ?? (factura.id_usuario ? '-' : 'Saldo a favor');
+};
+
 // Último día (de La Paz) para pagar sin mora: el del minuto anterior al vencimiento
 const ultimoDiaSinMora = (vencimiento: Date) =>
   enLaPaz(new Date(vencimiento.getTime() - 60_000)).toISOString().slice(0, 10);
@@ -593,11 +600,7 @@ export class ExpensasService {
    * pagar por QR. El total incluye la mora registrada.
    */
   async deudasDeUsuario(idUsuario: string) {
-    const ocupaciones = await this.prisma.departamento_usuario.findMany({
-      where: { id_usuario: idUsuario, estatus: true },
-      select: { departamento: { select: { id: true, numero: true } } },
-    });
-    const numeros = new Map(ocupaciones.map((o) => [o.departamento.id, o.departamento.numero]));
+    const numeros = await this.departamentosDeUsuario(idUsuario);
     if (numeros.size === 0) return [];
 
     const deudas = await this.prisma.pago_expensa.findMany({
@@ -635,6 +638,129 @@ export class ExpensasService {
               : 'pendiente',
       };
     });
+  }
+
+  /** Departamentos que ocupa un usuario: id → número. */
+  private async departamentosDeUsuario(idUsuario: string) {
+    const ocupaciones = await this.prisma.departamento_usuario.findMany({
+      where: { id_usuario: idUsuario, estatus: true },
+      select: { departamento: { select: { id: true, numero: true } } },
+    });
+    return new Map(ocupaciones.map((o) => [o.departamento.id, o.departamento.numero]));
+  }
+
+  /**
+   * Expensas pagadas de los departamentos que ocupa un usuario, de la más nueva a la más
+   * antigua, con la fecha y el método del pago.
+   */
+  async pagosDeUsuario(idUsuario: string) {
+    const numeros = await this.departamentosDeUsuario(idUsuario);
+    if (numeros.size === 0) return [];
+
+    const pagadas = await this.prisma.pago_expensa.findMany({
+      where: { id_departamento: { in: [...numeros.keys()] }, id_estado: ESTADO_PAGADA },
+      select: {
+        id: true,
+        id_departamento: true,
+        monto: true,
+        monto_mora: true,
+        fecha_vencimiento: true,
+        concepto: true,
+        expensa: { select: { nombre: true } },
+        pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
+        factura_pago_expensa: {
+          select: { fecha_pago: true, metodo: true, id_usuario: true },
+          orderBy: { id: 'desc' },
+          take: 1,
+        },
+      },
+      orderBy: [{ fecha_vencimiento: 'desc' }, { id: 'desc' }],
+    });
+
+    return pagadas.map((p) => {
+      const factura = p.factura_pago_expensa[0];
+      return {
+        id: p.id.toString(),
+        departamento: numeros.get(p.id_departamento)!,
+        periodo: periodoDe(p.fecha_vencimiento),
+        vence: momentoLaPaz(p.fecha_vencimiento),
+        monto: conceptosDe(p).total.toNumber(),
+        mora: p.monto_mora.toNumber(),
+        pagadoEl: factura ? factura.fecha_pago.toISOString().slice(0, 10) : '',
+        metodo: metodoTexto(factura),
+      };
+    });
+  }
+
+  /**
+   * Extras de los departamentos que ocupa un usuario, del más nuevo al más antiguo.
+   * Cada extra está dentro de una deuda (pago_expensa): se paga junto con ella, así que
+   * su estado, vencimiento y pago son los de esa deuda. `conExpensa` dice si la deuda
+   * también lleva la expensa del mes (false = deuda solo de extras).
+   */
+  async extrasDeUsuario(idUsuario: string) {
+    const numeros = await this.departamentosDeUsuario(idUsuario);
+    if (numeros.size === 0) return [];
+
+    const extras = await this.prisma.pago_expensa_extra.findMany({
+      where: { pago_expensa: { id_departamento: { in: [...numeros.keys()] } } },
+      select: {
+        id: true,
+        concepto: true,
+        monto: true,
+        created_at: true,
+        pago_expensa: {
+          select: {
+            id: true,
+            id_departamento: true,
+            id_estado: true,
+            monto: true,
+            fecha_vencimiento: true,
+            factura_pago_expensa: {
+              select: { fecha_pago: true, metodo: true, id_usuario: true },
+              orderBy: { id: 'desc' },
+              take: 1,
+            },
+          },
+        },
+      },
+      orderBy: [{ created_at: 'desc' }, { id: 'desc' }],
+    });
+
+    return extras.map((e) => {
+      const deuda = e.pago_expensa;
+      const factura = deuda.factura_pago_expensa[0];
+      const pagada = deuda.id_estado === ESTADO_PAGADA;
+      return {
+        id: e.id.toString(),
+        idDeuda: deuda.id.toString(),
+        departamento: numeros.get(deuda.id_departamento)!,
+        concepto: e.concepto,
+        periodo: periodoDe(deuda.fecha_vencimiento),
+        conExpensa: deuda.monto.gt(0),
+        emitido: e.created_at.toISOString().slice(0, 10),
+        vence: momentoLaPaz(deuda.fecha_vencimiento),
+        monto: e.monto.toNumber(),
+        estado: pagada
+          ? 'pagada'
+          : deuda.id_estado === ESTADO_EN_REVISION
+            ? 'en_revision'
+            : deuda.id_estado === ESTADO_VENCIDA
+              ? 'vencida'
+              : 'pendiente',
+        pagadoEl: pagada && factura ? factura.fecha_pago.toISOString().slice(0, 10) : undefined,
+        metodo: pagada ? metodoTexto(factura) : undefined,
+      };
+    });
+  }
+
+  /** Saldo a favor (fondos) de los departamentos que ocupa un usuario. */
+  async saldoFavorDeUsuario(idUsuario: string) {
+    const numeros = await this.departamentosDeUsuario(idUsuario);
+    if (numeros.size === 0) return { saldo: 0 };
+    const saldos = await this.saldosFondos(this.prisma, [...numeros.keys()]);
+    const total = [...saldos.values()].reduce((t, s) => t.plus(s), new Prisma.Decimal(0));
+    return { saldo: Prisma.Decimal.max(total, 0).toNumber() };
   }
 
   /** Saldo de fondos por departamento: depósitos menos consumos. */
@@ -1305,6 +1431,8 @@ export class ExpensasService {
       total: Prisma.Decimal;
       mora: Prisma.Decimal;
       pendiente: boolean;
+      // Lo que falta pagar tiene un comprobante esperando aprobación
+      soloEnRevision: boolean;
     };
     const grupos = new Map<string, Grupo>();
 
@@ -1331,6 +1459,7 @@ export class ExpensasService {
           total: new Prisma.Decimal(0),
           mora: new Prisma.Decimal(0),
           pendiente: false,
+          soloEnRevision: true,
         };
         grupos.set(clave, g);
       }
@@ -1339,7 +1468,10 @@ export class ExpensasService {
       g.desglose.push(...conceptos.lineas);
       g.total = g.total.plus(conceptos.total).plus(p.monto_mora);
       g.mora = g.mora.plus(p.monto_mora);
-      if (p.id_estado !== ESTADO_PAGADA) g.pendiente = true;
+      if (p.id_estado !== ESTADO_PAGADA) {
+        g.pendiente = true;
+        if (p.id_estado !== ESTADO_EN_REVISION) g.soloEnRevision = false;
+      }
     }
 
     return [...grupos.values()]
@@ -1354,7 +1486,7 @@ export class ExpensasService {
           total: g.total.toNumber(),
           fechaLimite: g.fechaLimite,
           vence: g.vence,
-          estado: g.pendiente ? 'Pendiente' : 'Pagado',
+          estado: !g.pendiente ? 'Pagado' : g.soloEnRevision ? 'En revisión' : 'Pendiente',
         };
       })
       .sort((a, b) => b.periodo.localeCompare(a.periodo) || a.departamento - b.departamento);
