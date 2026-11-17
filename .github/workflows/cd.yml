@@ -5,54 +5,69 @@ on:
     branches:
       - develop
 
+permissions:
+  contents: read
+  packages: write
+
 jobs:
-  deploy-staging:
+  build-and-publish:
+    name: Construir y publicar imágenes
     runs-on: ubuntu-latest
 
     env:
+      BACKEND_IMAGE: ghcr.io/manuu2102/proyecto-tis-semestre-2-2026-backend
+      FRONTEND_IMAGE: ghcr.io/manuu2102/proyecto-tis-semestre-2-2026-frontend
       NEXT_PUBLIC_API_URL: http://20.80.34.77:3001
-      CORS_ORIGIN: http://20.80.34.77:3000
       NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
 
     steps:
-      - name: Checkout
+      - name: Obtener código
         uses: actions/checkout@v4
 
-      - name: Preparar variables de entorno
-        run: |
-          touch backend/.env
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Validar configuración Docker
-        run: docker compose config
-
-      - name: Construir imágenes de staging
-        run: docker compose build
-
-      - name: Desplegar en Azure
-        uses: appleboy/ssh-action@v1.2.2
+      - name: Autenticarse en GHCR
+        uses: docker/login-action@v3
         with:
-          host: ${{ secrets.AZURE_HOST }}
-          username: ${{ secrets.AZURE_USERNAME }}
-          key: ${{ secrets.AZURE_SSH_KEY }}
-          script: |
-            cd /home/tisadmin/apps/Proyecto-TIS-semestre-2-2026
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-            echo "Actualizando código..."
-            git fetch origin develop
-            git reset --hard origin/develop
+      - name: Construir y publicar backend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.BACKEND_IMAGE }}:latest
+            ${{ env.BACKEND_IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,mode=max,scope=backend
 
-            echo "Construyendo y levantando staging..."
-            docker compose up -d --build
+      - name: Construir y publicar frontend
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.FRONTEND_IMAGE }}:latest
+            ${{ env.FRONTEND_IMAGE }}:${{ github.sha }}
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ env.NEXT_PUBLIC_API_URL }}
+            NEXT_PUBLIC_SUPABASE_URL=${{ env.NEXT_PUBLIC_SUPABASE_URL }}
+            NEXT_PUBLIC_SUPABASE_ANON_KEY=${{ env.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
 
-            echo "Estado de los contenedores:"
-            docker compose ps
-
-      - name: Mostrar estado del despliegue
+      - name: Resumen de publicación
         run: |
           echo "======================================"
-          echo "CD - STAGING"
+          echo "IMÁGENES PUBLICADAS EN GHCR"
           echo "======================================"
-          echo "Docker Compose validado correctamente."
-          echo "Imágenes construidas."
-          echo "Staging actualizado en Azure."
+          echo "Backend: $BACKEND_IMAGE:latest"
+          echo "Frontend: $FRONTEND_IMAGE:latest"
+          echo "Commit: $GITHUB_SHA"
