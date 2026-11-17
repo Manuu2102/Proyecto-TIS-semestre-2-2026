@@ -9,6 +9,10 @@ permissions:
   contents: read
   packages: write
 
+concurrency:
+  group: cd-staging-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-and-publish:
     name: Construir y publicar imágenes
