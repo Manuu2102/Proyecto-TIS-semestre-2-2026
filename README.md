@@ -329,29 +329,41 @@ El objetivo es evitar que cambios que no cumplen las validaciones sean integrado
 
 ### CD — Continuous Deployment
 
-El despliegue de Staging se ejecuta automáticamente cuando un cambio es integrado en develop.
+El despliegue del ambiente de Staging se ejecuta automáticamente cuando se integra un cambio en la rama `develop`.
 
-El flujo es:
+El proceso utiliza GitHub Actions, GitHub Container Registry (GHCR), Docker Compose y una conexión SSH hacia la máquina virtual de Azure.
+
+El flujo de despliegue es el siguiente:
 
 ```text
 Merge a develop
       ↓
 GitHub Actions
       ↓
-Conexión SSH
+Construcción de imágenes Docker
       ↓
-Azure VM
+Publicación en GHCR
       ↓
-git fetch origin develop
+Conexión SSH con Azure VM
       ↓
-git reset --hard origin/develop
+docker compose pull
       ↓
-docker compose up -d --build
+docker compose up -d --remove-orphans
+      ↓
+Verificación de disponibilidad
       ↓
 Staging actualizado
 ```
 
-La conexión SSH utiliza GitHub Secrets para mantener las credenciales fuera del código fuente.
+**Etapas del proceso:**
+
+1. **Construcción:** GitHub Actions construye las imágenes Docker del frontend y backend.
+2. **Publicación:** Las imágenes se publican en GitHub Container Registry (GHCR), utilizando las etiquetas `latest` y el SHA del commit.
+3. **Despliegue:** GitHub Actions establece una conexión SSH con la máquina virtual de Azure.
+4. **Actualización:** En Azure se descargan las imágenes publicadas mediante `docker compose pull` y se actualizan los contenedores mediante `docker compose up -d --remove-orphans`.
+5. **Verificación:** El workflow comprueba la disponibilidad del backend y del frontend mediante solicitudes HTTP. Si los servicios no responden dentro del tiempo establecido, el despliegue finaliza con error.
+
+La conexión SSH utiliza GitHub Secrets para proteger las credenciales de acceso. Las imágenes se distribuyen mediante GHCR y Azure utiliza Docker Compose para administrar los contenedores de Staging.
 
 ### Evidencia de implementación
 
@@ -361,6 +373,19 @@ Pull Request #45.
 CI #95 — ejecución exitosa.
 CD #20 — ejecución exitosa.
 Commit desplegado: 5977aec.
+
+### Validación de actualización de imágenes
+
+Se verificó manualmente el procedimiento de actualización de Staging:
+
+- Descarga de las imágenes de frontend y backend desde GHCR.
+- Recreación de los contenedores mediante Docker Compose.
+- Verificación del estado de ambos contenedores.
+- Backend: respuesta HTTP 200.
+- Frontend: respuesta HTTP 200 en `/login`.
+- CORS: origen del frontend correctamente configurado.
+
+La validación confirmó que Azure ejecuta contenedores basados en las imágenes publicadas en GHCR.
 
 ---
 
