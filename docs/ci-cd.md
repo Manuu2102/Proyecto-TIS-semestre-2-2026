@@ -499,7 +499,7 @@ También se incorporó un mecanismo de control de concurrencia en el workflow:
 ```yaml
 concurrency:
   group: cd-staging-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 ```
 
 Esta configuración agrupa las ejecuciones correspondientes a una misma referencia del repositorio.
