@@ -11,7 +11,7 @@ permissions:
 
 concurrency:
   group: cd-staging-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build-and-publish:
@@ -75,3 +75,49 @@ jobs:
           echo "Backend: $BACKEND_IMAGE:latest"
           echo "Frontend: $FRONTEND_IMAGE:latest"
           echo "Commit: $GITHUB_SHA"
+
+  deploy:
+    name: Desplegar en Azure Staging
+    runs-on: ubuntu-latest
+    needs: build-and-publish
+
+    steps:
+      - name: Desplegar aplicación en Azure
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.AZURE_HOST }}
+          username: ${{ secrets.AZURE_USERNAME }}
+          key: ${{ secrets.AZURE_SSH_KEY }}
+          port: 22
+          command_timeout: 5m
+          script: |
+            set -eu
+
+            echo "Iniciando despliegue en Azure..."
+
+            cd /home/tisadmin/apps/Proyecto-TIS-semestre-2-2026
+
+            echo "Descargando las nuevas imágenes..."
+            docker compose pull
+
+            echo "Actualizando los contenedores..."
+            docker compose up -d --remove-orphans
+
+            echo "Verificando disponibilidad de los servicios..."
+
+            for attempt in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:3001/ >/dev/null &&
+                 curl -fsS http://127.0.0.1:3000/login >/dev/null; then
+                echo "Frontend y backend disponibles."
+                docker compose ps
+                exit 0
+              fi
+
+              echo "Intento ${attempt}/30. Esperando servicios..."
+              sleep 5
+            done
+
+            echo "ERROR: Los servicios no respondieron correctamente."
+            docker compose ps
+            docker compose logs --tail=80
+            exit 1
