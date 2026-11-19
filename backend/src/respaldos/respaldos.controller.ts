@@ -1,9 +1,11 @@
+import { BackupSchedulerService } from './services/backup-scheduler.service.js';
 import {
   Body,
   Controller,
   Get,
   Patch,
   Post,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 
@@ -23,6 +25,7 @@ export class RespaldosController {
   constructor(
     private readonly respaldosService: RespaldosService,
     private readonly backupExecutorService: BackupExecutorService,
+    private readonly backupSchedulerService: BackupSchedulerService,
   ) {}
 
   /**
@@ -38,16 +41,26 @@ export class RespaldosController {
    *
    * El identificador del administrador se obtiene del JWT.
    */
-  @Patch('configuracion')
-  async actualizarConfiguracion(
-    @Body() dto: ActualizarConfiguracionDto,
-    @CurrentUser('id') idAdministrador: string,
-  ) {
-    return this.respaldosService.actualizarConfiguracion(
-      dto,
-      idAdministrador,
-    );
-  }
+    @Patch('configuracion')
+    async actualizarConfiguracion(
+      @Body() dto: ActualizarConfiguracionDto,
+      @CurrentUser('id') idAdministrador: string,
+    ) {
+      const configuracion =
+        await this.respaldosService.actualizarConfiguracion(
+          dto,
+          idAdministrador,
+       );
+
+      try {
+         await this.backupSchedulerService.sincronizar(configuracion);
+      } catch {
+        throw new ServiceUnavailableException(
+          'La configuración se guardó, pero no fue posible actualizar la programación de respaldos. Se requiere verificar el scheduler.',
+        );
+      }
+   return configuracion;
+}
 
   /**
    * Genera un respaldo manual de la base de datos.
