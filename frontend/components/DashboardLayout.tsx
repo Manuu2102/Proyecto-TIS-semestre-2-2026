@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, LockIcon, MenuIcon, SettingsIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
+import { BellIcon, BuildingIcon, ChevronIcon, FileIcon, HomeIcon, LayoutIcon, LockIcon, MenuIcon, ShieldIcon, UsersIcon, WalletIcon, WrenchIcon } from "./Icons";
 import { supabase } from "@/lib/supabase";
 import { irAlLoginPorExpiracion, vencimientoToken } from "@/lib/api";
 
@@ -29,7 +29,6 @@ const adminSections: NavigationSection[] = [
     { key: "asociaciones", label: "Asociaciones", href: "/asociaciones", icon: UsersIcon },
     { key: "ocupantes", label: "Historial de ocupantes", href: "/historial-ocupantes", icon: HomeIcon },
   ] },
-  // NUEVO: módulo de personal (empleados y sus pagos)
   { title: "Personal", items: [
     { key: "personal", label: "Empleados", href: "/personal", icon: UsersIcon },
     { key: "pagos-personal", label: "Pagos a empleados", href: "/pagos-personal", icon: WalletIcon },
@@ -43,7 +42,6 @@ const adminSections: NavigationSection[] = [
     { key: "ingresos-egresos", label: "Ingresos y egresos", href: "/ingresos-egresos", icon: WalletIcon },
     { key: "caja-bancos", label: "Caja y bancos", href: "/caja-bancos", icon: WalletIcon },
   ] },
-  // Operaciones: "Ajustes" abre la página de Mantenimiento (/mantenimiento) y debajo Comunicados
   { title: "Operaciones", items: [
     { key: "mantenimiento", label: "Ajustes", href: "/mantenimiento", icon: WrenchIcon },
     { key: "comunicados", label: "Comunicados", href: "/comunicados", icon: BellIcon },
@@ -53,12 +51,11 @@ const adminSections: NavigationSection[] = [
     { key: "seguridad", label: "Seguridad y auditoría", href: "/seguridad", icon: ShieldIcon },
   ] },
   { title: "Sistema", items: [
-    { key: "respaldo", label: "Nube y respaldos", href: "/respaldo", icon: SettingsIcon },
+    { key: "respaldo", label: "Respaldo y restauración", href: "/respaldo", icon: ShieldIcon },
     { key: "usuarios-roles", label: "Usuarios y roles", href: "/usuarios-roles", icon: UsersIcon },
   ] },
 ];
 
-// "Mi departamento" abre el dashboard del copropietario (cumple la función del Dashboard)
 const ownerSections: NavigationSection[] = [
   { title: "Mi vivienda", items: [{ key: "departamentos", label: "Mi departamento", href: "/dashboard", icon: BuildingIcon }] },
   { title: "Finanzas", items: [
@@ -66,7 +63,6 @@ const ownerSections: NavigationSection[] = [
     { key: "mi-estado-cuenta", label: "Estado de cuenta", href: "/mi-estado-cuenta", icon: WalletIcon },
     { key: "mis-extras", label: "Extras", href: "/mis-extras", icon: WalletIcon },
   ] },
-  // Solo consulta: el copropietario ve y descarga los documentos del edificio
   { title: "Documentos", items: [{ key: "mis-documentos", label: "Documentos", href: "/mis-documentos", icon: FileIcon }] },
   { title: "Mi cuenta", items: [{ key: "mi-contrasena", label: "Cambiar contraseña", href: "/mi-contrasena", icon: LockIcon }] },
 ];
@@ -107,13 +103,10 @@ function sectionsForRole(role: string): NavigationSection[] {
 const allNavigation = [...adminSections, ...ownerSections, ...tenantSections, ...directorSections, ...consultationSections].flatMap(section => section.items);
 const titles: Record<string, string> = Object.fromEntries(allNavigation.map(item => [item.key, item.label]));
 
-
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]).join("").toUpperCase() || "US";
 }
 
-
-// Para useSyncExternalStore: la sesión no cambia mientras la página está abierta
 const sinSuscripcion = () => () => {};
 
 function readSession(): { nombre: string; rol: string } | null {
@@ -128,8 +121,6 @@ function readSession(): { nombre: string; rol: string } | null {
 
 export function DashboardLayout({ children, active }: { children: React.ReactNode; active: string }) {
   const [mobile, setMobile] = useState(false);
-  // undefined = aún no se leyó. sessionStorage solo existe en el navegador: se lee después
-  // de montar para que el primer render coincida con el del servidor (evita el error de hidratación).
   const enNavegador = useSyncExternalStore(sinSuscripcion, () => true, () => false);
   const session = useMemo(() => (enNavegador ? readSession() : undefined), [enNavegador]);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -143,11 +134,9 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
   );
 
   useEffect(() => {
-    // Solo cuando ya se leyó y no hay sesión
     if (session === null) router.replace("/login");
   }, [session, router]);
 
-  // Al vencer el token se vuelve al login (también si ya venció al abrir la página)
   useEffect(() => {
     if (!session) return;
     const vence = vencimientoToken();
@@ -174,9 +163,9 @@ export function DashboardLayout({ children, active }: { children: React.ReactNod
       const { error } = await supabase.auth.signOut();
       if (error) console.error("Error al cerrar sesión:", error.message);
     } finally {
-      sessionStorage.clear(); 
+      sessionStorage.clear();
       router.replace("/login");
-      router.refresh(); 
+      router.refresh();
     }
   }
 
