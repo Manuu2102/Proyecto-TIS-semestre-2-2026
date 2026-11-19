@@ -1,136 +1,193 @@
 "use client";
 
 import { useState } from "react";
+import type { CSSProperties } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import {
   BuildingIcon,
   ShieldIcon,
-  SettingsIcon,
   CheckIcon,
+  FileIcon,
 } from "../../../components/Icons";
 
-type EstadoRespaldo = "Exitoso" | "Fallido";
-
-type Respaldo = {
-  id: number;
-  fecha: string;
-  tipo: "Automático" | "Manual";
-  tamano: string;
-  estado: EstadoRespaldo;
-  detalle: string;
+const styles: Record<string, CSSProperties> = {
+  section: {
+    marginBottom: 22,
+    padding: 24,
+    borderRadius: 14,
+    minWidth: 0,
+  },
+  sectionHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 14,
+    marginBottom: 22,
+  },
+  sectionDescription: {
+    color: "var(--muted, #737373)",
+    fontSize: 13,
+    lineHeight: 1.6,
+    marginTop: 6,
+  },
+  status: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "7px 11px",
+    borderRadius: 20,
+    background: "var(--surface-muted, #f3f4f6)",
+    color: "var(--muted, #737373)",
+    fontSize: 11,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  },
+  statusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#9ca3af",
+    marginRight: 7,
+    flexShrink: 0,
+  },
+  description: {
+    color: "var(--muted, #737373)",
+    fontSize: 13,
+    lineHeight: 1.65,
+    marginTop: 8,
+  },
+  card: {
+    padding: 22,
+    borderRadius: 13,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--surface, #fff)",
+    minWidth: 0,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  icon: {
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: "var(--surface-muted, #f3f4f6)",
+    marginBottom: 3,
+    flexShrink: 0,
+  },
+  field: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 9,
+    minWidth: 0,
+  },
+  input: {
+    width: "100%",
+    minHeight: 42,
+    padding: "10px 12px",
+    borderRadius: 8,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--surface-muted, #f8f9fa)",
+    color: "var(--muted, #737373)",
+    boxSizing: "border-box",
+  },
+  actionRow: {
+    display: "flex",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 12,
+    marginTop: 22,
+    paddingTop: 18,
+    borderTop: "1px solid var(--border, #e5e7eb)",
+  },
+  disabledButton: {
+    opacity: 0.55,
+    cursor: "not-allowed",
+    minHeight: 40,
+    padding: "10px 18px",
+    borderRadius: 8,
+  },
+  automationControl: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 18,
+    padding: 18,
+    marginBottom: 24,
+    borderRadius: 11,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--surface-muted, #f8f9fa)",
+  },
+  toggle: {
+    position: "relative",
+    width: 48,
+    height: 27,
+    border: "none",
+    borderRadius: 20,
+    padding: 3,
+    cursor: "pointer",
+    flexShrink: 0,
+    transition: "background 0.2s ease",
+  },
+  toggleKnob: {
+    display: "block",
+    width: 21,
+    height: 21,
+    borderRadius: "50%",
+    background: "#ffffff",
+    boxShadow: "0 1px 3px rgba(0,0,0,0.2)",
+    transition: "transform 0.2s ease",
+  },
 };
 
-// Simula lo que vendrá de /respaldos en el backend (historial de ejecuciones).
-const initialRespaldos: Respaldo[] = [
-  { id: 1, fecha: "24/09/2026 · 03:00", tipo: "Automático", tamano: "128 MB", estado: "Exitoso", detalle: "Respaldo completo de la base de datos" },
-  { id: 2, fecha: "23/09/2026 · 03:00", tipo: "Automático", tamano: "127 MB", estado: "Exitoso", detalle: "Respaldo completo de la base de datos" },
-  { id: 3, fecha: "22/09/2026 · 03:00", tipo: "Automático", tamano: "0 MB", estado: "Fallido", detalle: "Error de conexión con el almacenamiento en la nube" },
-  { id: 4, fecha: "21/09/2026 · 03:00", tipo: "Automático", tamano: "126 MB", estado: "Exitoso", detalle: "Respaldo completo de la base de datos" },
-];
+function EstadoPendiente() {
+  return (
+    <span style={styles.status}>
+      <span style={styles.statusDot} />
+      Pendiente de integración
+    </span>
+  );
+}
 
 export default function RespaldoPage() {
-  const [respaldos, setRespaldos] = useState<Respaldo[]>(initialRespaldos);
-  const [ejecutando, setEjecutando] = useState(false);
-
-  const ultimo = respaldos[0];
-  const exitosos = respaldos.filter((r) => r.estado === "Exitoso").length;
-  const fallidos = respaldos.filter((r) => r.estado === "Fallido").length;
-
-  // CA-01/CA-05/CA-06 de HU-57: ejecuta un respaldo y registra si salió bien o mal.
-  function ejecutarRespaldoManual() {
-    setEjecutando(true);
-
-    setTimeout(() => {
-      const exito = Math.random() > 0.15;
-
-      const nuevo: Respaldo = {
-        id: Date.now(),
-        fecha: new Date()
-          .toLocaleString("es-BO", {
-            day: "2-digit",
-            month: "2-digit",
-            year: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-          .replace(",", " ·"),
-        tipo: "Manual",
-        tamano: exito ? "129 MB" : "0 MB",
-        estado: exito ? "Exitoso" : "Fallido",
-        detalle: exito
-          ? "Respaldo completo de la base de datos"
-          : "Error de conexión con el almacenamiento en la nube",
-      };
-
-      setRespaldos((actuales) => [nuevo, ...actuales]);
-      setEjecutando(false);
-
-      alert(
-        exito
-          ? "Respaldo completado correctamente."
-          : "El respaldo falló. Revisa el detalle en el historial."
-      );
-    }, 1200);
-  }
+  const [respaldosAutomaticos, setRespaldosAutomaticos] = useState(false);
 
   return (
     <DashboardLayout active="respaldo">
       <div className="page-header">
         <div>
-          <p className="eyebrow"> INFRAESTRUCTURA</p>
-          <h1>Nube y respaldos</h1>
+          <p className="eyebrow">INFRAESTRUCTURA</p>
+          <h1>Respaldo y restauración</h1>
           <p>
-            Supervisa el almacenamiento en la nube y el historial de
-            respaldos automáticos del sistema.
+            Administra la protección de la base de datos, consulta las
+            ejecuciones de respaldo y gestiona los procesos de restauración.
           </p>
         </div>
       </div>
 
-      {/* HU-56: información almacenada en la nube */}
-      <section className="backup-hero">
-        <div className="backup-copy">
-          <p className="eyebrow">HU-56 · ALMACENAMIENTO</p>
-          <h2>Tu información está segura en la nube</h2>
-          <p>
-            Los datos del edificio se almacenan en una infraestructura
-            accesible mediante Internet, disponible para los usuarios
-            autorizados desde cualquier dispositivo.
-          </p>
-
-          <div className="backup-actions">
-            <span className="cloud-status">
-              <CheckIcon size={14} /> Conectado a la nube
-            </span>
-
-            <button
-              className="btn btn-secondary"
-              onClick={ejecutarRespaldoManual}
-              disabled={ejecutando}
-            >
-              {ejecutando ? "Ejecutando respaldo..." : "Ejecutar respaldo manual"}
-            </button>
-          </div>
-        </div>
-
-        <div className="backup-orbit">
-          <div className="orbit-center">
-            <BuildingIcon size={26} />
-          </div>
-          <div className="orbit-node n1"><ShieldIcon size={16} /></div>
-          <div className="orbit-node n2"><SettingsIcon size={16} /></div>
-          <div className="orbit-node n3"><CheckIcon size={16} /></div>
-        </div>
-      </section>
-
-      {/* Métricas rápidas (CA-03 de HU-57: verificar cuándo fue el último respaldo) */}
-      <div className="metric-row">
+      {/* Resumen */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))",
+          gap: 16,
+          marginBottom: 22,
+        }}
+      >
         <div className="metric-card">
           <div className="metric-icon">
             <CheckIcon size={20} />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <span>Último respaldo</span>
-            <strong>{ultimo.fecha}</strong>
+            <strong>Sin información</strong>
+            <p style={styles.description}>Esperando conexión con el backend</p>
           </div>
         </div>
 
@@ -138,109 +195,387 @@ export default function RespaldoPage() {
           <div className="metric-icon soft">
             <ShieldIcon size={20} />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
+            <span>Próximo respaldo</span>
+            <strong>No configurado</strong>
+            <p style={styles.description}>Programación pendiente</p>
+          </div>
+        </div>
+
+        <div className="metric-card">
+          <div className="metric-icon">
+            <FileIcon size={20} />
+          </div>
+          <div style={{ minWidth: 0 }}>
             <span>Respaldos exitosos</span>
-            <strong>{exitosos}</strong>
+            <strong>—</strong>
+            <p style={styles.description}>Sin datos disponibles</p>
           </div>
         </div>
 
         <div className="metric-card">
           <div className="metric-icon attention">
-            <SettingsIcon size={20} />
+            <ShieldIcon size={20} />
           </div>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <span>Respaldos fallidos</span>
-            <strong>{fallidos}</strong>
+            <strong>—</strong>
+            <p style={styles.description}>Sin datos disponibles</p>
           </div>
-        </div>
-      </div>
-
-      {/* HU-57: política de respaldos (frecuencia, ubicación, verificación) */}
-      <section className="backup-grid">
-        <div className="panel backup-card">
-          <SettingsIcon size={22} />
-          <h3>Frecuencia configurada</h3>
-          <strong>Diaria · 03:00 AM</strong>
-          <p>
-            El sistema ejecuta un respaldo automático de la base de datos
-            todos los días a esta hora, sin intervención manual.
-          </p>
-        </div>
-
-        <div className="panel backup-card">
-          <BuildingIcon size={22} />
-          <h3>Ubicación de almacenamiento</h3>
-          <strong>Separada del servidor principal</strong>
-          <p>
-            Los respaldos se guardan en una ubicación distinta a la de la
-            base de datos activa, para reducir el riesgo de pérdida ante
-            una falla.
-          </p>
-        </div>
-
-        <div className="panel backup-card">
-          <ShieldIcon size={22} />
-          <h3>Verificación</h3>
-          <strong>Automática tras cada respaldo</strong>
-          <p>
-            Cada respaldo se valida al finalizar. Si algo falla, queda
-            registrado en el historial con el motivo del error.
-          </p>
         </div>
       </section>
 
-      {/* Historial de respaldos */}
-      <section className="panel" style={{ marginTop: 20 }}>
-        <div className="panel-toolbar">
+      {/* Generación manual */}
+      <section className="panel" style={styles.section}>
+        <div style={styles.sectionHeader}>
+          <div>
+            <h3>Generación de respaldo</h3>
+            <p style={styles.sectionDescription}>
+              Solicita una copia de seguridad de la base de datos cuando el
+              servicio esté disponible.
+            </p>
+          </div>
+          <EstadoPendiente />
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            flexWrap: "wrap",
+            gap: 20,
+            padding: "4px 2px",
+          }}
+        >
+          <div style={{ flex: "1 1 250px", minWidth: 0 }}>
+            <strong>Respaldo manual</strong>
+            <p style={styles.description}>
+              Genera una copia bajo demanda, independientemente de la
+              programación automática.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled
+            style={styles.disabledButton}
+            title="Disponible cuando se integre el servicio de respaldos"
+          >
+            Ejecutar respaldo
+          </button>
+        </div>
+      </section>
+
+      {/* Programación automática */}
+      <section className="panel" style={styles.section}>
+        <div style={styles.sectionHeader}>
+          <div>
+            <h3>Programación automática</h3>
+            <p style={styles.sectionDescription}>
+              Define la frecuencia y el horario de ejecución de los respaldos.
+            </p>
+          </div>
+          <EstadoPendiente />
+        </div>
+
+        {/* Activación y desactivación */}
+        <div style={styles.automationControl}>
+          <div style={{ flex: "1 1 250px", minWidth: 0 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 9,
+                flexWrap: "wrap",
+              }}
+            >
+              <strong>Respaldos automáticos</strong>
+              <span
+                style={{
+                  ...styles.status,
+                  background: respaldosAutomaticos
+                    ? "rgba(22, 163, 74, 0.10)"
+                    : "var(--surface, #fff)",
+                  color: respaldosAutomaticos ? "#15803d" : "var(--muted, #737373)",
+                }}
+              >
+                <span
+                  style={{
+                    ...styles.statusDot,
+                    background: respaldosAutomaticos ? "#16a34a" : "#9ca3af",
+                  }}
+                />
+                {respaldosAutomaticos ? "Activado" : "Desactivado"}
+              </span>
+            </div>
+
+            <p style={styles.description}>
+              {respaldosAutomaticos
+                ? "La opción está seleccionada. La ejecución automática estará disponible cuando se integre el backend."
+                : "Los respaldos programados están desactivados en esta vista. Puedes seguir utilizando los respaldos manuales cuando estén disponibles."}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            role="switch"
+            aria-checked={respaldosAutomaticos}
+            aria-label="Activar o desactivar respaldos automáticos"
+            onClick={() =>
+              setRespaldosAutomaticos((estadoActual) => !estadoActual)
+            }
+            style={{
+              ...styles.toggle,
+              background: respaldosAutomaticos ? "#16a34a" : "#9ca3af",
+            }}
+          >
+            <span
+              style={{
+                ...styles.toggleKnob,
+                transform: respaldosAutomaticos
+                  ? "translateX(21px)"
+                  : "translateX(0)",
+              }}
+            />
+          </button>
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 190px), 1fr))",
+            gap: 20,
+          }}
+        >
+          <div style={styles.field}>
+            <label htmlFor="frecuencia-respaldo">Frecuencia</label>
+            <select
+              id="frecuencia-respaldo"
+              style={styles.input}
+              disabled
+              defaultValue=""
+            >
+              <option value="">Sin configurar</option>
+              <option value="diaria">Diaria</option>
+              <option value="semanal">Semanal</option>
+              <option value="personalizada">Personalizada</option>
+            </select>
+          </div>
+
+          <div style={styles.field}>
+            <label htmlFor="hora-respaldo">Hora de ejecución</label>
+            <input
+              id="hora-respaldo"
+              style={styles.input}
+              type="time"
+              disabled
+            />
+          </div>
+
+          <div style={styles.field}>
+            <label htmlFor="zona-respaldo">Zona horaria</label>
+            <input
+              id="zona-respaldo"
+              style={styles.input}
+              type="text"
+              value="America/La_Paz"
+              disabled
+              readOnly
+            />
+          </div>
+        </div>
+
+        <p style={{ ...styles.description, marginTop: 18 }}>
+          La activación y la configuración del horario se guardarán de forma
+          persistente cuando se implemente la integración con el backend.
+          Desactivar esta opción no impedirá generar respaldos manuales.
+        </p>
+
+        <div style={styles.actionRow}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled
+            style={styles.disabledButton}
+          >
+            Guardar programación
+          </button>
+        </div>
+      </section>
+
+      {/* Seguridad y almacenamiento */}
+      <section
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))",
+          gap: 16,
+          marginBottom: 22,
+        }}
+      >
+        <div style={styles.card}>
+          <div style={styles.icon}>
+            <BuildingIcon size={21} />
+          </div>
+          <h3>Almacenamiento</h3>
+          <p style={styles.description}>
+            La ubicación y el destino de las copias se mostrarán cuando el
+            backend proporcione esta información.
+          </p>
+          <EstadoPendiente />
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.icon}>
+            <ShieldIcon size={21} />
+          </div>
+          <h3>Validación de respaldos</h3>
+          <p style={styles.description}>
+            Se mostrará el resultado de las comprobaciones realizadas sobre
+            cada archivo generado.
+          </p>
+          <EstadoPendiente />
+        </div>
+
+        <div style={styles.card}>
+          <div style={styles.icon}>
+            <FileIcon size={21} />
+          </div>
+          <h3>Seguridad y auditoría</h3>
+          <p style={styles.description}>
+            Las operaciones de generación y restauración deberán contar con
+            controles de autorización y registro de auditoría.
+          </p>
+          <EstadoPendiente />
+        </div>
+      </section>
+
+      {/* Historial */}
+      <section className="panel" style={styles.section}>
+        <div style={styles.sectionHeader}>
           <div>
             <h3>Historial de respaldos</h3>
-            <p>Registro de los últimos respaldos automáticos y manuales.</p>
+            <p style={styles.sectionDescription}>
+              Consulta las ejecuciones, sus resultados y los archivos
+              disponibles.
+            </p>
           </div>
+          <EstadoPendiente />
         </div>
 
         <div className="table-wrap">
           <table>
             <thead>
               <tr>
-                <th>Fecha</th>
+                <th>Fecha y hora</th>
                 <th>Tipo</th>
+                <th>Archivo</th>
                 <th>Tamaño</th>
                 <th>Estado</th>
-                <th>Detalle</th>
+                <th>Validación</th>
+                <th>Acciones</th>
               </tr>
             </thead>
             <tbody>
-              {respaldos.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.fecha}</td>
-                  <td>{r.tipo}</td>
-                  <td>{r.tamano}</td>
-                  <td>
-                    <span
-                      className={
-                        r.estado === "Exitoso"
-                          ? "status status-success"
-                          : "status status-attention"
-                      }
-                    >
-                      <span />
-                      {r.estado}
-                    </span>
-                  </td>
-                  <td>{r.detalle}</td>
-                </tr>
-              ))}
+              <tr>
+                <td colSpan={7}>
+                  <div
+                    className="empty-state"
+                    style={{
+                      padding: "38px 20px",
+                      textAlign: "center",
+                    }}
+                  >
+                    <p>
+                      El historial estará disponible cuando se conecte el
+                      servicio de respaldos.
+                    </p>
+                    <p style={styles.description}>
+                      Todavía no se han consultado registros del backend.
+                    </p>
+                  </div>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
       </section>
 
-      <div className="demo-note">
-        <strong>Nota:</strong> esta vista es una simulación en frontend.
-        Falta conectar con el backend real (endpoint de respaldos /
-        configuración de Supabase) para que el historial y el botón
-        Ejecutar respaldo manual - reflejen datos reales.
-      </div>
+      {/* Restauración */}
+      <section className="panel" style={styles.section}>
+        <div style={styles.sectionHeader}>
+          <div>
+            <h3>Restauración de base de datos</h3>
+            <p style={styles.sectionDescription}>
+              Recupera la información utilizando un archivo de respaldo
+              previamente generado.
+            </p>
+          </div>
+          <EstadoPendiente />
+        </div>
+
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 230px), 1fr))",
+            gap: 20,
+          }}
+        >
+          <div style={styles.field}>
+            <label htmlFor="archivo-restauracion">Archivo de respaldo</label>
+            <input
+              id="archivo-restauracion"
+              style={styles.input}
+              type="file"
+              accept=".dump,.backup,.sql"
+              disabled
+            />
+          </div>
+
+          <div style={styles.field}>
+            <label htmlFor="confirmacion-restauracion">
+              Confirmación de restauración
+            </label>
+            <input
+              id="confirmacion-restauracion"
+              style={styles.input}
+              type="text"
+              placeholder="Funcionalidad no disponible"
+              disabled
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            marginTop: 22,
+            padding: 18,
+            borderRadius: 10,
+            background: "var(--surface-muted, #f8f9fa)",
+            border: "1px solid var(--border, #e5e7eb)",
+          }}
+        >
+          <strong>Importante</strong>
+          <p style={styles.description}>
+            La restauración puede reemplazar información existente. Antes de
+            habilitar esta operación se implementarán controles de autorización,
+            confirmación explícita, validación del archivo y registro de
+            auditoría.
+          </p>
+        </div>
+
+        <div style={styles.actionRow}>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            disabled
+            style={styles.disabledButton}
+          >
+            Restaurar base de datos
+          </button>
+        </div>
+      </section>
     </DashboardLayout>
   );
 }

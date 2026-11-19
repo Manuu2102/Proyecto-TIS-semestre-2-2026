@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler'; // <-- IMPORT AGREGADO
-import { APP_GUARD } from '@nestjs/core'; // <-- IMPORT AGREGADO
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuditoriaModule } from './auditoria/auditoria.module.js';
@@ -24,18 +25,21 @@ import { CajaModule } from './caja/caja.module.js';
 import { RolesModule } from './roles/roles.module.js';
 import { PersonalModule } from './personal/personal.module.js';
 import { ComunicadosModule } from './comunicados/comunicados.module.js';
+import { RespaldosModule } from './respaldos/respaldos.module.js';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    // 🚨 CONFIGURACIÓN DEL RATE LIMITING
-    ThrottlerModule.forRoot([{
-      ttl: 60000, // 1 minuto
-      limit: 100, // Límite global de 100 peticiones por minuto por IP
-    }]),
-    
+
+    ThrottlerModule.forRoot([
+      {
+        ttl: 60000,
+        limit: 100,
+      },
+    ]),
+
     AuthModule,
     PrismaModule,
     UsuariosModule,
@@ -55,14 +59,18 @@ import { ComunicadosModule } from './comunicados/comunicados.module.js';
     RolesModule,
     PersonalModule,
     ComunicadosModule,
+
+    // Módulo de respaldos y almacenamiento en Azure Blob Storage.
+    RespaldosModule,
+
     ScheduleModule.forRoot(),
   ],
 
   controllers: [AppController],
+
   providers: [
     AppService,
     {
-      // Aplicamos el Guard del límite a TODA la aplicación
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
     },
