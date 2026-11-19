@@ -1,3 +1,4 @@
+import { AuthModule } from '../auth/auth.module.js';
 import { BackupRetentionService } from './services/backup-retention.service.js';
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
@@ -11,7 +12,7 @@ import { BackupExecutorService } from './services/backup-executor.service.js';
 import { BackupValidator } from './utils/backup-validator.js';
 
 @Module({
-  imports: [ConfigModule],
+  imports: [ConfigModule, AuthModule],
   controllers: [RespaldosController],
   providers: [
     AzureBlobService,
