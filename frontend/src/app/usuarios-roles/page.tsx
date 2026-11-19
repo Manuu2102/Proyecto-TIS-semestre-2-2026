@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 import { ShieldIcon, UsersIcon } from "../../../components/Icons";
 
 type ManagedRole = "ADMINISTRADOR" | "DIRECTORIO" | "CONSULTA";
@@ -168,6 +169,7 @@ function RoleManagerModal({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [confirmar, modalConfirmar] = useConfirm();
 
   function handleClose() {
     setMessage("");
@@ -175,6 +177,16 @@ function RoleManagerModal({
   }
 
   async function changeRole(idUsuario: string, roleNombre: ManagedRole) {
+    const usuario = users.find((u) => u.id === idUsuario);
+    const ok = await confirmar({
+      title: "Cambiar rol",
+      message: <>¿Cambiar el rol de <strong>{usuario?.nombre ?? "este usuario"}</strong> de {usuario?.role ?? "—"} a <strong>{roleNombre}</strong>?</>,
+      warning: "Sus permisos cambiarán de inmediato.",
+      confirmText: "Sí, cambiar rol",
+      tone: "primary",
+    });
+    if (!ok) return;
+
     setSavingId(idUsuario);
     setMessage("");
     try {
@@ -203,7 +215,13 @@ function RoleManagerModal({
   }
 
   async function deleteUser(idUsuario: string, nombre: string) {
-    if (!window.confirm("¿Seguro que deseas eliminar este usuario? Esta acción no se puede deshacer.")) return;
+    const ok = await confirmar({
+      title: "Eliminar usuario",
+      message: <>¿Seguro que deseas eliminar a <strong>{nombre}</strong>?</>,
+      warning: "Perderá el acceso al sistema. Esta acción no se puede deshacer.",
+      confirmText: "Sí, eliminar",
+    });
+    if (!ok) return;
 
     setDeletingId(idUsuario);
     setMessage("");
@@ -221,6 +239,7 @@ function RoleManagerModal({
   const adminRoles: ManagedRole[] = ["ADMINISTRADOR", "DIRECTORIO", "CONSULTA"];
 
   return (
+    <>
     <Modal open={open} title="Gestionar roles" onClose={handleClose}>
       <div className="hu48-modal-body">
         <div className="hu48-modal-intro">
@@ -264,5 +283,7 @@ function RoleManagerModal({
         <div className="modal-actions"><button className="btn btn-secondary" onClick={handleClose}>Cerrar</button></div>
       </div>
     </Modal>
+    {modalConfirmar}
+    </>
   );
 }

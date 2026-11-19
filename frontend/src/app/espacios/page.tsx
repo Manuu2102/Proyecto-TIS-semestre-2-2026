@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { PlusIcon, BuildingIcon, EditIcon, TrashIcon } from "../../../components/Icons";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 
 type Tipo = "Parqueo" | "Baulera";
 
@@ -98,6 +99,8 @@ export default function Espacios() {
   const [error, setError] = useState("");
 
   const [guardando, setGuardando] = useState(false);
+
+  const [confirmar, modalConfirmar] = useConfirm();
 
   const recargar = async () => {
     const [dataEsp, dataDep]: [
@@ -217,6 +220,24 @@ export default function Espacios() {
       return;
     }
 
+    // Advertencia si el espacio cambia de departamento o se le quita la asignación
+    if (editando && editando.idDepartamento !== SIN_ASIGNAR && departamento !== editando.idDepartamento) {
+      const nombre = `${editando.tipo === "Parqueo" ? "el parqueo" : "la baulera"} ${editando.identificador}`;
+      const destino = departamentos.find((d) => d.id === departamento)?.codigo;
+      const quitar = departamento === SIN_ASIGNAR;
+      const ok = await confirmar({
+        title: quitar ? "Quitar asignación" : `Cambiar ${editando.tipo.toLowerCase()} de departamento`,
+        message: quitar ? (
+          <>¿Quitar {nombre} del departamento <strong>{editando.departamento}</strong>? Quedará disponible.</>
+        ) : (
+          <>¿Mover {nombre} del departamento <strong>{editando.departamento}</strong> al departamento <strong>{destino}</strong>?</>
+        ),
+        warning: `El departamento ${editando.departamento} dejará de tener ${editando.tipo === "Parqueo" ? "este parqueo" : "esta baulera"} asignad${editando.tipo === "Parqueo" ? "o" : "a"}.`,
+        confirmText: quitar ? "Sí, quitar" : "Sí, mover",
+      });
+      if (!ok) return;
+    }
+
     const body = {
       numero,
       piso: Number(piso),
@@ -254,10 +275,18 @@ export default function Espacios() {
   }
 
   async function eliminarEspacio(espacio: Espacio) {
-    const confirmar = window.confirm(
-      `¿Eliminar el ${espacio.tipo.toLowerCase()} ${espacio.identificador}? Se quitará también su asignación.`
-    );
-    if (!confirmar) return;
+    const ok = await confirmar({
+      title: `Eliminar ${espacio.tipo.toLowerCase()}`,
+      message: (
+        <>¿Eliminar {espacio.tipo === "Parqueo" ? "el parqueo" : "la baulera"} <strong>{espacio.identificador}</strong>?</>
+      ),
+      warning:
+        espacio.estado === "Asignado"
+          ? `Está asignad${espacio.tipo === "Parqueo" ? "o" : "a"} al departamento ${espacio.departamento}; se quitará también esa asignación. Esta acción no se puede deshacer.`
+          : "Esta acción no se puede deshacer.",
+      confirmText: "Sí, eliminar",
+    });
+    if (!ok) return;
 
     try {
       await pedir(`/espacios/${RUTA[espacio.tipo]}/${espacio.id}`, { method: "DELETE" });
@@ -569,6 +598,8 @@ export default function Espacios() {
           </div>
         </div>
       </Modal>
+
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

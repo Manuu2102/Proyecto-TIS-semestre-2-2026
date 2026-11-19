@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 import {
   SearchIcon,
   PlusIcon,
@@ -105,6 +106,7 @@ type InquilinoFormData = {
 };
 
 export default function InquilinosPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [items, setItems] = useState<Inquilino[]>([]);
   const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
   const [query, setQuery] = useState("");
@@ -230,12 +232,22 @@ export default function InquilinosPage() {
     if (!item) return;
 
     const activo = item.estado === "Activo";
-    const confirmar = window.confirm(
+    const ok = await confirmar(
       activo
-        ? `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Se conservará su historial de ocupación.`
-        : "Este inquilino ya está Inactivo. ¿Eliminar el registro de forma permanente?"
+        ? {
+            title: "Dar de baja inquilino",
+            message: <>¿Marcar a <strong>{item.nombres} {item.apellidoPaterno}</strong> como Inactivo?</>,
+            warning: "Dejará el departamento que ocupa; se conservará su historial de ocupación.",
+            confirmText: "Sí, dar de baja",
+          }
+        : {
+            title: "Eliminar inquilino",
+            message: <>¿Eliminar de forma permanente a <strong>{item.nombres} {item.apellidoPaterno}</strong>?</>,
+            warning: "Esta acción no se puede deshacer.",
+            confirmText: "Sí, eliminar",
+          }
     );
-    if (!confirmar) return;
+    if (!ok) return;
 
     try {
       const res = await fetch(`${API_URL}/inquilinos/${id}`, {
@@ -377,6 +389,7 @@ export default function InquilinosPage() {
           onCancel={cerrarModal}
         />
       </Modal>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

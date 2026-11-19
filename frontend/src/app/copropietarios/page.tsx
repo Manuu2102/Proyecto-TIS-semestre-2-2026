@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { useConfirm } from "../../../components/ConfirmModal";
 
 type Estado = "Activo" | "Inactivo";
 
@@ -87,6 +88,7 @@ const adaptar = (u: CopropietarioAPI): Copropietario => ({
 });
 
 export default function CopropietariosPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [copropietarios, setCopropietarios] = useState<Copropietario[]>([]);
   const [departamentos, setDepartamentos] = useState<DepartamentoOpcion[]>([]);
   const [busqueda, setBusqueda] = useState("");
@@ -355,12 +357,22 @@ export default function CopropietariosPage() {
     if (!item) return;
 
     const activo = item.estado === "Activo";
-    const confirmar = window.confirm(
+    const ok = await confirmar(
       activo
-        ? `¿Marcar a ${item.nombres} ${item.apellidoPaterno} como Inactivo? Su historial se conservará.`
-        : `Este copropietario ya está Inactivo. ¿Eliminar el registro de forma permanente?`
+        ? {
+            title: "Dar de baja copropietario",
+            message: <>¿Marcar a <strong>{item.nombres} {item.apellidoPaterno}</strong> como Inactivo?</>,
+            warning: "Se cerrará su ocupación en los departamentos; su historial se conservará.",
+            confirmText: "Sí, dar de baja",
+          }
+        : {
+            title: "Eliminar copropietario",
+            message: <>¿Eliminar de forma permanente a <strong>{item.nombres} {item.apellidoPaterno}</strong>?</>,
+            warning: "Esta acción no se puede deshacer.",
+            confirmText: "Sí, eliminar",
+          }
     );
-    if (!confirmar) return;
+    if (!ok) return;
 
     try {
       const res = await fetch(`${API_URL}/copropietarios/${id}`, {
@@ -394,8 +406,8 @@ export default function CopropietariosPage() {
   return (
     <DashboardLayout active="copropietarios">
       <div className="min-h-screen bg-[#f6f3ee]">
-        <main className="mx-auto max-w-[1180px] px-8 py-7">
-          <header className="mb-7 flex items-end justify-between">
+        <main className="mx-auto max-w-[1180px] px-0 py-0 sm:px-8 sm:py-7">
+          <header className="mb-7 flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <span className="h-[5px] w-[5px] rounded-full bg-[#c83232]" />
@@ -419,26 +431,26 @@ export default function CopropietariosPage() {
             </div>
           )}
 
-          <section className="mb-5 grid grid-cols-3 gap-4">
+          <section className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-3">
             <MetricCard icon={<UsersIcon />} title="Total copropietarios" value={total.toString()} />
             <MetricCard icon={<CheckIcon />} title="Activos" value={activos.toString()} />
             <MetricCard icon={<BuildingMiniIcon />} title="Departamentos ocupados" value={departamentosOcupados.toString()} />
           </section>
 
           <section className="overflow-hidden rounded-[11px] border border-[#e4ddd6] bg-white shadow-[0_2px_10px_rgba(43,32,25,0.035)]">
-            <div className="flex h-[67px] items-center justify-between border-b border-[#eee9e4] px-5">
+            <div className="flex min-h-[67px] flex-wrap items-center justify-between gap-3 border-b border-[#eee9e4] px-5 py-3">
               <div>
                 <h2 className="text-[12px] font-semibold text-[#383431]">Listado de copropietarios</h2>
                 <p className="mt-[3px] text-[8px] text-[#a09891]">{filtrados.length} registros encontrados</p>
               </div>
-              <div className="relative">
+              <div className="relative w-full sm:w-auto">
                 <SearchIcon />
                 <input
                   type="text"
                   value={busqueda}
                   onChange={(e) => setBusqueda(e.target.value)}
                   placeholder="Buscar por nombre, CI o departamento..."
-                  className="h-[34px] w-[260px] rounded-[7px] border border-[#e5ded8] bg-white pl-9 pr-3 text-[9px] outline-none placeholder:text-[#aaa29b] focus:border-[#c83232] focus:ring-2 focus:ring-[#c83232]/10"
+                  className="h-[34px] w-full sm:w-[260px] rounded-[7px] border border-[#e5ded8] bg-white pl-9 pr-3 text-[9px] outline-none placeholder:text-[#aaa29b] focus:border-[#c83232] focus:ring-2 focus:ring-[#c83232]/10"
                 />
               </div>
             </div>
@@ -512,10 +524,10 @@ export default function CopropietariosPage() {
       </div>
 
       {mostrarFormulario && (
-        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-4">
+        <div className="anim-backdrop fixed inset-0 z-[999] flex items-center justify-center bg-black/40 p-3 sm:p-4">
           <div className="absolute inset-0 backdrop-blur-[1px]" onClick={cancelar} />
 
-          <div className="relative z-10 w-full max-w-[570px] rounded-[18px] bg-white shadow-[0_20px_55px_rgba(0,0,0,0.20)]">
+          <div className="anim-modal relative z-10 w-full max-w-[570px] max-h-[92vh] overflow-y-auto rounded-[18px] bg-white shadow-[0_20px_55px_rgba(0,0,0,0.20)]">
             <div className="h-[3px] rounded-t-[18px] bg-[#c83232]" />
 
             <div className="flex items-start justify-between px-8 pb-5 pt-6">
@@ -548,7 +560,7 @@ export default function CopropietariosPage() {
                   <span className="text-[8px] font-bold uppercase tracking-[0.13em] text-[#68615b]">Información personal</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Input label="Nombres" required placeholder="Ej. María Fernanda" value={form.nombres} onChange={(value) => setForm({ ...form, nombres: value })} />
                   <Input label="Apellido paterno" required placeholder="Ej. Rojas" value={form.apellidoPaterno} onChange={(value) => setForm({ ...form, apellidoPaterno: value })} />
                   <Input label="Apellido materno" placeholder="Ej. Salazar (opcional)" value={form.apellidoMaterno} onChange={(value) => setForm({ ...form, apellidoMaterno: value })} />
@@ -591,7 +603,7 @@ export default function CopropietariosPage() {
                   <span className="text-[8px] font-bold uppercase tracking-[0.13em] text-[#68615b]">Unidad asignada</span>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div>
                     <label className="mb-1.5 block text-[8px] font-semibold text-[#5a534d]">
                       Departamento<span className="ml-1 text-[#c83232]">*</span>
@@ -640,6 +652,7 @@ export default function CopropietariosPage() {
           </div>
         </div>
       )}
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

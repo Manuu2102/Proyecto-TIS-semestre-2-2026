@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { UsersIcon, BuildingIcon, TrashIcon } from "../../../components/Icons";
+import { useConfirm } from "../../../components/ConfirmModal";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 const getToken = () => sessionStorage.getItem("token") ?? "";
@@ -94,6 +95,7 @@ export default function Asociaciones() {
   const [savedMsg, setSavedMsg] = useState("");
   const [errores, setErrores] = useState<string[]>([]);
   const [guardando, setGuardando] = useState(false);
+  const [confirmar, modalConfirmar] = useConfirm();
 
   /**
    * Carga departamentos, copropietarios e inquilinos (3 consultas en total) y arma
@@ -198,6 +200,44 @@ export default function Asociaciones() {
       return;
     }
 
+    // Advertencia antes de reemplazar ocupantes o mudar a un inquilino de otro departamento
+    const avisos: string[] = [];
+    if (cambiaOwner && actual.propietarioId) {
+      avisos.push(`${actual.propietario} dejará de ser el propietario de ${codigo}.`);
+    }
+    if (cambiaTenant && actual.inquilinoId) {
+      avisos.push(`${actual.inquilino} dejará de ser el inquilino de ${codigo}.`);
+    }
+    if (cambiaTenant && draftTenantId) {
+      const deptPrevio = Object.entries(asociaciones).find(
+        ([id, a]) => id !== deptSeleccionado && a.inquilinoId === draftTenantId
+      )?.[0];
+      if (deptPrevio) {
+        const codigoPrevio = departamentos.find((d) => d.id === deptPrevio)?.codigo ?? deptPrevio;
+        const nombreInq = inquilinos.find((i) => i.id === draftTenantId)?.nombre ?? "El inquilino";
+        avisos.push(`${nombreInq} vive en ${codigoPrevio}: se mudará a ${codigo} y ${codigoPrevio} quedará sin inquilino.`);
+      }
+    }
+    if (avisos.length > 0) {
+      const ok = await confirmar({
+        title: "Cambiar ocupantes",
+        message: (
+          <>¿Guardar los cambios en el departamento <strong>{codigo}</strong>?</>
+        ),
+        warning: (
+          <>
+            {avisos.map((a) => (
+              <div key={a}>• {a}</div>
+            ))}
+            <div style={{ marginTop: 6 }}>Se cerrarán sus ocupaciones (el historial se conserva).</div>
+          </>
+        ),
+        confirmText: "Sí, guardar",
+        tone: "primary",
+      });
+      if (!ok) return;
+    }
+
     setGuardando(true);
     let paso = "propietario";
     try {
@@ -245,7 +285,16 @@ export default function Asociaciones() {
     const asoc = asociaciones[deptId];
     if (!asoc || !asoc.inquilinoId) return;
 
-    if (!window.confirm("¿Quitar el inquilino de este departamento?")) return;
+    const codigo = departamentos.find((d) => d.id === deptId)?.codigo;
+    const ok = await confirmar({
+      title: "Quitar inquilino",
+      message: (
+        <>¿Quitar a <strong>{asoc.inquilino}</strong> del departamento <strong>{codigo}</strong>?</>
+      ),
+      warning: "Se cerrará su ocupación; el historial se conserva.",
+      confirmText: "Sí, quitar",
+    });
+    if (!ok) return;
 
     try {
       await cerrarOcupacion(asoc.inquilinoId, deptId);
@@ -441,6 +490,7 @@ export default function Asociaciones() {
           </table>
         </div>
       </section>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

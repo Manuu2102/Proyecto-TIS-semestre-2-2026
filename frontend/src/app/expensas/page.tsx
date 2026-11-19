@@ -3,11 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 import {
   PlusIcon,
   WalletIcon,
   CheckIcon,
   BuildingIcon,
+  TrashIcon,
 } from "../../../components/Icons";
 
 type Categoria = "A" | "B" | "C";
@@ -16,6 +18,8 @@ type Estado = "Pendiente" | "En revisión" | "Pagado";
 type Concepto = {
   concepto: string;
   monto: number;
+  // Solo en extras que se pueden borrar (su deuda no está pagada ni en revisión)
+  idExtra?: string;
 };
 
 type Departamento = {
@@ -33,6 +37,8 @@ type Expensa = {
   total: number;
   fechaLimite: string;
   estado: Estado;
+  // La expensa del mes se puede borrar: nada pagado ni en revisión
+  borrable?: boolean;
 };
 
 type Omitido = {
@@ -86,6 +92,14 @@ async function pedir<T>(ruta: string, opciones?: RequestInit): Promise<T> {
   return res.json();
 }
 
+// BACKEND: DELETE /expensas/extras/:id → borra un extra
+const borrarExtraApi = (idExtra: string) =>
+  pedir<{ message: string }>(`/expensas/extras/${idExtra}`, { method: "DELETE" });
+
+// BACKEND: DELETE /expensas/mensuales/:periodo/:numero → borra la expensa del mes de un departamento
+const borrarExpensaApi = (periodo: string, numero: number) =>
+  pedir<{ message: string }>(`/expensas/mensuales/${periodo}/${numero}`, { method: "DELETE" });
+
 // BACKEND: GET /expensas/departamentos
 const cargarDepartamentosApi = () =>
   pedir<Departamento[]>("/expensas/departamentos");
@@ -107,11 +121,12 @@ const actualizarTarifaApi = (categoria: Categoria, monto: number) =>
     body: JSON.stringify({ categoria, monto }),
   });
 
-// BACKEND: POST /expensas/generar-mes → expensas del mes; 409 si ya estaban generadas
-const generarMesApi = (periodo: string) =>
+// BACKEND: POST /expensas/generar-mes → expensas del mes (todas o de una categoría);
+// 409 si ya estaban generadas
+const generarMesApi = (periodo: string, categoria: Categoria | "") =>
   pedir<Resultado>("/expensas/generar-mes", {
     method: "POST",
-    body: JSON.stringify({ periodo }),
+    body: JSON.stringify(categoria ? { periodo, categoria } : { periodo }),
   });
 
 // BACKEND: POST /expensas/extras
@@ -244,6 +259,9 @@ function readRol(): string {
 }
 
 export default function ExpensasPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
+  const [avisoBorrado, setAvisoBorrado] = useState<{ tipo: "success" | "error"; texto: string } | null>(null);
+  const [borrando, setBorrando] = useState<string | null>(null);
   const [rol] = useState(readRol);
   const esAdmin = rol.startsWith("ADMIN");
 
@@ -290,6 +308,8 @@ export default function ExpensasPage() {
   const [paso, setPaso] = useState<"form" | "confirmar">("form");
   const [mes, setMes] = useState("");
   const [anio, setAnio] = useState("");
+  // "" = todas las categorías
+  const [categoriaGen, setCategoriaGen] = useState<Categoria | "">("");
   const [generando, setGenerando] = useState(false);
   const [error, setError] = useState("");
 
@@ -349,13 +369,21 @@ export default function ExpensasPage() {
 
   const periodoSelCargado = periodosCargados.includes(periodoSel);
 
+  // Departamentos elegibles de la categoría elegida (o de todas)
+  const elegiblesGen = categoriaGen
+    ? ELEGIBLES.filter((d) => d.categoria === categoriaGen)
+    : ELEGIBLES;
+  const textoCategoria = categoriaGen ? ` de la categoría ${categoriaGen}` : "";
+
   const existentesSel = periodoSel
-    ? expensas.filter((e) => e.periodo === periodoSel).length
+    ? expensas.filter(
+        (e) => e.periodo === periodoSel && (!categoriaGen || e.categoria === categoriaGen)
+      ).length
     : 0;
 
   // Departamentos elegibles que aún no tienen expensa en el período elegido.
   const faltantes = periodoSel
-    ? ELEGIBLES.filter(
+    ? elegiblesGen.filter(
         (d) =>
           !expensas.some(
             (e) => e.periodo === periodoSel && e.departamento === d.numero
@@ -463,6 +491,7 @@ export default function ExpensasPage() {
     setPaso("form");
     setMes("");
     setAnio("");
+    setCategoriaGen("");
     setError("");
     setModalOpen(true);
   }
@@ -474,6 +503,7 @@ export default function ExpensasPage() {
     setPaso("form");
     setMes("");
     setAnio("");
+    setCategoriaGen("");
     setError("");
   }
 
@@ -559,6 +589,15 @@ export default function ExpensasPage() {
       return;
     }
 
+    const ok = await confirmar({
+      title: "Actualizar tarifa",
+      message: <>¿Cambiar la expensa de la categoría <strong>{tarifaCategoriaActiva}</strong> a <strong>{bs(importe)}</strong>?</>,
+      warning: "Se aplicará a todos los departamentos de esta categoría en las expensas que se generen desde ahora.",
+      confirmText: "Sí, actualizar",
+      tone: "primary",
+    });
+    if (!ok) return;
+
     setGuardandoTarifa(true);
     setErrorTarifa("");
     try {
@@ -631,6 +670,77 @@ export default function ExpensasPage() {
     }
   }
 
+  // Vuelve a pedir un mes al backend (después de borrar)
+  async function recargarPeriodo(periodo: string) {
+    const data = await cargarExpensasApi(periodo);
+    const completas = completarTarifas(data, tarifasEditables);
+    setExpensas((prev) => [...prev.filter((e) => e.periodo !== periodo), ...completas]);
+  }
+
+  async function borrarExtra(e: Expensa, c: Concepto) {
+    if (!c.idExtra || borrando) return;
+    const ok = await confirmar({
+      title: "Borrar extra",
+      message: (
+        <>
+          ¿Borrar el extra <strong>{c.concepto}</strong> ({bs(c.monto)}) del Dpto.{" "}
+          <strong>{e.departamento}</strong>, {nombrePeriodo(e.periodo).toLowerCase()}?
+        </>
+      ),
+      warning: "Se descontará del total de la expensa. Esta acción no se puede deshacer.",
+      confirmText: "Sí, borrar",
+    });
+    if (!ok) return;
+
+    setBorrando(`extra-${c.idExtra}`);
+    setAvisoBorrado(null);
+    try {
+      const res = await borrarExtraApi(c.idExtra);
+      await recargarPeriodo(e.periodo);
+      setAvisoBorrado({ tipo: "success", texto: res.message });
+    } catch (err) {
+      setAvisoBorrado({
+        tipo: "error",
+        texto: err instanceof Error ? err.message : "No se pudo borrar el extra.",
+      });
+    } finally {
+      setBorrando(null);
+    }
+  }
+
+  async function borrarExpensa(e: Expensa) {
+    if (borrando) return;
+    const extras = e.desglose.filter((c) => c.idExtra).length;
+    const ok = await confirmar({
+      title: "Borrar expensa",
+      message: (
+        <>
+          ¿Borrar la expensa de {nombrePeriodo(e.periodo).toLowerCase()} del Dpto.{" "}
+          <strong>{e.departamento}</strong> por <strong>{bs(e.total)}</strong>?
+        </>
+      ),
+      warning: `Se borrará la deuda completa${extras > 0 ? ` junto con ${extras} ${plural(extras, "extra", "extras")}` : ""}. Esta acción no se puede deshacer; si la necesitas otra vez, vuelve a generar las expensas del mes.`,
+      confirmText: "Sí, borrar",
+    });
+    if (!ok) return;
+
+    setBorrando(e.id);
+    setAvisoBorrado(null);
+    try {
+      const res = await borrarExpensaApi(e.periodo, e.departamento);
+      await recargarPeriodo(e.periodo);
+      setResultado(null);
+      setAvisoBorrado({ tipo: "success", texto: res.message });
+    } catch (err) {
+      setAvisoBorrado({
+        tipo: "error",
+        texto: err instanceof Error ? err.message : "No se pudo borrar la expensa.",
+      });
+    } finally {
+      setBorrando(null);
+    }
+  }
+
   // Generación masiva: solo tarifas fijas, sin extras
   async function confirmarGeneracion() {
     if (generando || !puedeContinuar) return;
@@ -639,7 +749,7 @@ export default function ExpensasPage() {
     setError("");
 
     try {
-      const res = await generarMesApi(periodoSel);
+      const res = await generarMesApi(periodoSel, categoriaGen);
 
       // (TEMPORAL) conceptos fijos completados en pantalla.
       const generadas = completarTarifas(res.generadas, tarifasEditables);
@@ -755,6 +865,14 @@ export default function ExpensasPage() {
           )}
         </div>
 
+        {avisoBorrado && (
+          <div style={{ padding: "16px 20px 0" }}>
+            <div className={`alert alert-${avisoBorrado.tipo === "success" ? "success" : "error"}`}>
+              {avisoBorrado.texto}
+            </div>
+          </div>
+        )}
+
         {resultado && resultado.periodo === periodoVista && (
           <div
             style={{
@@ -814,6 +932,7 @@ export default function ExpensasPage() {
                   <th>Monto total</th>
                   <th>Fecha límite</th>
                   <th>Estado</th>
+                  {esAdmin && <th>Acciones</th>}
                 </tr>
               </thead>
 
@@ -828,9 +947,24 @@ export default function ExpensasPage() {
                       {e.desglose.map((c, indice) => (
                         <div
                           key={`${c.concepto}-${indice}`}
-                          style={{ fontSize: 11, color: "#766E69" }}
+                          style={{ fontSize: 11, color: "#766E69", display: "flex", alignItems: "center", gap: 6 }}
                         >
-                          {c.concepto}: {bs(c.monto)}
+                          <span>
+                            {c.concepto}: {bs(c.monto)}
+                          </span>
+                          {esAdmin && c.idExtra && (
+                            <button
+                              type="button"
+                              className="icon-action danger"
+                              style={{ width: 22, height: 22 }}
+                              title={`Borrar extra "${c.concepto}"`}
+                              aria-label={`Borrar extra ${c.concepto}`}
+                              disabled={borrando !== null}
+                              onClick={() => borrarExtra(e, c)}
+                            >
+                              <TrashIcon size={12} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </td>
@@ -844,6 +978,29 @@ export default function ExpensasPage() {
                         {e.estado}
                       </span>
                     </td>
+                    {esAdmin && (
+                      <td>
+                        {e.borrable ? (
+                          <button
+                            type="button"
+                            className="icon-action danger"
+                            title="Borrar expensa"
+                            aria-label={`Borrar expensa del Dpto. ${e.departamento}`}
+                            disabled={borrando !== null}
+                            onClick={() => borrarExpensa(e)}
+                          >
+                            <TrashIcon size={16} />
+                          </button>
+                        ) : (
+                          <span
+                            style={{ fontSize: 11, color: "#9a918b" }}
+                            title="Tiene pagos o un comprobante en revisión"
+                          >
+                            —
+                          </span>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1245,6 +1402,27 @@ export default function ExpensasPage() {
                     ))}
                   </select>
                 </label>
+
+                <label className="field">
+                  <span>Categoría de departamento <b>*</b></span>
+                  <select
+                    value={categoriaGen}
+                    onChange={(e) => {
+                      setCategoriaGen(e.target.value as Categoria | "");
+                      setError("");
+                    }}
+                  >
+                    <option value="">Todas (A, B y C)</option>
+                    {(["A", "B", "C"] as Categoria[]).map((c) => {
+                      const n = ELEGIBLES.filter((d) => d.categoria === c).length;
+                      return (
+                        <option key={c} value={c}>
+                          Solo categoría {c} ({n} {plural(n, "departamento", "departamentos")})
+                        </option>
+                      );
+                    })}
+                  </select>
+                </label>
               </div>
 
               {!periodoValido && (
@@ -1266,8 +1444,8 @@ export default function ExpensasPage() {
                   style={{ ...AVISO, marginTop: 12 }}
                 >
                   {faltantes > 0
-                    ? `Ya existen expensas para este período. Solo se generarán ${faltantes} ${plural(faltantes, "expensa", "expensas")} que faltan.`
-                    : "Ya existen expensas para todos los departamentos elegibles de este período."}
+                    ? `Ya existen expensas${textoCategoria} para este período. Solo se generarán ${faltantes} ${plural(faltantes, "expensa", "expensas")} que faltan.`
+                    : `Ya existen expensas para todos los departamentos${textoCategoria} de este período.`}
                 </div>
               )}
 
@@ -1309,7 +1487,7 @@ export default function ExpensasPage() {
           ) : (
             <div className="modal-form">
               <p style={{ fontSize: 15, fontWeight: 600, margin: "0 0 8px" }}>
-                Se generarán las expensas de{" "}
+                Se generarán las expensas{textoCategoria} de{" "}
                 {nombrePeriodo(periodoSel).toLowerCase()}.
               </p>
 
@@ -1350,6 +1528,7 @@ export default function ExpensasPage() {
           )}
         </Modal>
       )}
+      {modalConfirmar}
     </DashboardLayout>
   );
 }
