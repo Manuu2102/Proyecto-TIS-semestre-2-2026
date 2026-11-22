@@ -9,6 +9,8 @@ const getToken = () => sessionStorage.getItem("token") ?? "";
 
 type Tipo = "Ingreso" | "Gasto";
 
+type Metodo = "efectivo" | "transferencia" | "deposito";
+
 type CategoriaAPI = {
   id: string;
   nombre: string;
@@ -47,9 +49,17 @@ type Movimiento = {
   categoria: string;
   monto: number;
   descripcion: string;
+  proveedor: string;
   fecha: string;
   comprobante: string | null;
+  anulado: boolean;
 };
+
+type RespuestaAPI = { message?: string | string[] };
+
+// Mismos límites que valida el backend (lib/validacion.ts)
+const MAX_TEXTO = 255;
+const MONTO_REGEX = /^\d+(\.\d{1,2})?$/;
 
 const formatearFecha = (fecha: string) => {
   try {
@@ -58,6 +68,20 @@ const formatearFecha = (fecha: string) => {
     return fecha;
   }
 };
+
+/** Lee la respuesta aunque no sea JSON (por ejemplo, un 500 con HTML). */
+async function leerRespuesta(res: Response): Promise<RespuestaAPI> {
+  try {
+    return await res.json();
+  } catch {
+    return {};
+  }
+}
+
+const mensajeDe = (data: RespuestaAPI, porDefecto: string) =>
+  (Array.isArray(data.message) ? data.message.join(" ") : data.message) || porDefecto;
+
+const NOTA: React.CSSProperties = { color: "#9a918b", fontWeight: 400 };
 
 export default function IngresosEgresosPage() {
   const [ingresos, setIngresos] = useState<IngresoAPI[]>([]);
@@ -75,10 +99,11 @@ export default function IngresosEgresosPage() {
   const [monto, setMonto] = useState("");
   const [descripcion, setDescripcion] = useState("");
   const [proveedor, setProveedor] = useState("");
-  const [metodo, setMetodo] = useState<"efectivo" | "transferencia" | "deposito">("efectivo");
+  const [metodo, setMetodo] = useState<Metodo>("efectivo");
   const [comprobante, setComprobante] = useState<File | null>(null);
   const [error, setError] = useState("");
   const [guardando, setGuardando] = useState(false);
+  const [aviso, setAviso] = useState("");
 
   const categoriasFiltradas = useMemo(
     () => categorias.filter((c) => c.activa && c.tipo === tipo.toLowerCase()),
@@ -133,8 +158,10 @@ export default function IngresosEgresosPage() {
       categoria: i.categoria?.nombre ?? "Sin categoría",
       monto: Number(i.monto),
       descripcion: i.descripcion ?? "",
+      proveedor: "",
       fecha: formatearFecha(i.fecha),
       comprobante: i.comprobante_nombre,
+      anulado: i.anulado,
     }));
 
     const movGas: Movimiento[] = gastos.map((g) => ({
@@ -143,8 +170,10 @@ export default function IngresosEgresosPage() {
       categoria: g.categoria?.nombre ?? "Sin categoría",
       monto: Number(g.monto),
       descripcion: g.descripcion ?? "",
+      proveedor: g.proveedor ?? "",
       fecha: formatearFecha(g.fecha),
       comprobante: g.comprobante_nombre,
+      anulado: g.anulado,
     }));
 
     return [...movIng, ...movGas].sort((a, b) => b.fecha.localeCompare(a.fecha));
@@ -154,7 +183,7 @@ export default function IngresosEgresosPage() {
     return movimientos.filter(
       (m) =>
         (filtroTipo === "Todos" || m.tipo === filtroTipo) &&
-        `${m.categoria} ${m.descripcion}`.toLowerCase().includes(busqueda.toLowerCase())
+        `${m.categoria} ${m.proveedor} ${m.descripcion}`.toLowerCase().includes(busqueda.toLowerCase())
     );
   }, [movimientos, filtroTipo, busqueda]);
 
@@ -174,7 +203,12 @@ export default function IngresosEgresosPage() {
     setComprobante(null);
     setError("");
     setIdCategoria("");
+    setAviso("");
     setModalOpen(true);
+  }
+
+  function cerrarModal() {
+    if (!guardando) setModalOpen(false);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -187,11 +221,13 @@ export default function IngresosEgresosPage() {
     if (!["pdf", "jpg", "jpeg", "png"].includes(extension || "")) {
       setError("Formato no permitido. Selecciona un archivo PDF, JPG o PNG.");
       setComprobante(null);
+      e.target.value = "";
       return;
     }
     if (file.size > 5 * 1024 * 1024) {
       setError("El comprobante no debe superar los 5 MB.");
       setComprobante(null);
+      e.target.value = "";
       return;
     }
     setError("");
@@ -201,17 +237,30 @@ export default function IngresosEgresosPage() {
   async function guardarMovimiento() {
     setError("");
 
-    const montoNum = Number(monto);
-    if (!monto || isNaN(montoNum) || montoNum <= 0) {
-      setError("Ingresa un monto válido, mayor a 0.");
-      return;
-    }
+    const montoTexto = monto.trim();
     if (!idCategoria) {
       setError("Selecciona una categoría.");
       return;
     }
-    if (tipo === "Gasto" && !descripcion.trim() && !proveedor.trim()) {
-      setError("Ingresa una descripción o un proveedor.");
+    if (!montoTexto) {
+      setError("Ingresa el monto.");
+      return;
+    }
+    if (!MONTO_REGEX.test(montoTexto)) {
+      setError("El monto debe ser un número válido con máximo 2 decimales.");
+      return;
+    }
+    const montoNum = Number(montoTexto);
+    if (montoNum <= 0) {
+      setError("El monto debe ser mayor a 0.");
+      return;
+    }
+    if (descripcion.trim().length > MAX_TEXTO) {
+      setError(`La descripción admite como máximo ${MAX_TEXTO} caracteres.`);
+      return;
+    }
+    if (tipo === "Gasto" && proveedor.trim().length > MAX_TEXTO) {
+      setError(`El proveedor o beneficiario admite como máximo ${MAX_TEXTO} caracteres.`);
       return;
     }
 
@@ -219,7 +268,6 @@ export default function IngresosEgresosPage() {
       setGuardando(true);
 
       const formData = new FormData();
-      formData.append("fecha", new Date().toISOString().slice(0, 10));
       formData.append("monto", montoNum.toFixed(2));
       formData.append("id_categoria", idCategoria);
       if (descripcion.trim()) formData.append("descripcion", descripcion.trim());
@@ -238,13 +286,10 @@ export default function IngresosEgresosPage() {
         body: formData,
       });
 
-      const data = await res.json();
+      const data = await leerRespuesta(res);
 
       if (!res.ok) {
-        const msg = Array.isArray(data.message)
-          ? data.message.join("\n")
-          : data.message ?? "Error al guardar";
-        setError(msg);
+        setError(mensajeDe(data, `No se pudo registrar el ${tipo.toLowerCase()}.`));
         return;
       }
 
@@ -264,8 +309,10 @@ export default function IngresosEgresosPage() {
       }
 
       setModalOpen(false);
+      // El backend responde p. ej. "Gasto registrado por Bs 150,00. Caja: movimiento C-0012."
+      setAviso(mensajeDe(data, `${tipo} registrado correctamente.`));
     } catch (e) {
-      setError(`Error: ${(e as Error).message}`);
+      setError(`No se pudo conectar con el servidor: ${(e as Error).message}`);
     } finally {
       setGuardando(false);
     }
@@ -292,6 +339,12 @@ export default function IngresosEgresosPage() {
       {errorCarga && (
         <div className="alert alert-error" style={{ marginBottom: 12 }}>
           {errorCarga}
+        </div>
+      )}
+
+      {aviso && (
+        <div className="alert alert-success" style={{ marginBottom: 12 }}>
+          {aviso}
         </div>
       )}
 
@@ -323,7 +376,7 @@ export default function IngresosEgresosPage() {
               <option value="Gasto">Gastos</option>
             </select>
             <input
-              placeholder="Buscar por categoría o descripción…"
+              placeholder="Buscar por categoría, proveedor o descripción…"
               value={busqueda}
               onChange={(e) => setBusqueda(e.target.value)}
             />
@@ -342,24 +395,35 @@ export default function IngresosEgresosPage() {
                   <th>Fecha</th>
                   <th>Tipo</th>
                   <th>Categoría</th>
-                  <th>Descripción</th>
+                  <th>Detalle</th>
                   <th>Monto</th>
                   <th>Comprobante</th>
                 </tr>
               </thead>
               <tbody>
                 {filtrados.map((m) => (
-                  <tr key={m.id}>
+                  <tr key={m.id} style={m.anulado ? { opacity: 0.6 } : undefined}>
                     <td>{m.fecha}</td>
                     <td>
-                      <span className={`status ${m.tipo === "Ingreso" ? "status-success" : "status-attention"}`}>
+                      <span
+                        className={`status ${
+                          m.anulado ? "status-danger" : m.tipo === "Ingreso" ? "status-success" : "status-attention"
+                        }`}
+                      >
                         <span />
-                        {m.tipo}
+                        {m.anulado ? `${m.tipo} anulado` : m.tipo}
                       </span>
                     </td>
                     <td><span className="tag">{m.categoria}</span></td>
-                    <td>{m.descripcion}</td>
-                    <td>Bs. {m.monto.toFixed(2)}</td>
+                    <td>
+                      {m.proveedor && <strong>{m.proveedor}</strong>}
+                      {m.proveedor && m.descripcion && <br />}
+                      {m.descripcion}
+                      {!m.proveedor && !m.descripcion && <span style={{ color: "#9a918b" }}>—</span>}
+                    </td>
+                    <td style={m.anulado ? { textDecoration: "line-through" } : undefined}>
+                      Bs. {m.monto.toFixed(2)}
+                    </td>
                     <td>
                       {m.comprobante ? (
                         <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -377,60 +441,93 @@ export default function IngresosEgresosPage() {
         )}
       </section>
 
-      <Modal open={modalOpen} title={`Registrar ${tipo.toLowerCase()}`} onClose={() => setModalOpen(false)}>
+      <Modal
+        open={modalOpen}
+        title={tipo === "Ingreso" ? "Registrar ingreso extraordinario" : "Registrar gasto"}
+        onClose={cerrarModal}
+      >
         <div className="modal-form">
-          <label className="field">
-            <span>Tipo de movimiento</span>
-            <select value={tipo} onChange={(e) => { const t = e.target.value as Tipo; setTipo(t); setIdCategoria(""); }}>
-              <option value="Ingreso">Ingreso extraordinario</option>
-              <option value="Gasto">Gasto</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Categoría</span>
-            <select value={idCategoria} onChange={(e) => setIdCategoria(e.target.value)}>
-              <option value="">Selecciona una categoría</option>
-              {categoriasFiltradas.map((c) => (
-                <option key={c.id} value={c.id}>{c.nombre}</option>
-              ))}
-            </select>
-            {categoriasFiltradas.length === 0 && (
-              <small style={{ color: "#9a918b" }}>
-                No hay categorías activas de tipo {tipo.toLowerCase()}.
-              </small>
-            )}
-          </label>
-          <label className="field">
-            <span>Monto (Bs.)</span>
-            <input type="number" min="0" step="0.01" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0.00" />
-          </label>
-          {tipo === "Gasto" && (
+          <div className="form-grid">
             <label className="field">
-              <span>Proveedor (opcional)</span>
-              <input value={proveedor} onChange={(e) => setProveedor(e.target.value)} placeholder="Ej. Ferretería XYZ" />
+              <span>Categoría <b>*</b></span>
+              <select value={idCategoria} onChange={(e) => setIdCategoria(e.target.value)}>
+                <option value="">Selecciona una categoría</option>
+                {categoriasFiltradas.map((c) => (
+                  <option key={c.id} value={c.id}>{c.nombre}</option>
+                ))}
+              </select>
+              {categoriasFiltradas.length === 0 && (
+                <small style={NOTA}>No hay categorías activas de tipo {tipo.toLowerCase()}.</small>
+              )}
             </label>
-          )}
-          <label className="field">
-            <span>Descripción</span>
-            <input value={descripcion} onChange={(e) => setDescripcion(e.target.value)} placeholder="Ej. Reparación de bomba de agua" />
-          </label>
-          <label className="field">
-            <span>Método de pago</span>
-            <select value={metodo} onChange={(e) => setMetodo(e.target.value as "efectivo" | "transferencia" | "deposito")}>
-              <option value="efectivo">Efectivo</option>
-              <option value="transferencia">Transferencia</option>
-              <option value="deposito">Depósito</option>
-            </select>
-          </label>
-          <label className="field">
-            <span>Comprobante (opcional)</span>
-            <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileChange} />
-            {comprobante && <small>{comprobante.name}</small>}
-          </label>
-          {error && <div className="alert alert-error">{error}</div>}
-          <button className="btn btn-primary" onClick={guardarMovimiento} disabled={guardando}>
-            {guardando ? "Guardando…" : `Registrar ${tipo.toLowerCase()}`}
-          </button>
+
+            <label className="field">
+              <span>Monto (Bs.) <b>*</b></span>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                inputMode="decimal"
+                value={monto}
+                onChange={(e) => setMonto(e.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+
+            {tipo === "Gasto" && (
+              <label className="field">
+                <span>Proveedor o beneficiario (opcional)</span>
+                <input
+                  value={proveedor}
+                  maxLength={MAX_TEXTO}
+                  onChange={(e) => setProveedor(e.target.value)}
+                  placeholder="Ej. Ferretería XYZ"
+                />
+              </label>
+            )}
+
+            <label className="field">
+              <span>Método de pago</span>
+              <select value={metodo} onChange={(e) => setMetodo(e.target.value as Metodo)}>
+                <option value="efectivo">Efectivo</option>
+                <option value="transferencia">Transferencia</option>
+                <option value="deposito">Depósito</option>
+              </select>
+            </label>
+
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
+              <span>Descripción (opcional)</span>
+              <input
+                value={descripcion}
+                maxLength={MAX_TEXTO}
+                onChange={(e) => setDescripcion(e.target.value)}
+                placeholder={tipo === "Gasto" ? "Ej. Reparación de bomba de agua" : "Ej. Alquiler del salón de eventos"}
+              />
+            </label>
+
+            <label className="field" style={{ gridColumn: "1 / -1" }}>
+              <span>Comprobante (opcional)</span>
+              <input type="file" accept=".pdf,.jpg,.jpeg,.png" onChange={handleFileChange} style={{ paddingTop: 12 }} />
+              <small style={NOTA}>{comprobante ? comprobante.name : "PDF, JPG o PNG, máximo 5 MB."}</small>
+            </label>
+          </div>
+
+          <div className="alert alert-info" style={{ marginTop: 16 }}>
+            {tipo === "Ingreso"
+              ? "Se registrará con la fecha de hoy como entrada en caja. La caja debe estar abierta."
+              : "Se registrará con la fecha de hoy como salida de caja. La caja debe estar abierta y tener saldo suficiente."}
+          </div>
+
+          {error && <div className="alert alert-error" style={{ marginTop: 12 }}>{error}</div>}
+
+          <div className="modal-actions">
+            <button type="button" className="btn btn-secondary" onClick={cerrarModal} disabled={guardando}>
+              Cancelar
+            </button>
+            <button type="button" className="btn btn-primary" onClick={guardarMovimiento} disabled={guardando}>
+              {guardando ? "Guardando…" : tipo === "Ingreso" ? "Registrar ingreso" : "Registrar gasto"}
+            </button>
+          </div>
         </div>
       </Modal>
     </DashboardLayout>

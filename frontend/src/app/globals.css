@@ -730,3 +730,124 @@ th.sortable:hover { color:var(--primary); }
 .com-mail-body { padding:14px; white-space:pre-wrap; word-break:break-word; line-height:1.55; min-height:110px; }
 .com-mail-firma { padding:10px 14px; border-top:1px solid #F0EAE5; font-size:11px; color:var(--muted); }
 @media (max-width:900px) { .com-layout { grid-template-columns:1fr; } .com-preview { position:static; } }
+/* =====================================================================
+   ANIMACIONES (cambio de pantalla, modales, avisos, tablas)
+   ===================================================================== */
+@keyframes anim-page-in { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
+@keyframes anim-fade-in { from { opacity:0; } to { opacity:1; } }
+@keyframes anim-rise-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+@keyframes anim-pop-in { from { opacity:0; transform:translateY(14px) scale(.97); } to { opacity:1; transform:none; } }
+@keyframes anim-sheet-in { from { transform:translateY(100%); } to { transform:none; } }
+@keyframes anim-alert-in { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:none; } }
+
+/* Cada pantalla entra con un leve desplazamiento */
+/* fill-mode backwards: al terminar no queda transform, que rompería los position:fixed (modales, toasts) */
+.content { animation:anim-page-in .38s cubic-bezier(.22,.61,.36,1) backwards; }
+.content > .page-header { animation:anim-rise-in .4s ease backwards; }
+.content .metric-card,
+.content .summary-grid > *,
+.content .admin-action-card { animation:anim-rise-in .45s ease backwards; }
+.content .metric-card:nth-child(2), .content .summary-grid > *:nth-child(2), .content .admin-action-card:nth-child(2) { animation-delay:.05s; }
+.content .metric-card:nth-child(3), .content .summary-grid > *:nth-child(3), .content .admin-action-card:nth-child(3) { animation-delay:.1s; }
+.content .metric-card:nth-child(4), .content .summary-grid > *:nth-child(4), .content .admin-action-card:nth-child(4) { animation-delay:.15s; }
+.content .panel { animation:anim-rise-in .5s ease .08s backwards; }
+
+/* Filas de tablas: aparecen escalonadas (solo las primeras) */
+tbody tr { animation:anim-fade-in .35s ease backwards; transition:background-color .15s; }
+tbody tr:nth-child(2) { animation-delay:.03s; } tbody tr:nth-child(3) { animation-delay:.06s; }
+tbody tr:nth-child(4) { animation-delay:.09s; } tbody tr:nth-child(5) { animation-delay:.12s; }
+tbody tr:nth-child(6) { animation-delay:.15s; } tbody tr:nth-child(7) { animation-delay:.18s; }
+tbody tr:nth-child(n+8) { animation-delay:.2s; }
+tbody tr:hover { background-color:#FDFBF9; }
+
+/* Modales */
+.modal-backdrop { animation:anim-fade-in .2s ease both; }
+.modal { animation:anim-pop-in .26s cubic-bezier(.22,.61,.36,1) both; }
+
+/* Avisos y toasts */
+.alert { animation:anim-alert-in .25s ease both; }
+.toast { animation:anim-pop-in .28s ease both; }
+
+/* Menú lateral y botones */
+.mobile-overlay { animation:anim-fade-in .2s ease both; }
+.sidebar { transition:transform .26s cubic-bezier(.22,.61,.36,1), box-shadow .26s; }
+.nav-item { transition:background-color .15s, color .15s, padding-left .18s; }
+.nav-item:hover { padding-left:14px; }
+.btn:active:not(:disabled) { transform:scale(.97); }
+.btn:disabled { opacity:.6; cursor:not-allowed; }
+.icon-action, .modal-close, .top-icon { transition:background-color .15s, color .15s, transform .15s; }
+.icon-action:active:not(:disabled) { transform:scale(.9); }
+.tag, .status { transition:background-color .2s, color .2s; }
+
+/* Accesibilidad: sin animaciones si el sistema lo pide */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration:.01ms !important; animation-delay:0s !important; transition-duration:.01ms !important; }
+}
+
+/* =====================================================================
+   RESPONSIVE (complementa los breakpoints de arriba)
+   ===================================================================== */
+html, body { max-width:100%; overflow-x:hidden; }
+img, video, canvas, svg { max-width:100%; }
+.table-wrap { -webkit-overflow-scrolling:touch; }
+.main-shell, .content { min-width:0; }
+
+/* Grupos de botones y filtros: que bajen de línea en vez de desbordar */
+.page-header > div:not(:first-child) { flex-wrap:wrap; }
+.panel-toolbar > div:not(:first-child) { flex-wrap:wrap; }
+.role-tabs { overflow-x:auto; scrollbar-width:thin; }
+.breadcrumb { min-width:0; }
+.breadcrumb strong { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+@media (max-width: 1100px) {
+  .metric-row { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .metric-row > .metric-card:last-child:nth-child(odd) { grid-column:1 / -1; }
+}
+
+@media (max-width: 1000px) {
+  .sidebar { width:min(280px, 84vw); }
+  .topbar-actions { gap:10px; }
+}
+
+@media (max-width: 700px) {
+  .topbar { height:60px; }
+  .breadcrumb > span, .breadcrumb > b { display:none; }
+  .page-header h1 { font-size:27px; }
+  .page-header { margin-bottom:20px; gap:14px; }
+  .page-header > div:not(:first-child) { width:100%; }
+  .page-header > div:not(:first-child) > .btn,
+  .page-header > div:not(:first-child) > button { flex:1 1 auto; }
+  .metric-row { grid-template-columns:1fr; }
+  .metric-row > .metric-card:last-child:nth-child(odd) { grid-column:auto; }
+  .panel-toolbar > div:not(:first-child) { width:100%; }
+  .panel-toolbar > div:not(:first-child) > select,
+  .panel-toolbar > div:not(:first-child) > input,
+  .panel-toolbar > div:not(:first-child) > .search-box { flex:1 1 160px; min-width:0; width:auto; }
+  .panel-toolbar select, .panel-toolbar input { min-height:40px; border:1px solid var(--border); border-radius:9px; padding:0 10px; background:#fff; font-size:12px; }
+  th, td { padding-left:14px; padding-right:14px; }
+
+  /* Modales como hoja inferior a pantalla completa de ancho */
+  .modal-backdrop { padding:0; place-items:end center; }
+  .modal, .modal-sm, .modal-lg { width:100%; max-height:92vh; border-radius:18px 18px 0 0; animation:anim-sheet-in .3s cubic-bezier(.22,.61,.36,1) both; }
+  .modal-header { padding:18px 18px 14px; position:sticky; top:0; background:#fff; z-index:1; }
+  .modal-header h2 { font-size:19px; }
+  .modal-actions { flex-wrap:wrap; }
+  .modal-actions > .btn, .modal-actions > button { flex:1 1 140px; }
+  .confirm-body { padding:18px 18px 4px; }
+}
+
+@media (max-width: 420px) {
+  .content { padding:20px 14px 36px; }
+  .metric-card { padding:15px; }
+  .metric-card strong { font-size:20px; }
+  .btn { padding:0 13px; font-size:13px; }
+}
+
+/* Modales propios (páginas con Tailwind) */
+.anim-backdrop { animation:anim-fade-in .2s ease both; }
+.anim-modal { animation:anim-pop-in .26s cubic-bezier(.22,.61,.36,1) both; }
+
+@media (max-width: 900px) {
+  .page-header { flex-wrap:wrap; align-items:flex-start; }
+  .page-header > div:not(:first-child) { width:100%; justify-content:flex-start; }
+}

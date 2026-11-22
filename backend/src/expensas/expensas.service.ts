@@ -39,6 +39,27 @@ const enOrden = <T extends readonly unknown[] | []>(
   consultas: T,
 ): Promise<{ -readonly [K in keyof T]: Awaited<T[K]> }> => Promise.all(consultas);
 
+// Registra filas borradas de una tabla sin trigger de auditoría (accion DELETE, datos_anteriores = la fila)
+async function auditarBorrados(
+  tx: Prisma.TransactionClient,
+  tabla: string,
+  filas: { id: bigint }[],
+  usuarioId: string | null,
+) {
+  if (filas.length === 0) return;
+  await tx.auditoria.createMany({
+    data: filas.map((fila) => ({
+      usuario_id: usuarioId,
+      tabla_afectada: tabla,
+      registro_id: fila.id.toString(),
+      accion: 'DELETE',
+      datos_anteriores: JSON.parse(
+        JSON.stringify(fila, (_, v) => (typeof v === 'bigint' ? v.toString() : v)),
+      ) as Prisma.InputJsonValue,
+    })),
+  });
+}
+
 // Nombre de cada tipo de departamento ("A", "B", "C"...), por id
 const nombresDeTipos = (tipos: { id: bigint; nombre: string | null }[]) =>
   new Map(tipos.map((t) => [t.id, t.nombre?.trim().toUpperCase()]));
@@ -393,9 +414,14 @@ export class ExpensasService {
    * Genera las deudas de un mes para todas las expensas.
    * Es idempotente: lo que ya existe se omite.
    */
-  async generarDeudasMensuales(mes: Date, idUsuario: string | null = null) {
+  async generarDeudasMensuales(
+    mes: Date,
+    idUsuario: string | null = null,
+    idsTipo: bigint[] | null = null, // solo estos tipos de departamento; null = todos
+  ) {
     const expensas = await this.prisma.expensa.findMany({
-      where: { tipo_departamento: { not: null } }, // ignora expensas sin tipo
+      // ignora expensas sin tipo
+      where: { tipo_departamento: idsTipo ? { in: idsTipo } : { not: null } },
       select: { id: true, nombre: true, monto_total: true, tipo_departamento: true },
       orderBy: { id: 'asc' },
     });
@@ -1325,14 +1351,32 @@ export class ExpensasService {
   }
 
   /**
-   * Genera las expensas de un mes elegido. Solo crea las que faltan; si ya estaban
-   * todas generadas, responde 409 y no genera nada.
+   * Genera las expensas de un mes elegido, de todas las categorías o solo de una (A, B o C).
+   * Solo crea las que faltan; si ya estaban todas generadas, responde 409 y no genera nada.
    */
-  async generarMes(periodo: string, idUsuario: string | null = null) {
+  async generarMes(
+    periodo: string,
+    idUsuario: string | null = null,
+    categoria?: 'A' | 'B' | 'C',
+  ) {
     const mes = primerDiaDelMes(`${periodo}-01`);
     if (mes < mesActual()) {
       throw new BadRequestException('No se pueden generar expensas de meses pasados');
     }
+
+    // Tipos de departamento de la categoría elegida (null = todas)
+    let idsTipo: bigint[] | null = null;
+    if (categoria) {
+      const tipos = await this.prisma.tipo_departamento.findMany({ select: { id: true, nombre: true } });
+      idsTipo = [...nombresDeTipos(tipos)].filter(([, nombre]) => nombre === categoria).map(([id]) => id);
+      const conExpensa = idsTipo.length
+        ? await this.prisma.expensa.count({ where: { tipo_departamento: { in: idsTipo } } })
+        : 0;
+      if (conExpensa === 0) {
+        throw new BadRequestException(`No hay una expensa configurada para la categoría ${categoria}`);
+      }
+    }
+    const deLaCategoria = (tipo: bigint | null) => !idsTipo || (tipo !== null && idsTipo.includes(tipo));
 
     // Departamentos que ya tenían alguna deuda ese mes (solo los ids, no las filas completas)
     const previas = await this.prisma.pago_expensa.findMany({
@@ -1343,17 +1387,27 @@ export class ExpensasService {
     const departamentosPrevios = await this.departamentosPorId(
       previas.map((p) => p.id_departamento),
     );
-    const antes = new Set([...departamentosPrevios.values()].map((d) => d.numero));
-    const r = await this.generarDeudasMensuales(mes, idUsuario);
+    const antes = new Set(
+      [...departamentosPrevios.values()]
+        .filter((d) => deLaCategoria(d.tipo_departamento))
+        .map((d) => d.numero),
+    );
+    const r = await this.generarDeudasMensuales(mes, idUsuario, idsTipo);
     if (r.generadas === 0) {
       if (r.errores > 0) throw new BadRequestException('No se pudieron generar las expensas. Intenta nuevamente.');
-      throw new ConflictException('Ya se generaron las expensas de este mes');
+      throw new ConflictException(
+        categoria
+          ? `Ya se generaron las expensas de la categoría ${categoria} de este mes`
+          : 'Ya se generaron las expensas de este mes',
+      );
     }
 
     const filas = await this.listarMensuales(periodo);
     return {
       periodo,
-      generadas: filas.filter((f) => !antes.has(f.departamento)),
+      generadas: filas.filter(
+        (f) => !antes.has(f.departamento) && (!categoria || f.categoria.trim().toUpperCase() === categoria),
+      ),
       omitidos: [],
       yaExistian: antes.size,
     };
@@ -1410,7 +1464,7 @@ export class ExpensasService {
           fecha_vencimiento: true,
           concepto: true,
           expensa: { select: { nombre: true } },
-          pago_expensa_extra: { select: { concepto: true, monto: true }, orderBy: { id: 'asc' } },
+          pago_expensa_extra: { select: { id: true, concepto: true, monto: true }, orderBy: { id: 'asc' } },
           id_departamento: true,
         },
         orderBy: { id: 'asc' },
@@ -1427,10 +1481,13 @@ export class ExpensasService {
       periodo: string;
       fechaLimite: string;
       vence: string;
-      desglose: { concepto: string; monto: number }[];
+      // idExtra: solo en extras que se pueden borrar (su deuda no está pagada ni en revisión)
+      desglose: { concepto: string; monto: number; idExtra?: string }[];
       total: Prisma.Decimal;
       mora: Prisma.Decimal;
       pendiente: boolean;
+      // Se puede borrar la expensa del mes: nada pagado ni en revisión
+      borrable: boolean;
       // Lo que falta pagar tiene un comprobante esperando aprobación
       soloEnRevision: boolean;
     };
@@ -1460,12 +1517,23 @@ export class ExpensasService {
           mora: new Prisma.Decimal(0),
           pendiente: false,
           soloEnRevision: true,
+          borrable: true,
         };
         grupos.set(clave, g);
       }
 
       const conceptos = conceptosDe(p);
-      g.desglose.push(...conceptos.lineas);
+      const sinPagar = p.id_estado !== ESTADO_PAGADA && p.id_estado !== ESTADO_EN_REVISION;
+      if (!sinPagar) g.borrable = false;
+      // Los extras son las últimas líneas del desglose, en el mismo orden
+      const primeraExtra = conceptos.lineas.length - p.pago_expensa_extra.length;
+      g.desglose.push(
+        ...conceptos.lineas.map((linea, i) =>
+          sinPagar && i >= primeraExtra
+            ? { ...linea, idExtra: p.pago_expensa_extra[i - primeraExtra].id.toString() }
+            : linea,
+        ),
+      );
       g.total = g.total.plus(conceptos.total).plus(p.monto_mora);
       g.mora = g.mora.plus(p.monto_mora);
       if (p.id_estado !== ESTADO_PAGADA) {
@@ -1487,9 +1555,110 @@ export class ExpensasService {
           fechaLimite: g.fechaLimite,
           vence: g.vence,
           estado: !g.pendiente ? 'Pagado' : g.soloEnRevision ? 'En revisión' : 'Pendiente',
+          borrable: g.borrable,
         };
       })
       .sort((a, b) => b.periodo.localeCompare(a.periodo) || a.departamento - b.departamento);
+  }
+
+  /**
+   * Borra un extra. Solo si su deuda no está pagada ni en revisión (un comprobante enviado
+   * o una factura ya cubren ese monto). Si era el único concepto de una deuda complementaria
+   * (monto 0), se borra también esa deuda, que quedaría vacía.
+   */
+  async borrarExtra(idExtra: number, idUsuario: string) {
+    const extra = await this.prisma.pago_expensa_extra.findUnique({
+      where: { id: BigInt(idExtra) },
+      include: {
+        pago_expensa: {
+          select: {
+            id: true,
+            id_estado: true,
+            monto: true,
+            _count: { select: { pago_expensa_extra: true, factura_pago_expensa: true } },
+          },
+        },
+      },
+    });
+    if (!extra) throw new NotFoundException('Extra no encontrado');
+    const deuda = extra.pago_expensa;
+    if (deuda.id_estado === ESTADO_PAGADA || deuda._count.factura_pago_expensa > 0) {
+      throw new ConflictException('No se puede borrar: el extra ya está pagado');
+    }
+    if (deuda.id_estado === ESTADO_EN_REVISION) {
+      throw new ConflictException(
+        'No se puede borrar: la deuda tiene un comprobante en revisión. Apruébalo o recházalo primero',
+      );
+    }
+    const borrarDeuda = deuda.monto.equals(0) && deuda._count.pago_expensa_extra === 1;
+
+    await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idUsuario);
+      await tx.pago_expensa_extra.delete({ where: { id: extra.id } });
+      // pago_expensa_extra no tiene trigger de auditoría en la base: se registra aquí
+      await auditarBorrados(tx, 'pago_expensa_extra', [extra], idUsuario);
+      if (borrarDeuda) {
+        await tx.peticion_pago.deleteMany({ where: { id_pago_expensa: deuda.id } });
+        await tx.pago_expensa.delete({ where: { id: deuda.id } });
+      }
+    });
+
+    return { message: `Extra "${extra.concepto}" (${extra.monto.toFixed(2)} Bs.) borrado.` };
+  }
+
+  /**
+   * Borra la expensa de un departamento en un mes (la deuda base, sus extras y las
+   * deudas complementarias). Solo si nada de ese mes está pagado ni en revisión.
+   */
+  async borrarExpensa(periodo: string, numero: number, idUsuario: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodo)) {
+      throw new BadRequestException('Periodo inválido: usa el formato YYYY-MM');
+    }
+    const departamentos = await this.prisma.departamento.findMany({
+      where: { numero },
+      select: { id: true },
+    });
+    if (departamentos.length === 0) throw new NotFoundException(`Departamento ${numero} no encontrado`);
+
+    const deudas = await this.prisma.pago_expensa.findMany({
+      where: {
+        id_departamento: { in: departamentos.map((d) => d.id) },
+        fecha_vencimiento: vencimientosDelMes(primerDiaDelMes(`${periodo}-01`)),
+      },
+      select: {
+        id: true,
+        id_estado: true,
+        pago_expensa_extra: true,
+        _count: { select: { factura_pago_expensa: true } },
+      },
+    });
+    if (deudas.length === 0) {
+      throw new NotFoundException(`El Dpto. ${numero} no tiene expensas de ${periodo}`);
+    }
+    if (deudas.some((d) => d.id_estado === ESTADO_PAGADA || d._count.factura_pago_expensa > 0)) {
+      throw new ConflictException('No se puede borrar: esta expensa ya tiene pagos registrados');
+    }
+    if (deudas.some((d) => d.id_estado === ESTADO_EN_REVISION)) {
+      throw new ConflictException(
+        'No se puede borrar: tiene un comprobante en revisión. Apruébalo o recházalo primero',
+      );
+    }
+
+    const ids = deudas.map((d) => d.id);
+    const extras = deudas.flatMap((d) => d.pago_expensa_extra);
+    await this.prisma.$transaction(async (tx) => {
+      await usuarioEnTransaccion(tx, idUsuario);
+      await tx.pago_expensa_extra.deleteMany({ where: { id_pago_expensa: { in: ids } } });
+      await auditarBorrados(tx, 'pago_expensa_extra', extras, idUsuario);
+      // Comprobantes rechazados de esas deudas (los en revisión ya se descartaron arriba)
+      await tx.peticion_pago.deleteMany({ where: { id_pago_expensa: { in: ids } } });
+      // pago_expensa sí tiene trigger de auditoría en la base
+      await tx.pago_expensa.deleteMany({ where: { id: { in: ids } } });
+    });
+
+    return {
+      message: `Expensa de ${periodo} del Dpto. ${numero} borrada${extras.length ? ` (con ${extras.length} extra${extras.length === 1 ? '' : 's'})` : ''}.`,
+    };
   }
 
   /**

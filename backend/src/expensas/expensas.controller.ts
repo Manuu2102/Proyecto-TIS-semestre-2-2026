@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseIntPipe, Post, Put, Query, StreamableFile, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, ParseIntPipe, Post, Put, Query, StreamableFile, UseGuards } from '@nestjs/common';
 import { ExpensasExportarService } from './expensas-exportar.service.js';
 import { ExportarSaldosDto, FormatoDto } from './dto/exportar.dto.js';
 import { ExpensasService } from './expensas.service.js';
@@ -33,7 +33,7 @@ export class ExpensasController {
   /** Genera las expensas de un mes elegido; si ya estaban todas, responde 409. */
   @Post('generar-mes')
   generarMes(@Body() dto: GenerarMesDto, @CurrentUser('id') idUsuario: string) {
-    return this.expensas.generarMes(dto.periodo, idUsuario);
+    return this.expensas.generarMes(dto.periodo, idUsuario, dto.categoria);
   }
 
   /** Departamentos, deudas pendientes y saldo a favor, para la pantalla de pagos. */
@@ -144,6 +144,22 @@ export class ExpensasController {
   @Post('extras')
   crearExtras(@Body() dto: CrearExtrasDto, @CurrentUser('id') idUsuario: string) {
     return this.expensas.crearExtras(dto, idUsuario);
+  }
+
+  /** Borra un extra (solo si su deuda no está pagada ni en revisión). */
+  @Delete('extras/:id')
+  borrarExtra(@Param('id', ParseIntPipe) id: number, @CurrentUser('id') idUsuario: string) {
+    return this.expensas.borrarExtra(id, idUsuario);
+  }
+
+  /** Borra la expensa de un departamento en un mes (solo si nada está pagado ni en revisión). */
+  @Delete('mensuales/:periodo/:numero')
+  borrarExpensa(
+    @Param('periodo') periodo: string,
+    @Param('numero', ParseIntPipe) numero: number,
+    @CurrentUser('id') idUsuario: string,
+  ) {
+    return this.expensas.borrarExpensa(periodo, numero, idUsuario);
   }
 
   /** Registra fondos para un departamento. */

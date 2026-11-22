@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { useConfirm } from "../../../components/ConfirmModal";
 import { api, apiDelete, apiPost } from "../../../lib/api";
 
 type EstadoReloj = {
@@ -36,6 +37,7 @@ function textoError(e: unknown) {
 }
 
 export default function MantenimientoPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [reloj, setReloj] = useState<EstadoReloj | null>(null);
   const [fecha, setFecha] = useState("");
   const [avanzar, setAvanzar] = useState("");
@@ -49,13 +51,13 @@ export default function MantenimientoPage() {
 
   // Borra deudas, pagos, extras y movimientos de fondos (/dev/expensas/datos)
   async function borrarDatos() {
-    if (
-      !window.confirm(
-        "Se borrarán TODAS las deudas, pagos, extras y movimientos de fondos de expensas. Esto no se puede deshacer. ¿Continuar?"
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmar({
+      title: "Borrar datos de expensas",
+      message: "Se borrarán TODAS las deudas, pagos, extras y movimientos de fondos de expensas.",
+      warning: "Esto no se puede deshacer.",
+      confirmText: "Sí, borrar todo",
+    });
+    if (!ok) return;
     setBorrando(true);
     setMensajeBorrado(null);
     try {
@@ -223,6 +225,7 @@ export default function MantenimientoPage() {
           </div>
         </div>
       </section>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

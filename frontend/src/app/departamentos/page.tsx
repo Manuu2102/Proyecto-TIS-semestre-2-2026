@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { DashboardLayout } from "../../../components/DashboardLayout";
+import { useConfirm } from "../../../components/ConfirmModal";
 import { api } from "../../../lib/api";
 
 type EstadoDepartamento = "Ocupado" | "Disponible";
@@ -90,6 +91,7 @@ const personasRegistradas: string[] = [
 ];
 
 export default function DepartamentosPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [departamentos, setDepartamentos] =
     useState<Departamento[]>([]);
 
@@ -257,13 +259,13 @@ export default function DepartamentosPage() {
   };
 
   const eliminarDepartamento = async (id: number) => {
-    if (
-      !window.confirm(
-        "¿Deseas eliminar este departamento?"
-      )
-    ) {
-      return;
-    }
+    const ok = await confirmar({
+      title: "Eliminar departamento",
+      message: "¿Deseas eliminar este departamento?",
+      warning: "Esta acción no se puede deshacer. Revisa antes que no tenga ocupantes, parqueos, bauleras ni expensas asociadas.",
+      confirmText: "Sí, eliminar",
+    });
+    if (!ok) return;
 
     try {
       await eliminarDepartamentoApi(id);
@@ -280,10 +282,10 @@ export default function DepartamentosPage() {
   return (
     <DashboardLayout active="departamentos">
       <div className="min-h-screen bg-[#f7f4ef]">
-        <main className="mx-auto max-w-[1250px] px-7 py-7">
+        <main className="mx-auto max-w-[1250px] px-0 py-0 sm:px-7 sm:py-7">
 
           {/* HEADER */}
-          <div className="mb-7 flex items-end justify-between">
+          <div className="mb-7 flex flex-wrap items-end justify-between gap-4">
             <div>
               <div className="mb-2 flex items-center gap-2">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#c83232]" />
@@ -316,7 +318,7 @@ export default function DepartamentosPage() {
           </div>
 
           {/* ESTADÍSTICAS */}
-          <div className="mb-6 grid grid-cols-4 gap-4">
+          <div className="mb-6 grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
             <StatCard
               icon={<BuildingIcon />}
               title="Total unidades"
@@ -350,7 +352,7 @@ export default function DepartamentosPage() {
 
           <div className="overflow-hidden rounded-xl border border-[#e7e0d9] bg-white shadow-[0_2px_8px_rgba(0,0,0,0.035)]">
 
-            <div className="flex items-center justify-between border-b border-[#eee9e4] px-5 py-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#eee9e4] px-5 py-4">
               <div>
                 <h2 className="text-[13px] font-bold text-[#36322f]">
                   Unidades del edificio
@@ -475,7 +477,7 @@ export default function DepartamentosPage() {
 
         {modalDepartamento && (
           <ModalOverlay>
-            <div className="w-full max-w-[570px] overflow-hidden rounded-[18px] border border-[#e4dcd5] bg-white shadow-[0_30px_90px_rgba(38,29,24,0.25)]">
+            <div className="anim-modal w-full max-w-[570px] max-h-[92vh] overflow-y-auto rounded-[18px] border border-[#e4dcd5] bg-white shadow-[0_30px_90px_rgba(38,29,24,0.25)]">
 
               {/* CABECERA */}
               <div className="relative border-b border-[#eee8e2] px-8 pb-6 pt-7">
@@ -528,7 +530,7 @@ export default function DepartamentosPage() {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-5">
+                  <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
 
                     <ElegantInput
                       label="Número"
@@ -701,6 +703,7 @@ export default function DepartamentosPage() {
           </ModalOverlay>
         )}
       </div>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }
@@ -759,7 +762,7 @@ function SearchInput({
   placeholder: string;
 }) {
   return (
-    <div className="relative">
+    <div className="relative w-full sm:w-auto">
       <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[#aaa19a]">
         <SearchIcon />
       </div>
@@ -768,7 +771,7 @@ function SearchInput({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-9 w-[245px] rounded-lg border border-[#e5ded7] bg-white pl-9 pr-3 text-[9px] outline-none transition placeholder:text-[#aaa19a] focus:border-[#d5aaa4] focus:ring-2 focus:ring-[#c83232]/5"
+        className="h-9 w-full sm:w-[245px] rounded-lg border border-[#e5ded7] bg-white pl-9 pr-3 text-[9px] outline-none transition placeholder:text-[#aaa19a] focus:border-[#d5aaa4] focus:ring-2 focus:ring-[#c83232]/5"
       />
     </div>
   );
@@ -978,7 +981,7 @@ function ModalOverlay({
   children: React.ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[#241d19]/50 p-5 backdrop-blur-[2px]">
+    <div className="anim-backdrop fixed inset-0 z-[100] flex items-center justify-center bg-[#241d19]/50 p-3 sm:p-5 backdrop-blur-[2px]">
       {children}
     </div>
   );

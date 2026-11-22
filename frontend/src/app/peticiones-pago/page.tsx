@@ -2,6 +2,7 @@
 import { ChangeEvent, useCallback, useEffect, useState } from "react";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 import { CameraIcon, CheckIcon, EyeIcon } from "../../../components/Icons";
 import { api, apiArchivoUrl, apiPost, apiPutForm } from "../../../lib/api";
 import { MUTED, bs, fechaLarga, nombrePeriodo } from "../../../lib/mi-cuenta";
@@ -177,6 +178,7 @@ function PanelQr() {
 
 // Admin: revisa los comprobantes que envían los copropietarios y carga el QR de cobro
 export default function PeticionesPagoPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [estado, setEstado] = useState<EstadoPeticion>("en_revision");
   const [peticiones, setPeticiones] = useState<Peticion[]>([]);
   const [cargando, setCargando] = useState(true);
@@ -238,6 +240,14 @@ export default function PeticionesPagoPage() {
 
   async function aprobar() {
     if (!abierta || procesando) return;
+    const ok = await confirmar({
+      title: "Aprobar pago",
+      message: <>¿Aprobar el comprobante del Dpto. <strong>{abierta.departamento ?? "—"}</strong> por <strong>{bs(abierta.deuda.total)}</strong> ({nombrePeriodo(abierta.deuda.periodo)})?</>,
+      warning: "La deuda quedará marcada como pagada. Confirma que el depósito llegó a la cuenta.",
+      confirmText: "Sí, aprobar",
+      tone: "primary",
+    });
+    if (!ok) return;
     setProcesando(true);
     setErrorAccion("");
     try {
@@ -258,6 +268,13 @@ export default function PeticionesPagoPage() {
       setErrorAccion("Escribe el motivo del rechazo: se le envía al copropietario.");
       return;
     }
+    const ok = await confirmar({
+      title: "Rechazar comprobante",
+      message: <>¿Rechazar el comprobante del Dpto. <strong>{abierta.departamento ?? "—"}</strong> ({nombrePeriodo(abierta.deuda.periodo)})?</>,
+      warning: "Se notificará al copropietario con el motivo y tendrá que enviar un nuevo comprobante.",
+      confirmText: "Sí, rechazar",
+    });
+    if (!ok) return;
     setProcesando(true);
     setErrorAccion("");
     try {
@@ -449,6 +466,7 @@ export default function PeticionesPagoPage() {
           </div>
         )}
       </Modal>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { api, apiDescargar } from "../../../lib/api";
 import { DashboardLayout } from "../../../components/DashboardLayout";
 import { Modal } from "../../../components/Modal";
+import { useConfirm } from "../../../components/ConfirmModal";
 import {
   PlusIcon,
   WalletIcon,
@@ -563,6 +564,7 @@ function BadgeEstado({ estado }: { estado: EstadoDepto }) {
 // ============================================================
 
 export default function PagosPage() {
+  const [confirmar, modalConfirmar] = useConfirm();
   const [rol] = useState(readRol);
   const esAdmin = rol.startsWith("ADMIN");
 
@@ -799,6 +801,15 @@ export default function PagosPage() {
 
     setRIntentado(true);
     if (!reglaBorrador) return;
+
+    const ok = await confirmar({
+      title: "Cambiar regla de mora",
+      message: "¿Guardar la nueva regla de mora?",
+      warning: "Se recalculará la mora de todas las deudas vencidas con la nueva regla.",
+      confirmText: "Sí, guardar",
+      tone: "primary",
+    });
+    if (!ok) return;
 
     setRGuardando(true);
     setRServidor("");
@@ -1053,6 +1064,15 @@ export default function PagosPage() {
     ) {
       return;
     }
+
+    const ok = await confirmar({
+      title: "Registrar pago anticipado",
+      message: <>¿Registrar un pago anticipado de <strong>{bs(antMontoNum)}</strong> para el departamento <strong>{deptoAnt.numero}</strong>?</>,
+      warning: "Verifica el monto y el método antes de confirmar: el saldo a favor se usará en las próximas expensas.",
+      confirmText: "Sí, registrar",
+      tone: "primary",
+    });
+    if (!ok) return;
 
     setGuardandoAnt(true);
     setErrorAnt("");
@@ -2221,6 +2241,7 @@ export default function PagosPage() {
           </div>
         </div>
       </Modal>
+      {modalConfirmar}
     </DashboardLayout>
   );
 }
