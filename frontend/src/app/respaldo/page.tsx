@@ -383,16 +383,20 @@ useEffect(() => {
     }
   }
 
-  void cargarConfiguracion();
-  void cargarHistorial();
-  void cargarAlmacenamiento();
-  void cargarProximaEjecucion();
+  const cargaInicial = window.setTimeout(() => {
+    void cargarConfiguracion();
+    void cargarHistorial();
+    void cargarAlmacenamiento();
+    void cargarProximaEjecucion();
+  }, 0);
 
   const intervalo = window.setInterval(() => {
     void cargarHistorial();
   }, 15000);
 
   return () => {
+    activo = false;
+    window.clearTimeout(cargaInicial);
     window.clearInterval(intervalo);
   };
 }, []);
