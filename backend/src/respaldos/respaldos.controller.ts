@@ -1,3 +1,5 @@
+import { AzureBlobService } from './services/azure-blob.service.js';
+import { BackupRetentionService } from './services/backup-retention.service.js';
 import { BackupSchedulerService } from './services/backup-scheduler.service.js';
 import {
   Body,
@@ -26,6 +28,8 @@ export class RespaldosController {
     private readonly respaldosService: RespaldosService,
     private readonly backupExecutorService: BackupExecutorService,
     private readonly backupSchedulerService: BackupSchedulerService,
+    private readonly backupRetentionService: BackupRetentionService,
+    private readonly azureBlobService: AzureBlobService,
   ) {}
 
   /**
@@ -34,6 +38,30 @@ export class RespaldosController {
   @Get('configuracion')
   async obtenerConfiguracion() {
     return this.respaldosService.obtenerConfiguracion();
+  }
+
+  /**
+ * Consulta la próxima ejecución de los respaldos automáticos.
+ */
+  @Get('proxima-ejecucion')
+  async obtenerProximaEjecucion() {
+    return {
+     proximaEjecucion:
+      await this.backupSchedulerService.obtenerProximaEjecucion(),
+    };
+  }
+
+  @Get('almacenamiento')
+  async obtenerEstadoAlmacenamiento() {
+    return this.azureBlobService.obtenerEstadoAlmacenamiento();
+  }
+
+  /**
+  * Consulta el historial persistente de respaldos.
+  */
+  @Get('historial')
+  async obtenerHistorial() {
+    return this.backupRetentionService.obtenerHistorial();
   }
 
   /**

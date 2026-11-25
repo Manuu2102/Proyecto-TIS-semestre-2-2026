@@ -100,6 +100,29 @@ export class BackupSchedulerService
   }
 
   /**
+ * Obtiene la fecha y hora de la próxima ejecución programada.
+ *
+ * Devuelve null si los respaldos automáticos están desactivados.
+ */
+async obtenerProximaEjecucion(): Promise<string | null> {
+  const configuracion = await this.respaldosService.obtenerConfiguracion();
+
+  if (!configuracion.automatico) {
+    return null;
+  }
+
+  if (!this.schedulerRegistry.doesExist('cron', this.nombreTarea)) {
+    throw new Error(
+      'Los respaldos automáticos están habilitados, pero la tarea no está registrada.',
+    );
+  }
+
+  const tarea = this.schedulerRegistry.getCronJob(this.nombreTarea);
+
+  return tarea.nextDate().toISO();
+}
+
+  /**
    * Ejecuta el respaldo automático evitando ejecuciones simultáneas.
    */
   private async ejecutarRespaldoAutomatico(): Promise<void> {
