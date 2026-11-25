@@ -88,6 +88,57 @@ export class AzureBlobService {
     return containerClient;
   }
 
+  
+  async obtenerEstadoAlmacenamiento() {
+    const accountName = this.configService
+      .get<string>('AZURE_STORAGE_ACCOUNT_NAME')
+      ?.trim() ?? null;
+
+    const containerName = this.configService
+      .get<string>('AZURE_STORAGE_CONTAINER_NAME')
+      ?.trim() ?? null;
+
+    const estadoBase = {
+      proveedor: 'Azure Blob Storage',
+      cuenta: accountName,
+      contenedor: containerName,
+      prefijoRespaldos: 'backups/',
+      prefijoMetadatos: 'metadata/',
+      configurado: Boolean(accountName && containerName),
+      conectado: false,
+      acceso: 'desconocido' as
+        | 'privado'
+        | 'publico'
+        | 'desconocido',
+      verificadoEn: new Date().toISOString(),
+    };
+ 
+    if (!estadoBase.configurado) {
+      return estadoBase;
+    }
+
+    try {
+      const containerClient = await this.getContainerClient();
+      const properties = await containerClient.getProperties();
+
+      return {
+        ...estadoBase,
+        conectado: true,
+        acceso: properties.blobPublicAccess
+          ? 'publico' as const
+          : 'privado' as const,
+        verificadoEn: new Date().toISOString(),
+      };
+    } catch {
+      this.logger.warn(
+        'No fue posible verificar la conexión con Azure Blob Storage.',
+      );
+ 
+      return estadoBase;
+    }
+  }
+
+
   private validateBlobName(blobName: string): string {
     const normalizedName = blobName.trim();
 

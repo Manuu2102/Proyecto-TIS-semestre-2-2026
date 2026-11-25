@@ -1,3 +1,4 @@
+import { BackupSchedulerService } from './services/backup-scheduler.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { BackupRetentionService } from './services/backup-retention.service.js';
 import { Module } from '@nestjs/common';
@@ -19,6 +20,7 @@ import { BackupValidator } from './utils/backup-validator.js';
     RespaldosService,
     BackupExecutorService,
     BackupRetentionService,
+    BackupSchedulerService,
     BackupValidator,
   ],
   exports: [

@@ -1,9 +1,13 @@
+import { AzureBlobService } from './services/azure-blob.service.js';
+import { BackupRetentionService } from './services/backup-retention.service.js';
+import { BackupSchedulerService } from './services/backup-scheduler.service.js';
 import {
   Body,
   Controller,
   Get,
   Patch,
   Post,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common';
 
@@ -23,6 +27,9 @@ export class RespaldosController {
   constructor(
     private readonly respaldosService: RespaldosService,
     private readonly backupExecutorService: BackupExecutorService,
+    private readonly backupSchedulerService: BackupSchedulerService,
+    private readonly backupRetentionService: BackupRetentionService,
+    private readonly azureBlobService: AzureBlobService,
   ) {}
 
   /**
@@ -34,20 +41,54 @@ export class RespaldosController {
   }
 
   /**
+ * Consulta la próxima ejecución de los respaldos automáticos.
+ */
+  @Get('proxima-ejecucion')
+  async obtenerProximaEjecucion() {
+    return {
+     proximaEjecucion:
+      await this.backupSchedulerService.obtenerProximaEjecucion(),
+    };
+  }
+
+  @Get('almacenamiento')
+  async obtenerEstadoAlmacenamiento() {
+    return this.azureBlobService.obtenerEstadoAlmacenamiento();
+  }
+
+  /**
+  * Consulta el historial persistente de respaldos.
+  */
+  @Get('historial')
+  async obtenerHistorial() {
+    return this.backupRetentionService.obtenerHistorial();
+  }
+
+  /**
    * Actualiza la configuración de los respaldos automáticos.
    *
    * El identificador del administrador se obtiene del JWT.
    */
-  @Patch('configuracion')
-  async actualizarConfiguracion(
-    @Body() dto: ActualizarConfiguracionDto,
-    @CurrentUser('id') idAdministrador: string,
-  ) {
-    return this.respaldosService.actualizarConfiguracion(
-      dto,
-      idAdministrador,
-    );
-  }
+    @Patch('configuracion')
+    async actualizarConfiguracion(
+      @Body() dto: ActualizarConfiguracionDto,
+      @CurrentUser('id') idAdministrador: string,
+    ) {
+      const configuracion =
+        await this.respaldosService.actualizarConfiguracion(
+          dto,
+          idAdministrador,
+       );
+
+      try {
+         await this.backupSchedulerService.sincronizar(configuracion);
+      } catch {
+        throw new ServiceUnavailableException(
+          'La configuración se guardó, pero no fue posible actualizar la programación de respaldos. Se requiere verificar el scheduler.',
+        );
+      }
+   return configuracion;
+}
 
   /**
    * Genera un respaldo manual de la base de datos.
